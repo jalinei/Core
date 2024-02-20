@@ -1,0 +1,31 @@
+{
+    "name": "OwnTech Core Power API",
+    "version": "0.0.1",
+    "description": "A comprehensive API for power electronics applications",
+    "keywords": "PWM, synchronization, electronics, Power, Control, OwnTech",
+    "repository":
+    {
+        "type": "git",
+        "url": "https://github.com/jalinei/Core.git"
+    },
+    "authors":
+    [
+        {
+            "name": "Jean Alinei",
+            "email": "jean.alinei@owntech.org",
+            "maintainer": true
+        },
+        {
+            "name": "Ayoub Farah Hassan",
+            "email": "afarahhass@laas.fr"
+        }
+    ],
+    "scripts": {
+        "postinstall": ["owntech/scripts/after_install.py"]
+    },
+    "license": "LGPL-2.1",
+    "homepage": "https://www.owntech.org/",
+    "frameworks": ["zephyr"],
+    "platforms": ["ststm32"]
+}
+
