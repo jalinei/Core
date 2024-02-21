@@ -21,7 +21,7 @@
         }
     ],
     "scripts": {
-        "postinstall": ["owntech/scripts/after_install.py"]
+        "postinstall": ["owntech/lib/bootloader_serial/owntech_core/owntech/scripts/after_install.py"]
     },
     "license": "LGPL-2.1",
     "homepage": "https://www.owntech.org/",
