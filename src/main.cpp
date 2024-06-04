@@ -76,6 +76,7 @@ static float32_t k_calage = 10.0;
 static float32_t meas_data;
 static float32_t I1_low_value;
 static float32_t I2_low_value;
+static float32_t I3_low_value;
 static float32_t I1_offset;
 static float32_t I2_offset;
 static float32_t tmpI1_offset;
@@ -148,7 +149,7 @@ static Pid pi_q = controlLibFactory.pid(Ts, Kp, Ti, Td, N, lower_bound, upper_bo
 // 1 wheel of 26 inches (1 inch = 2.54cm)
 
 const float32_t to_kmh = 0.02641;
-const static uint32_t decimation = 20;
+const static uint32_t decimation = 1;
 static uint32_t counter_time;
 
 static float32_t w_estimate;
@@ -184,11 +185,11 @@ void init_filt_and_reg(void) {
     error_counter = 0;
 }
 
-ScopeMimicry scope(512, 11);
+ScopeMimicry scope(512, 9);
 static bool is_downloading;
 
 bool mytrigger() {
-    return ((ab_pulsation > 2.0 || ab_pulsation < -2.0) && control_state == POWER_ST);
+    return control_state == STARTUP_ST;
 }
 
 void dump_scope_datas(ScopeMimicry &scope)  {
@@ -269,8 +270,8 @@ inline void retrieve_analog_datas() {
     meas_data = data.getLatest(I_HIGH);
     if (meas_data != NO_VALUE) I_high = -meas_data; // normal when we see the kicad
 
-    meas_data = data.getLatest(ANALOG_SIN);
-    // if (meas_data != NO_VALUE) Tq_meas = meas_data;
+    meas_data = data.getLatest(I3_LOW);
+    if (meas_data != NO_VALUE) I3_low_value = meas_data;
 
     meas_data = data.getLatest(ANALOG_COS);
     if (meas_data != NO_VALUE) Tq_meas = meas_data;
@@ -305,10 +306,12 @@ inline void get_pedal_speed() {
 }
 
 inline void overcurrent_mngt() {
-    if (I1_low_value > AC_CURRENT_LIMIT || I1_low_value < -AC_CURRENT_LIMIT || I2_low_value > AC_CURRENT_LIMIT || I2_low_value < -AC_CURRENT_LIMIT || I_high > DC_CURRENT_LIMIT) {
+    if (I1_low_value > AC_CURRENT_LIMIT || I1_low_value < -AC_CURRENT_LIMIT ||
+        I2_low_value > AC_CURRENT_LIMIT || I2_low_value < -AC_CURRENT_LIMIT ) 
+    {
         error_counter++;
     }
-    if (error_counter > 2) {
+    if (error_counter > 10) {
         control_state = ERROR_ST;
     }
 }
@@ -392,7 +395,7 @@ void config_adcs() {
     data.enableShieldChannel(1, V_HIGH);
 
     data.enableShieldChannel(2, I2_LOW);
-    data.enableShieldChannel(2, ANALOG_SIN);
+    data.enableShieldChannel(2, I3_LOW);
     data.enableShieldChannel(2, ANALOG_COS);
 }
 
@@ -402,6 +405,8 @@ void init_constant() {
     /* variable for measurements */
     I1_low_value = 0.0;
     I2_low_value = 0.0;
+    I3_low_value = 0.0;
+
     I_high = 0.0;
     V_high = 0.0;
     /* state view of the pwm */
@@ -438,6 +443,7 @@ void setup_routine()
     config_adcs();
     data.setParameters(I1_LOW, 0.005, -10);
     data.setParameters(I2_LOW, 0.005, -10.0);
+    data.setParameters(I3_LOW, 0.005, -10.0);
     data.setParameters(I_HIGH, 0.005, -10.0);
     data.setParameters(V_HIGH, 0.0666, 0.0);
 
@@ -450,14 +456,16 @@ void setup_routine()
     scope.connectChannel(V_high, "V_high");
     scope.connectChannel(V_high_filtered, "V_high_filt");
     scope.connectChannel(ab_value, "ab_value");
-    scope.connectChannel(ab_pulsation, "V_ab_pulse");
-    scope.connectChannel(ab_angle, "ab_angle");
+    scope.connectChannel(duty_b, "duty_B");
+    scope.connectChannel(duty_a, "duty_A");
     scope.connectChannel(Iq_ref, "I_qref");
     scope.connectChannel(Iq_meas, "I_qmeas");
-    scope.connectChannel(angle_filtered, "angle_filtered");
-    scope.connectChannel(hall_angle, "hall_angle");
-    scope.connectChannel(Vq, "V_q");
-    scope.connectChannel(Vd, "V_d");
+    scope.connectChannel(I1_low_value, "I1");
+    scope.connectChannel(I2_low_value, "I2");
+    // scope.connectChannel(angle_filtered, "angle_filtered");
+    // scope.connectChannel(hall_angle, "hall_angle");
+    // scope.connectChannel(Vq, "V_q");
+    // scope.connectChannel(Vd, "V_d");
     scope.set_trigger(&mytrigger);
     scope.set_delay(0.0);
     scope.start();
@@ -540,13 +548,14 @@ void application_task() {
     printk("%.2f:", I_high);
     printk("%.2f:", V_high_filtered);
     printk("%.2f:", ab_pulsation);
-    printk("%.2f:", w_estimate);
+    printk("%.2f:", I1_low_value);
     printk("%.2f:", Iq_ref);
-    printk("%d:", scope.has_trigged());
-    printk("%.0f:", k_calage);
+    printk("%.2f:", I3_low_value);
     printk("%.2f:", Iq_meas);
     printk("%.2f:", Iq_max);
-    printk("%d\n", control_state);
+    printk("%d:", control_state);
+    printk("%d:", scope.has_trigged());
+    printk("%.2f\n", I2_low_value);
 
     if (is_downloading) {
         dump_scope_datas(scope);
@@ -580,8 +589,10 @@ void application_task() {
 
         case ERROR_ST:
             if (asked_mode == IDLEMODE)
+            {
                 error_counter = 0;
-            control_state = IDLE_ST;
+                control_state = IDLE_ST;
+            }
             break;
     }
 
@@ -622,7 +633,7 @@ void loop_critical_task()
             break;
     }
 
-    if (counter_time%decimation == 0)
+    if (counter_time%decimation == 10)
     {
         Va = Vabc.a;
         duty_a = duty_abc.a;
