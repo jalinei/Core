@@ -25,6 +25,7 @@
  *
  * @author Clément Foucher <clement.foucher@laas.fr>
  * @author Luiz Villa <luiz.villa@laas.fr>
+ * @author Ayoub Farah Hassan <ayoub.farah-hassan@laas.fr>
  */
 
 //--------------OWNTECH APIs----------------------------------
@@ -32,17 +33,70 @@
 #include "TaskAPI.h"
 #include "TwistAPI.h"
 #include "SpinAPI.h"
+#include "pid.h"
+
+#include "zephyr/console/console.h"
 
 //--------------SETUP FUNCTIONS DECLARATION-------------------
 void setup_routine(); // Setups the hardware and software of the system
 
 //--------------LOOP FUNCTIONS DECLARATION--------------------
-void loop_background_task();   // Code to be executed in the background task
+void loop_communication_task(); // code to be executed in the slow communication task
+void loop_application_task();   // Code to be executed in the background task
 void loop_critical_task();     // Code to be executed in real time in the critical task
 
 //--------------USER VARIABLES DECLARATIONS-------------------
 
+static uint32_t control_task_period = 100; //[us] period of the control task
+static bool pwm_enable = false;            //[bool] state of the PWM (ctrl task)
 
+uint8_t received_serial_char;
+
+/* Measure variables */
+
+static float32_t V1_low_value;
+static float32_t V2_low_value;
+static float32_t I1_low_value;
+static float32_t I2_low_value;
+static float32_t I_high;
+static float32_t V_high;
+static float32_t dV = 0;
+static float32_t dP = 0;
+static float32_t Pold = 0;
+static float32_t Vold = 0;
+static float32_t dPdV = 0;
+static float32_t dPdV_min = -0.1;
+static float32_t dPdV_max = 0.1;
+static float32_t vref_min = 39;
+static float32_t vref_max = 42;
+
+static float meas_data; // temp storage meas value (ctrl task)
+
+float32_t duty_cycle = 0.3;
+
+static float32_t voltage_reference = 40; //voltage reference
+
+/* PID coefficient for a 8.6ms step response*/
+
+static float32_t kp = 0.000215;
+static float32_t Ti = 7.5175e-5;
+static float32_t Td = 0.0;
+static float32_t N = 0.0;
+static float32_t upper_bound = 1.0F;
+static float32_t lower_bound = 0.0F;
+static float32_t Ts = control_task_period * 1.e-6F;
+static PidParams pid_params(Ts, kp, Ti, Td, N, lower_bound, upper_bound);
+static Pid pid;
+
+//---------------------------------------------------------------
+
+enum serial_interface_menu_mode // LIST OF POSSIBLE MODES FOR THE OWNTECH CONVERTER
+{
+    IDLEMODE = 0,
+    POWERMODE
+};
+
+uint8_t mode = IDLEMODE;
 
 //--------------SETUP FUNCTIONS-------------------------------
 
@@ -55,31 +109,102 @@ void loop_critical_task();     // Code to be executed in real time in the critic
 void setup_routine()
 {
     // Setup the hardware first
-    spin.version.setBoardVersion(TWIST_v_1_1_2);
+    spin.version.setBoardVersion(SPIN_v_1_0);
+    twist.setVersion(shield_TWIST_V1_3);
+
+    /* boost voltage mode */
+    twist.initLegBoost(LEG1);
+
+    data.enableTwistDefaultChannels();
+
+    pid.init(pid_params);
 
     // Then declare tasks
-    uint32_t background_task_number = task.createBackground(loop_background_task);
-    //task.createCritical(loop_critical_task, 500); // Uncomment if you use the critical task
+    uint32_t app_task_number = task.createBackground(loop_application_task);
+    uint32_t com_task_number = task.createBackground(loop_communication_task);
+    task.createCritical(loop_critical_task, 100); // Uncomment if you use the critical task
 
     // Finally, start tasks
-    task.startBackground(background_task_number);
-    //task.startCritical(); // Uncomment if you use the critical task
+    task.startBackground(app_task_number);
+    task.startBackground(com_task_number);
+    task.startCritical(); // Uncomment if you use the critical task
 }
 
 //--------------LOOP FUNCTIONS--------------------------------
+
+void loop_communication_task()
+{
+    while (1)
+    {
+        received_serial_char = console_getchar();
+        switch (received_serial_char)
+        {
+        case 'h':
+            //----------SERIAL INTERFACE MENU-----------------------
+            printk(" ________________________________________\n");
+            printk("|     --- MENU boost voltage mode ---    |\n");
+            printk("|     press i : idle mode                |\n");
+            printk("|     press p : power mode               |\n");
+            printk("|     press u : voltage reference UP     |\n");
+            printk("|     press d : voltage reference DOWN   |\n");
+            printk("|________________________________________|\n\n");
+            //------------------------------------------------------
+            break;
+        case 'i':
+            printk("idle mode\n");
+            mode = IDLEMODE;
+            break;
+        case 'p':
+            printk("power mode\n");
+            mode = POWERMODE;
+            break;
+        case 'u':
+            voltage_reference += 0.5;
+            break;
+        case 'd':
+            voltage_reference -= 0.5;
+            break;
+        default:
+            break;
+        }
+    }
+}
 
 /**
  * This is the code loop of the background task
  * It is executed second as defined by it suspend task in its last line.
  * You can use it to execute slow code such as state-machines.
  */
-void loop_background_task()
+void loop_application_task()
 {
-    // Task content
-    printk("Hello World! \n");
-    spin.led.toggle();
+    if (mode == IDLEMODE)
+    {
+        spin.led.turnOff();
+        printk("%5.3f:", dPdV);
+        printk("%5.1f:", Pold);
+        printk("%5.1f:", dV);
+        printk("%5.1f:", dP);
+        printk("%5.1f:", voltage_reference);
+        printk("%5.1f:", I1_low_value);
+        printk("%5.1f:", V1_low_value);
+        printk("%5.1f:", I_high);
+        printk("%5.1f\n", V_high);
 
-    // Pause between two runs of the task
+    }
+    else if (mode == POWERMODE)
+    {
+        spin.led.turnOn();
+        printk("%5.3f:", dPdV);
+        printk("%5.1f:", Pold);
+        printk("%5.1f:", dV);
+        printk("%5.1f:", dP);
+        printk("%5.1f:", voltage_reference);
+        printk("%5.1f:", I1_low_value);
+        printk("%5.1f:", V1_low_value);
+        printk("%5.1f:", I_high);
+        printk("%5.1f\n", V_high);
+    }
+
     task.suspendBackgroundMs(1000);
 }
 
@@ -91,7 +216,79 @@ void loop_background_task()
  */
 void loop_critical_task()
 {
+    meas_data = data.getLatest(I1_LOW);
+    if (meas_data != NO_VALUE) I1_low_value = -meas_data;
 
+    meas_data = data.getLatest(V1_LOW);
+    if (meas_data != NO_VALUE) V1_low_value = meas_data;
+
+    meas_data = data.getLatest(V2_LOW);
+    if (meas_data != NO_VALUE) V2_low_value = meas_data;
+
+    meas_data = data.getLatest(I2_LOW);
+    if (meas_data != NO_VALUE) I2_low_value = meas_data;
+
+    meas_data = data.getLatest(I_HIGH);
+    if (meas_data != NO_VALUE) I_high = meas_data;
+
+    meas_data = data.getLatest(V_HIGH);
+    if (meas_data != NO_VALUE) V_high = meas_data;
+
+    if (I1_low_value > 0 && V_high > 0 && V1_low_value > 0) {
+        dP = (I1_low_value*V1_low_value)-Pold;
+        Pold = I1_low_value*V1_low_value;
+        dV = V1_low_value - Vold;
+        Vold = V1_low_value;
+        if (dV == 0)
+        {
+            dPdV = 0;
+        }
+        else 
+        {
+            dPdV = 0.01 * (dP/dV);
+        }
+
+        if (dPdV < dPdV_min)
+        {
+            dPdV = dPdV_min;
+        }
+        if (dPdV > dPdV_max)
+        {
+            dPdV = dPdV_max;
+        }
+        
+        voltage_reference = V_high + dPdV;
+
+        if (voltage_reference < vref_min) 
+        {
+            voltage_reference = vref_min;
+        }
+        if (voltage_reference > vref_max) 
+        {
+            voltage_reference = vref_max;
+        }
+    }
+
+    if (mode == IDLEMODE)
+    {
+        if (pwm_enable == true)
+        {
+            twist.stopAll();
+        }
+        pwm_enable = false;
+    }
+    else if (mode == POWERMODE)
+    {
+        duty_cycle = pid.calculateWithReturn(voltage_reference, V_high);
+        twist.setAllDutyCycle(duty_cycle);
+
+        /* Set POWER ON */
+        if (!pwm_enable)
+        {
+            pwm_enable = true;
+            twist.startLeg(LEG1);
+        }
+    }
 }
 
 /**
