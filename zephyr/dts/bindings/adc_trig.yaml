@@ -1,0 +1,52 @@
+description : This node is used to set adc triggers and sync it with power legs.
+
+compatible : "adc-trig"
+
+properties :
+
+    current-pin-num :
+      type : int
+      required : true
+      description : Current mode is used to control the output current. We use a comparator 
+                    and DAC generation for slope compensation. The availability of the current
+                    mode depends on the pin connected to the current measure. 
+                    Below you can see every possible pin. Choose 0 if no pin is required. 
+
+      # +----------+-----------------+
+      # | GPIO PIN | SPIN PIN NUMBER |
+      # +----------+-----------------+
+      # | PA1      | 25              |
+      # | PC1      | 30              |
+      # +----------+-----------------+
+      
+    default-adc-trigger :
+      type : string
+      required : true
+      description : Which adc trigger is used for data acquisition (only two leg can support it), 
+                    if this leg isn't suposed to trigger the adc choose ADCTRIG_NONE.
+      enum :
+      - "ADCTRIG_NONE"
+      - "ADCTRIG_1"
+      - "ADCTRIG_2"
+      - "ADCTRIG_3"
+      - "ADCTRIG_4"
+
+    default-edge-trigger :
+      type : string
+      required : true
+      description : Only relevant in Center aligned. Choose when ADC is triggered, 
+                    either when the counter is counting up, counting down or both. 
+                    Keep EdgeTrigger_up as a default
+      enum :
+      - "EdgeTrigger_up"
+      - "EdgeTrigger_down"
+      - "EdgeTrigger_Both"
+
+    default-adc-decim :
+      type : int
+      required : true
+      description : The timer unit will trigger the ADC at the switching frequency, 
+                    but you can divide this frequency with the number set by adc-decim 
+                    (between 1 and 32). adc-decim = 2 means that the frequency of
+                    the trigger is divided by 2. Keep adc-decim = 1 as default.
+    

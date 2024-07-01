@@ -20,12 +20,27 @@
             capa-pin-num = <7>;
             driver-pin-num = <19>;
             current-pin-num = <30>;
-            default-adc-trigger = "ADCTRIG_1";
-            default-adc-decim = <1>;
-            default-edge-trigger = "EdgeTrigger_up";
             default-dead-time = <100 100>;
             default-modulation = "UpDwn";
             default-phase-shift = <0>;
+			default-adc-trigger = "ADCTRIG_1";
+			default-adc-decim = <1>;
+			default-edge-trigger = "EdgeTrigger_up";
+			driver-pin-leg1 {
+				gpios = <&spin_header 19>;
+				status = "okay";
+			};
+			capa-pin-leg1 {
+				gpios = <&spin_header 7>;
+				status = "okay";
+			};
+			adc-trig-leg1 {
+				compatible = "adc-trig";
+				default-adc-trigger = "ADCTRIG_1";
+				default-adc-decim = <1>;
+				default-edge-trigger = "EdgeTrigger_up";
+				status = "okay";
+			};
 			status = "okay";
         };
 
