@@ -8,7 +8,7 @@
 	choosen{
 		zephyr,can-primary = &fdcan2;
 	};
-	
+
 	powershield: power-shield{
         compatible = "power-leg";
         default-frequency = <200000>;
@@ -321,8 +321,12 @@
 &hrtim1 {
 	scin: scin {
 		pinctrl-0 = <&hrtim1_scin_pb2>;
+		pinctrl-names = "default";
+		status = "okay";
 	};
 	scout: scout {
 		pinctrl-0 = <&hrtim1_scout_pb1>;
+		pinctrl-names = "default";
+		status = "okay";
 	};
 };

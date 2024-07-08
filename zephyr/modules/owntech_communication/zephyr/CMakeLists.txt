@@ -4,7 +4,7 @@ if(CONFIG_OWNTECH_COMMUNICATION)
 
   # Define the current folder as a Zephyr library
   zephyr_library()
-  
+
   zephyr_library_sources(
     public_api/CommunicationAPI.cpp
   )
@@ -34,6 +34,7 @@ if(CONFIG_OWNTECH_COMMUNICATION)
   if (CONFIG_OWNTECH_COMMUNICATION_ENABLE_SYNC)
     zephyr_library_sources(
       src/SyncCommunication.cpp
+      src/sync_pinctrl.c
     )
   endif()
 

@@ -46,9 +46,9 @@ properties:
 
 child-binding:
 
-  description : pwm child bindings are used to connect the spin board to a shield 
+  description : pwm child bindings are used to connect the spin board to a shield
 
-  properties : 
+  properties :
 
     "#pwm-cells":
       const: 2
@@ -67,6 +67,24 @@ child-binding:
         GPIO pin configuration for HRTIM outputs.
         The phandles have to reference pinctrl nodes, e.g.
         pinctrl-0 = <&hrtim1_cha1_pa8 &hrtim1_cha2_pa9>;
+
+    pinctrl-names:
+      type: string-array
+      required: false
+      description: |
+        Names for the provided states. The number of names needs to match the
+        number of states.
+
+    status:
+      type: string
+      description: indicates the operational status of a device
+      enum:
+        - "ok" # Deprecated form
+        - "okay"
+        - "disabled"
+        - "reserved"
+        - "fail"
+        - "fail-sss"
 
   pwm-cells:
     - channel
