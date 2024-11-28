@@ -16,6 +16,20 @@ MACRO(SUBDIRLIST result curdir)
   SET(${result} ${dirlist})
 ENDMACRO()
 
+# Macro to list all subdirectories containing a Zephyr module in a specified directory
+MACRO(THIRDPARTYSUBDIRLIST result curdir)
+  FILE(GLOB children RELATIVE ${curdir} ${curdir}/*)
+  SET(dirlist "")
+  FOREACH(child ${children})
+    IF(EXISTS ${curdir}/${child}/CMakeLists.txt)
+      LIST(APPEND dirlist ${curdir}/${child})
+    ENDIF()
+  ENDFOREACH()
+  # Make sure modules are always in the same order for incremental compilation
+  LIST(SORT dirlist)
+  SET(${result} ${dirlist})
+ENDMACRO()
+
 # This macro check for app.extension in curdir folder, where curdir and extension
 # are given as inputs. If found it returns the absolute path of app.extension.
 MACRO(FILELIST result curdir extension)
@@ -67,23 +81,23 @@ set(EXTRA_DTC_OVERLAY_FILE ${EXTRA_OVERLAY_APP_FILE})
 
 # Check for third party modules
 if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party_modules)
-  SUBDIRLIST(THIRDPARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party_modules)
+  THIRDPARTYSUBDIRLIST(THIRDPARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party_modules)
   list(APPEND ZEPHYR_EXTRA_MODULES ${THIRDPARTY})
 endif()
 
 # Add OwnTech Board repository
-# Board repository contains all boards and shields dts overlays and 
+# Board repository contains all boards and shields dts overlays and
 # config files required for the build
 list(APPEND BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Set Board - It will be changed automatically by pre_version.py
 # Use platformio.ini and define board and board_version
 # board_version is concatenated to board with an extra "@"
-# "@" is the default versionning notation for zephyr build system. 
+# "@" is the default versionning notation for zephyr build system.
 
 # Set Shield - It will be changed automatically by pre_version.py
 # Use platformio.ini and define board_shield and board_shield_version
-# board_shield_version is concatenated to board_shield. 
+# board_shield_version is concatenated to board_shield.
 
 set(BOARD spin@1_2_0)
 set(SHIELD twist_v1_4_1)

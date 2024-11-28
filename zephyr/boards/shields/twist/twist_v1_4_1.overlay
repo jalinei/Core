@@ -7,6 +7,7 @@
 / {
 	choosen{
 		zephyr,can-primary = &fdcan2;
+		thingset,can = &fdcan2;
 	};
 
 	powershield: power-shield{
@@ -308,6 +309,12 @@
 	bus-speed-data = <2000000>;
 	sample-point-data = <875>;
 	status = "okay";
+	transceiver0: can-phy0 {
+		compatible = "ti,tcan334", "can-transceiver-gpio";
+		max-bitrate = <1000000>;
+		standby-gpios = <&gpiob 10 GPIO_ACTIVE_HIGH>;
+		#phy-cells = <0>;
+	};
 };
 
 &pwma {
