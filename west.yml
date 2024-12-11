@@ -19,6 +19,8 @@ manifest:
       url-base: https://github.com/zephyrproject-rtos
     - name: owntech
       url-base: https://github.com/owntech-foundation
+    - name: thingset
+      url-base: https://github.com/thingset
 
   group-filter: [-optional]
 
@@ -68,6 +70,19 @@ manifest:
     - name: zcbor
       revision: 16648fb060d857f164635ca4e8eaa716d906d244
       path: modules/lib/zcbor
+    - name: thingset-zephyr-sdk
+      remote: thingset
+      revision: 425cfce65fc85916c25829e6ce8308d018b7f5fd
+      path: thingset-zephyr-sdk
+      import:
+        name-allowlist:
+          - thingset-node-c
+          - zcbor
+    - name: thingset-node-c
+      remote: thingset
+      revision: d4a4540b6e914811a7a45c468a91b8627054829e
+      path: modules/thingset-node-c
+      import: true
 
   self:
     path: zephyr
