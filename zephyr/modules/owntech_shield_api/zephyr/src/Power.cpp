@@ -600,6 +600,25 @@ void PowerAPI::setFrequency(uint32_t frequency){
 }
 
 
+uint32_t PowerAPI::getFrequencyMax()
+{
+    /* For now all LEGs have the same frequency */
+	return spin.pwm.getFrequencyMax(PWMA); 
+}
+
+uint32_t PowerAPI::getFrequencyMin()
+{
+    /* For now all LEGs have the same frequency */
+	return spin.pwm.getFrequencyMin(PWMA);
+}
+
+uint32_t PowerAPI::getResolutionPs()
+{
+    /* For now all LEGs have the same resolution */
+	return spin.pwm.getResolutionPs(PWMA);
+}
+
+
 void PowerAPI::setAdcDecim(leg_t leg, uint16_t adc_decim)
 {
     int8_t startIndex = 0;

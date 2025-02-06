@@ -214,6 +214,20 @@ public:
 	 */
 	void setFrequency(uint32_t frequency);
 
+	/**
+	 * @brief returns the maximum pwm frequency of the power shield as an integer
+	 */
+	uint32_t getFrequencyMax();
+
+	/**
+	 * @brief returns the minimum pwm frequency of the the power shield as an integer
+	 */
+	uint32_t getFrequencyMin();
+
+	/**
+	 * @brief returns the resolution of the pwm signal of the power shield as an integer
+	 */
+	uint32_t getResolutionPs();
 
 	/**
 	 * @brief set ADC decimator for a leg
