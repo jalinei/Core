@@ -176,27 +176,44 @@ public:
 	/**
 	 * @brief set the dead time value for a leg
 	 *
-	 * @param leg           - the leg for which to set dead time value
-	 * @param ns_rising_dt  - rising dead time value in ns
-	 * @param ns_falling_dt - falling dead time value in ns
+	 * @param leg          the leg for which to set dead time value
+	 * @param ns_rising_dt rising dead time value in ns
+	 * @param ns_falling_dtfalling dead time value in ns
 	 */
 	void setDeadTime(leg_t leg,
 					 uint16_t ns_rising_dt,
 					 uint16_t ns_falling_dt);
 
 	/**
-	 * @brief sets the Minimum Duty Cycle Limit
+	 * @brief sets the Minimum Duty Cycle Limit.
+	 * @warning it is highly recommended to not set the minimum below 0.1
+	 * 
 	 *
-	 * @param duty_cycle    - new minimum duty cycle value between 0.0 and 1.0
+	 * @param duty_cycle    new minimum duty cycle value between 0.0 and 1.0
 	*/
 	void setDutyCycleMin(float32_t duty_cycle);
 
 	/**
 	 * @brief sets the Maximum Duty Cycle Limit
+	 * @warning it is highly recommended to not set the maximum beyond 0.9
 	 *
-	 * @param duty_cycle    - new maximum duty cycle value between 0.0 and 1.0
+	 * @param duty_cycle    new maximum duty cycle value between 0.0 and 1.0
 	*/
 	void setDutyCycleMax(float32_t duty_cycle);
+
+	/**
+	 * @brief set the frequency of the power shield
+	 *
+	 * Sets the frequency of the power shield during operation after initialization.
+	 * 
+	 * @warning frequency can only be set between the default and the minimum value 
+	 * listed in the device tree (default-frequency and min-frequency). 
+	 *
+	 * @param frequency The new frequency value to in Hz
+	 *
+	 */
+	void setFrequency(uint32_t frequency);
+
 
 	/**
 	 * @brief set ADC decimator for a leg
@@ -206,8 +223,8 @@ public:
 	 * For example if adc_decim = 1, nothing changes but with adc_decims = 2
 	 * you have twice less adc trigger.
 	 *
-	 * @param leg       - leg for which to set adc decimator value
-	 * @param adc_decim - adc decimator, a number between 1 and 32
+	 * @param leg       leg for which to set adc decimator value
+	 * @param adc_decim adc decimator, a number between 1 and 32
 	 *
 	 */
 	void setAdcDecim(leg_t leg, uint16_t adc_decim);

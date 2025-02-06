@@ -586,6 +586,20 @@ void PowerAPI::setDutyCycleMax(float32_t duty_cycle){
     }
 }
 
+void PowerAPI::setFrequency(uint32_t frequency){
+    uint32_t freq_min = spin.pwm.getFrequencyMin(PWMA);
+    uint32_t freq_max = spin.pwm.getFrequencyMax(PWMA);
+
+    if (frequency>freq_min && frequency<freq_max){
+        spin.pwm.setFrequency(frequency);
+    }else{
+        printk("Frequency not allowed.\n");
+        printk("Max frequency = %d", freq_max);
+        printk("Min frequency = %d", freq_min);
+    }
+}
+
+
 void PowerAPI::setAdcDecim(leg_t leg, uint16_t adc_decim)
 {
     int8_t startIndex = 0;
