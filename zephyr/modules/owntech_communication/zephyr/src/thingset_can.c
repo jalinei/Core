@@ -75,7 +75,7 @@ void can_control_rx_handler(uint16_t data_id,
         /* Low byte of data ID */
         can_work_data.buf[3] = data_id;
 
-        memcpy(can_work_data.buf[4], value, value_len);
+        memcpy(&can_work_data.buf[4], value, value_len);
 
         can_work_data.buf_len = 4 + value_len;
 
