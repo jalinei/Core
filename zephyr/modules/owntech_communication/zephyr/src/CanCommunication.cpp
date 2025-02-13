@@ -50,7 +50,7 @@ extern uint32_t live_reporting_period;
 
 #ifdef CONFIG_THINGSET_CAN_CONTROL_REPORTING
 
-extern bool      start_stop;
+extern bool  start_stop;
 extern float32_t reference_value;
 
 bool CanCommunication::getCtrlEnable()

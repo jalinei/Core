@@ -52,7 +52,7 @@ char firmware_version[] = "1.0.0";
 
 /* Store value of reference (master-slave mode) */
 float32_t reference_value = 0;
-bool      start_stop = false;
+bool start_stop = false;
 
 /*
  * Subset definitions for statements and publish/subscribe

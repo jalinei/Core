@@ -34,7 +34,7 @@ mcumgr_path = os.path.join(third_party_dir, mcumgr_executable)
 
 def find_spin_port(env):
 	# List all connected Spin boards
-	available_ports = list(serial.tools.list_ports.grep("2FE3"))
+	available_ports = list(serial.tools.list_ports.grep("2fe3")) + list(serial.tools.list_ports.grep("0100"))
 	if len(available_ports) == 0:
 		return None
 
@@ -89,7 +89,7 @@ def find_spin_port(env):
 
 def get_port_from_id(id_to_find):
 	# List all connected Spin boards
-	available_ports = list(serial.tools.list_ports.grep("2FE3"))
+	available_ports = list(serial.tools.list_ports.grep("2FE3")) + list(serial.tools.list_ports.grep("0100"))
 	if len(available_ports) == 0:
 		return None
 
