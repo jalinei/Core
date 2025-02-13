@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-present LAAS-CNRS
+ * Copyright (c) 2021-present OwnTech Technologies
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU Lesser General Public License as published by
@@ -18,19 +18,20 @@
  */
 
 /**
- * @brief  This file it the main entry point of the
- *         OwnTech Power API. Please check the OwnTech
- *         documentation for detailed information on
- *         how to use Power API: https://docs.owntech.org/
+ * @brief  This example deploy a simple CAN based communication using
+ *         Thingset library.
  *
- * @author Clément Foucher <clement.foucher@laas.fr>
- * @author Luiz Villa <luiz.villa@laas.fr>
+ * @author Jean Alinei <jean.alinei@owntech.io>
  */
 
 /*--------------OWNTECH APIs---------------------------------- */
 #include "TaskAPI.h"
 #include "ShieldAPI.h"
 #include "SpinAPI.h"
+#include "user_data_objects.h"
+#include <thingset/can.h>
+#include "CommunicationAPI.h"
+
 
 /*--------------SETUP FUNCTIONS DECLARATION------------------- */
 /* Setups the hardware and software of the system */
@@ -44,9 +45,8 @@ void loop_background_task();
 void loop_critical_task();
 
 /*--------------USER VARIABLES DECLARATIONS------------------- */
-
-
-
+float32_t control_reference;
+float32_t broadcasted_value;
 /*--------------SETUP FUNCTIONS------------------------------- */
 
 /**
@@ -64,19 +64,22 @@ void setup_routine()
 {
     /* STEP 1 - SETUP THE HARDWARE */
 
+        /* Buck voltage mode */
+    shield.power.initBuck(ALL);
+    shield.sensors.enableDefaultTwistSensors();
     /* STEP 2 - SETUP THE TASKS */
-
+    /* Control frames are not sent by default.*/
     uint32_t background_task_number =
                             task.createBackground(loop_background_task);
 
     /* Uncomment the following line if you use the critical task */
-    /* task.createCritical(loop_critical_task, 500); */
+    task.createCritical(loop_critical_task, 100);
 
     /* STEP 3 - LAUNCH THE TASKS */
     task.startBackground(background_task_number);
 
     /* Uncomment the following line if you use the critical task */
-    /* task.startCritical(); */
+    task.startCritical();
 }
 
 /*--------------LOOP FUNCTIONS-------------------------------- */
@@ -88,22 +91,63 @@ void setup_routine()
  */
 void loop_background_task()
 {
-    printk("Hello World! \n");
     spin.led.toggle();
+
+    shield.sensors.triggerTwistTempMeas(TEMP_SENSOR_1);
+
+    meas_data = shield.sensors.getLatestValue(TEMP_SENSOR_1);
+    if (meas_data != NO_VALUE) temp_1_value = meas_data;
+
+    shield.sensors.triggerTwistTempMeas(TEMP_SENSOR_2);
+
+    meas_data = shield.sensors.getLatestValue(TEMP_SENSOR_2);
+    if (meas_data != NO_VALUE) temp_2_value = meas_data;
+
+    printk("%8.3f:", (double)I1_low_value);
+    printk("%8.3f:", (double)V1_low_value);
+    printk("%8.3f:", (double)I2_low_value);
+    printk("%8.3f:", (double)V2_low_value);
+    printk("%8.3f:", (double)I_high_value);
+    printk("%8.3f:", (double)V_high_value);
+    printk("%8.3f:", (double)temp_1_value);
+    printk("%8.3f:", (double)broadcasted_value);
+    printk("\n");
 
     /* This pauses the task for 1000 milli seconds */
     task.suspendBackgroundMs(1000);
+    control_reference += 0.001;
+    communication.can.setCtrlEnable(false);
+    communication.can.setBroadcastEnable(false);
+    broadcasted_value = communication.can.getCtrlReference();
+
 }
 
 /**
  * This is the code loop of the critical task
- * It is executed every 500 micro-seconds defined in the setup_routine function.
+ * It is executed every 100 micro-seconds defined in the setup_routine function.
  * You can use it to execute an ultra-fast code with the highest priority which
  * cannot be interrupted.
  */
 void loop_critical_task()
 {
-    /* This task is left empty in this default main */
+    meas_data = shield.sensors.getLatestValue(I1_LOW);
+    if (meas_data != NO_VALUE) I1_low_value = meas_data;
+
+    meas_data = shield.sensors.getLatestValue(V1_LOW);
+    if (meas_data != NO_VALUE) V1_low_value = meas_data;
+
+    meas_data = shield.sensors.getLatestValue(V2_LOW);
+    if (meas_data != NO_VALUE) V2_low_value = meas_data;
+
+    meas_data = shield.sensors.getLatestValue(I2_LOW);
+    if (meas_data != NO_VALUE) I2_low_value = meas_data;
+
+    meas_data = shield.sensors.getLatestValue(I_HIGH);
+    if (meas_data != NO_VALUE) I_high_value = meas_data;
+
+    meas_data = shield.sensors.getLatestValue(V_HIGH);
+    if (meas_data != NO_VALUE) V_high_value = meas_data;
+
 }
 
 /**
