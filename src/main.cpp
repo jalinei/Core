@@ -33,6 +33,7 @@
 #include "SpinAPI.h"
 #include "ShieldAPI.h"
 #include "TaskAPI.h"
+#include "user_data_obects.h"
 
 /*--------------OWNTECH Libraries----------------------------- */
 #include "pid.h"
@@ -60,18 +61,18 @@ uint8_t received_serial_char;
 
 /* Measure variables */
 
-static float32_t V1_low_value;
-static float32_t V2_low_value;
-static float32_t I1_low_value;
-static float32_t I2_low_value;
-static float32_t I_high;
-static float32_t V_high;
+// static float32_t V1_low_value;
+// static float32_t V2_low_value;
+// static float32_t I1_low_value;
+// static float32_t I2_low_value;
+// static float32_t I_high;
+// static float32_t V_high;
 
-static float32_t temp_1_value;
-static float32_t temp_2_value;
+// static float32_t temp_1_value;
+// static float32_t temp_2_value;
 
 /* Temporary storage fore measured value (ctrl task) */
-static float meas_data;
+// static float meas_data;
 
 float32_t duty_cycle = 0.3;
 
@@ -99,6 +100,16 @@ enum serial_interface_menu_mode
 };
 
 uint8_t mode = IDLEMODE;
+
+void powering_power()
+{
+    mode = POWERMODE;
+}
+
+void idling_power()
+{
+    mode = IDLEMODE;
+}
 
 /*--------------SETUP FUNCTIONS------------------------------- */
 
@@ -201,8 +212,8 @@ void loop_application_task()
         printk("%.3f:", (double)I2_low_value);
         printk("%.3f:", (double)V2_low_value);
         printk("%.3f:", (double)voltage_reference);
-        printk("%.3f:", (double)I_high);
-        printk("%.3f:", (double)V_high);
+        printk("%.3f:", (double)I_high_value);
+        printk("%.3f:", (double)V_high_value);
         printk("%.3f:", (double)temp_1_value);
         printk("%.3f:", (double)temp_2_value);
         printk("\n");
@@ -232,10 +243,10 @@ void loop_critical_task()
     if (meas_data != NO_VALUE) I2_low_value = meas_data;
 
     meas_data = shield.sensors.getLatestValue(I_HIGH);
-    if (meas_data != NO_VALUE) I_high = meas_data;
+    if (meas_data != NO_VALUE) I_high_value = meas_data;
 
     meas_data = shield.sensors.getLatestValue(V_HIGH);
-    if (meas_data != NO_VALUE) V_high = meas_data;
+    if (meas_data != NO_VALUE) V_high_value = meas_data;
 
 
     if (mode == IDLEMODE)
