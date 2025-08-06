@@ -195,7 +195,7 @@ void reception_function(void)
 	data_current_received = *(current_frame_t *) buffer_rx;
 	if (data_current_received.status == ERROR_ST)
 	{
-		control_state = IDLE_ST;
+		asked_mode = IDLEMODE;
 	}
 }
 
