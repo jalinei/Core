@@ -40,12 +40,14 @@
  * Subset definitions for statements and publish/subscribe
  */
 
-/* UART serial */
-#define SUBSET_SER  (1U << 0)
-/* CAN bus */
-#define SUBSET_CAN  (1U << 1)
-/* Control data sent and received via CAN */
+/**
+ * Control data sent and received via CAN 
+ * As to match CONFIG_THINGSET_CAN_CONTROL_SUBSET=0x8
+*/
 #define SUBSET_CTRL (1U << 3)
+
+/* No particular subset */
+#define NO_SUBSET 0
 
 /* Measure variables */
 static float32_t V1_low_value;
@@ -90,7 +92,7 @@ THINGSET_ADD_FN_VOID(ID_CONF, ID_CONF_SETV, "xSetV", &set_voltage,
                      THINGSET_ANY_RW);
 
 THINGSET_ADD_ITEM_FLOAT(ID_CONF_SETV, 0x44, "wVref_V", &voltage_setpoint, 2,
-                     THINGSET_ANY_RW, SUBSET_SER);
+                     THINGSET_ANY_RW, NO_SUBSET);
 
 /* Measurements object definitions */
 
@@ -100,25 +102,25 @@ THINGSET_ADD_ITEM_FLOAT(ID_MEAS, ID_MEAS_V1_LOW, "rV1Low_V", &V1_low_value, 2,
                         THINGSET_ANY_R, TS_SUBSET_LIVE);
 
 THINGSET_ADD_ITEM_FLOAT(ID_MEAS, ID_MEAS_V2_LOW, "rV2Low_V", &V2_low_value, 2,
-                        THINGSET_ANY_R, SUBSET_SER);
+                        THINGSET_ANY_R, NO_SUBSET);
 
 THINGSET_ADD_ITEM_FLOAT(ID_MEAS, ID_MEAS_V_HIGH, "rVHigh_V", &V_high_value, 2,
-                        THINGSET_ANY_R, SUBSET_SER);
+                        THINGSET_ANY_R, NO_SUBSET);
 
 THINGSET_ADD_ITEM_FLOAT(ID_MEAS, ID_MEAS_I1_LOW, "rI1Low_A", &I1_low_value, 2,
-                        THINGSET_ANY_R, SUBSET_SER);
+                        THINGSET_ANY_R, NO_SUBSET);
 
 THINGSET_ADD_ITEM_FLOAT(ID_MEAS, ID_MEAS_I2_LOW, "rI2Low_A", &I2_low_value, 2,
-                        THINGSET_ANY_R, SUBSET_SER);
+                        THINGSET_ANY_R, NO_SUBSET);
 
 THINGSET_ADD_ITEM_FLOAT(ID_MEAS, ID_MEAS_I_HIGH, "rIHigh_A", &I_high_value, 2,
-                        THINGSET_ANY_R, SUBSET_SER);
+                        THINGSET_ANY_R, NO_SUBSET);
 
 THINGSET_ADD_ITEM_FLOAT(ID_MEAS, ID_MEAS_TEMP1, "rTemp_degC", &temp_1_value, 2,
-                        THINGSET_ANY_R, SUBSET_SER);
+                        THINGSET_ANY_R, NO_SUBSET);
 
 THINGSET_ADD_ITEM_FLOAT(ID_MEAS, ID_MEAS_TEMP2, "rTemp2_degC", &temp_2_value, 2,
-                        THINGSET_ANY_R, SUBSET_SER);
+                        THINGSET_ANY_R, NO_SUBSET);
 
 /* TEST object definitions */
 

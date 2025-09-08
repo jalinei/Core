@@ -15,12 +15,12 @@ if(CONFIG_OWNTECH_COMMUNICATION)
     )
   endif()
 
-  if (CONFIG_OWNTECH_COMMUNICATION_ENABLE_CAN)
-    zephyr_library_sources(
-      src/CanCommunication.cpp
-      src/thingset_can.c
-    )
-  endif()
+  # if (CONFIG_OWNTECH_COMMUNICATION_ENABLE_CAN)
+  #   zephyr_library_sources(
+  #     src/CanCommunication.cpp
+  #     src/thingset_can.c
+  #   )
+  # endif()
 
   if (CONFIG_OWNTECH_COMMUNICATION_ENABLE_RS485)
     zephyr_library_sources(
