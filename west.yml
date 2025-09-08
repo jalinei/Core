@@ -21,6 +21,8 @@ manifest:
       url-base: https://github.com/owntech-foundation
     - name: thingset
       url-base: https://github.com/thingset
+    - name: jalinei
+      url-base: https://github.com/jalinei
 
   group-filter: [-optional]
 
@@ -71,16 +73,16 @@ manifest:
       revision: 47f34dd7f5284e8750b5a715dee7f77c6c5bdc3f
       path: modules/lib/zcbor
     - name: thingset-zephyr-sdk
-      remote: thingset
-      revision: e57447bbeb7c165e14a273242e8495343c1c6f54
+      remote: jalinei
+      revision: 623f35516ca9fc493f77648ac3475fb2b89911f2
       path: thingset-zephyr-sdk
       import:
         name-allowlist:
           - thingset-node-c
           - zcbor
     - name: thingset-node-c
-      remote: thingset
-      revision: 68c7544830df2ba23f67e31bad91e124377827a3
+      remote: jalinei
+      revision: c7f893dce922f1069216552b16390f6719a059a4
       path: modules/thingset-node-c
       import: true
 
