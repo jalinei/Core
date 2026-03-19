@@ -18,277 +18,115 @@
  */
 
 /**
- * @brief  This example demonstrates how to deploy a Buck converter with
- *         voltage mode control on the Twist power shield.
+ * @brief  This example demonstrates how to do an hardware triggered acquisition
+ *         using SpinAPI.
  *
  * @author Clément Foucher <clement.foucher@laas.fr>
  * @author Luiz Villa <luiz.villa@laas.fr>
  * @author Ayoub Farah Hassan <ayoub.farah-hassan@laas.fr>
  */
 
-/*--------------Zephyr---------------------------------------- */
-#include <zephyr/console/console.h>
-
-/*--------------OWNTECH APIs---------------------------------- */
+/* --------------OWNTECH APIs---------------------------------- */
 #include "SpinAPI.h"
-#include "ShieldAPI.h"
 #include "TaskAPI.h"
-#include "user_data_objects.h"
+#include "spin_data_objects.h"
 
-/*--------------OWNTECH Libraries----------------------------- */
-#include "pid.h"
-
-#if defined(USE_NEW_MAIN) || defined(USE_DC_MAIN)
-// When using alternative mains, skip the legacy implementation in this file.
-#else
-
-/*--------------SETUP FUNCTIONS DECLARATION------------------- */
+/* --------------SETUP FUNCTIONS DECLARATION------------------- */
 /* Setups the hardware and software of the system */
 void setup_routine();
 
-/*--------------LOOP FUNCTIONS DECLARATION-------------------- */
-/* Code to be executed in the slow communication task */
-void loop_communication_task();
+/* --------------LOOP FUNCTIONS DECLARATION-------------------- */
+
 /* Code to be executed in the background task */
-void loop_application_task();
+void loop_background_task();
 /* Code to be executed in real time in the critical task */
 void loop_critical_task();
 
-/*--------------USER VARIABLES DECLARATIONS------------------- */
+/* --------------USER VARIABLES DECLARATIONS------------------- */
+static float32_t adc_value;
+uint8_t err;
 
-/* [us] period of the control task */
-static uint32_t control_task_period = 100;
-/* [bool] state of the PWM (ctrl task) */
-static bool pwm_enable = false;
 
-uint8_t received_serial_char;
-
-/* Measure variables */
-
-// static float32_t V1_low_value;
-// static float32_t V2_low_value;
-// static float32_t I1_low_value;
-// static float32_t I2_low_value;
-// static float32_t I_high;
-// static float32_t V_high;
-
-// static float32_t temp_1_value;
-// static float32_t temp_2_value;
-
-/* Temporary storage fore measured value (ctrl task) */
-// static float meas_data;
-
-// float32_t duty_cycle = 0.3;
-
-/* Voltage reference */
-// static float32_t voltage_reference = 15;
-
-/* PID coefficients for a 8.6ms step response*/
-static float32_t kp = 0.000215;
-static float32_t Ti = 7.5175e-5;
-static float32_t Td = 0.0;
-static float32_t N = 0.0;
-static float32_t upper_bound = 1.0F;
-static float32_t lower_bound = 0.0F;
-static float32_t Ts = control_task_period * 1e-6;
-static PidParams pid_params(Ts, kp, Ti, Td, N, lower_bound, upper_bound);
-static Pid pid;
-
-/*--------------------------------------------------------------- */
-
-/* LIST OF POSSIBLE MODES FOR THE OWNTECH CONVERTER */
-// Mode state
-#ifndef USE_NEW_MAIN
-uint8_t mode = MODE_IDL;
-
-// Define the available modes (extern declared in headers)
-const ModeDef modes[] = {
-    { "IDL", MODE_IDL },
-    { "PWR", MODE_PWR },
-};
-#endif // USE_NEW_MAIN
+/* --------------SETUP FUNCTIONS------------------------------- */
 
 /**
  * This is the setup routine.
- * Here the setup :
- *  - Initializes the power shield in Buck mode
- *  - Initializes the power shield sensors
- *  - Initializes the PID controller
- *  - Spawns three tasks.
+ * It initializes the Spin PWM and Data Acquisition, and create tasks.
  */
 void setup_routine()
 {
-    /* Buck voltage mode */
-    shield.power.initBuck(ALL);
+    /* Sets the PWM frequency to 200kHz */
+    spin.pwm.initFixedFrequency(200000);
+    spin.pwm.setModulation(PWMA, UpDwn);
+    spin.pwm.setAdcEdgeTrigger(PWMA, EdgeTrigger_up);
 
-    shield.sensors.enableDefaultTwistSensors();
+    /* Timer initialization */
+    spin.pwm.initUnit(PWMA);
 
-    // Load stored calibration (gain/offset) from NVM into runtime map
-    for (int i = 0; i < NUM_OF_MEAS; i++) {
-        float32_t g = shield.sensors.retrieveStoredParameterValue(system_sensors[i].channel_reference, gain);
-        float32_t o = shield.sensors.retrieveStoredParameterValue(system_sensors[i].channel_reference, offset);
-        system_sensors[i].gain = g;
-        system_sensors[i].offset = o;
-    }
+    /* Setting ADC trigger */
+    spin.pwm.setAdcTrigger(PWMA, ADC_2);
+    spin.pwm.setAdcTriggerInstant(PWMA, 0.06);
+    spin.pwm.enableAdcTrigger(PWMA);
 
-    pid.init(pid_params);
+    /* Starts PWM */
+    spin.pwm.startDualOutput(PWMA);
+
+    /* ADC 2 configured to be triggered by the PWM */
+    spin.data.configureTriggerSource(ADC_2, TRIG_PWM);
+    /* Acquisition on pin 35 */
+    spin.data.enableAcquisition(35, ADC_2);
 
     /* Then declare tasks */
-    uint32_t app_task_number = task.createBackground(loop_application_task);
-    uint32_t com_task_number = task.createBackground(loop_communication_task);
+    uint32_t background_task_number =
+                            task.createBackground(loop_background_task);
+
     task.createCritical(loop_critical_task, 100);
 
     /* Finally, start tasks */
-    task.startBackground(app_task_number);
-    task.startBackground(com_task_number);
+    task.startBackground(background_task_number);
     task.startCritical();
 }
 
-/*--------------LOOP FUNCTIONS-------------------------------- */
-
-/**
- * This tasks implements a minimalistic USB serial interface to control
- * the buck converter.
- */
-void loop_communication_task()
-{
-    received_serial_char = console_getchar();
-    switch (received_serial_char)
-    {
-    case 'h':
-        /*----------SERIAL INTERFACE MENU----------------------- */
-        printk(" ________________________________________ \n"
-               "|     ---- MENU buck voltage mode ----   |\n"
-               "|     press i : idle mode                |\n"
-               "|     press p : power mode               |\n"
-               "|     press u : voltage reference UP     |\n"
-               "|     press d : voltage reference DOWN   |\n"
-               "|________________________________________|\n\n");
-        /*------------------------------------------------------ */
-        break;
-    case 'i':
-        printk("idle mode\n");
-        mode = MODE_IDL;
-        break;
-    case 'p':
-        printk("power mode\n");
-        mode = MODE_PWR;
-        break;
-    case 'u':
-        voltage_reference += 0.5;
-        break;
-    case 'd':
-        voltage_reference -= 0.5;
-        break;
-    default:
-        break;
-    }
-}
+/* --------------LOOP FUNCTIONS-------------------------------- */
 
 /**
  * This is the code loop of the background task
- * This task mostly logs back measurements to the USB serial interface.
+ * It sends measurement through USB Serial.
  */
-void loop_application_task()
+void loop_background_task()
 {
-    static int print_counter = 0;
-    if (mode == MODE_IDL)
+    /* Task content */
+    if (err == DATA_IS_OK)
     {
-        spin.led.turnOff();
+        printk("%f\n", (double)adc_value);
     }
-    else if (mode == MODE_PWR)
+    else
     {
-        spin.led.turnOn();
-
-        shield.sensors.triggerTwistTempMeas(TEMP_SENSOR_1);
-        shield.sensors.triggerTwistTempMeas(TEMP_SENSOR_2);
-
-        meas_data = shield.sensors.getLatestValue(TEMP_SENSOR_1);
-        if (meas_data != NO_VALUE) temp_1_value = meas_data;
-
-        meas_data = shield.sensors.getLatestValue(TEMP_SENSOR_2);
-        if (meas_data != NO_VALUE) temp_2_value = meas_data;
-
-
-        printk("%.3f:", (double)I1_low_value);
-        printk("%.3f:", (double)V1_low_value);
-        printk("%.3f:", (double)voltage_reference);
-        printk("%.3f:", (double)I2_low_value);
-        printk("%.3f:", (double)V2_low_value);
-        printk("%.3f:", (double)voltage_reference);
-        printk("%.3f:", (double)I_high_value);
-        printk("%.3f:", (double)V_high_value);
-        printk("%.3f:", (double)temp_1_value);
-        // printk("%.3f:", (double)power_legs[received_leg_number].wLegON);
-        printk("\n");
-
-
+        printk("No new value\n");
     }
-    task.suspendBackgroundMs(100);
+
+    /* Pause between two runs of the task */
+    task.suspendBackgroundMs(1000);
 }
 
 /**
  * This is the code loop of the critical task
- * This task runs at 10kHz.
- *  - It retrieves sensors values
- *  - It runs the PID controller
- *  - It update the PWM signals
+ * It is executed every 100 micro-seconds defined in the
+ * setup_routine function.
  */
 void loop_critical_task()
 {
-    meas_data = shield.sensors.getLatestValue(I1_LOW);
-    if (meas_data != NO_VALUE) I1_low_value = meas_data;
-
-    meas_data = shield.sensors.getLatestValue(V1_LOW);
-    if (meas_data != NO_VALUE) V1_low_value = meas_data;
-
-    meas_data = shield.sensors.getLatestValue(V2_LOW);
-    if (meas_data != NO_VALUE) V2_low_value = meas_data;
-
-    meas_data = shield.sensors.getLatestValue(I2_LOW);
-    if (meas_data != NO_VALUE) I2_low_value = meas_data;
-
-    meas_data = shield.sensors.getLatestValue(I_HIGH);
-    if (meas_data != NO_VALUE) I_high_value = meas_data;
-
-    meas_data = shield.sensors.getLatestValue(V_HIGH);
-    if (meas_data != NO_VALUE) V_high_value = meas_data;
-
-
-    if (mode == MODE_IDL)
-    {
-        if (pwm_enable == true)
-        {
-            shield.power.stop(ALL);
-        }
-        pwm_enable = false;
-    }
-    else if (mode == MODE_PWR)
-    {
-        duty_cycle = pid.calculateWithReturn(voltage_reference, V1_low_value);
-        shield.power.setDutyCycle(ALL,duty_cycle);
-
-        /* Set POWER ON */
-        if (!pwm_enable)
-        {
-            pwm_enable = true;
-            shield.power.start(ALL);
-        }
-    }
-
+    /* Get latest value acquired on pin 35 */
+    adc_value = spin.data.getLatestValue(35, &err);
 }
 
 /**
  * This is the main function of this example
  * This function is generic and does not need editing.
  */
-#ifndef USE_NEW_MAIN
 int main(void)
 {
     setup_routine();
 
     return 0;
 }
-
-#endif // USE_NEW_MAIN
-#endif
