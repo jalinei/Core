@@ -29,6 +29,9 @@
 /*--------------Zephyr---------------------------------------- */
 #include <zephyr/console/console.h>
 
+/*--------------CMSIS----------------------------------------- */
+#include <arm_math.h>
+
 /*--------------OWNTECH APIs---------------------------------- */
 #include "SpinAPI.h"
 #include "ShieldAPI.h"
@@ -36,6 +39,8 @@
 
 /*--------------OWNTECH Libraries----------------------------- */
 #include "pid.h"
+#include "filters.h"
+#include "ScopeMimicry.h"
 
 /*--------------SETUP FUNCTIONS DECLARATION------------------- */
 /* Setups the hardware and software of the system */
@@ -62,6 +67,7 @@ uint8_t received_serial_char;
 
 static float32_t v_low_value;
 static float32_t v_ac_value;
+static float32_t v_ac_rms_value;
 static float32_t v_dc_bus_value;
 static float32_t i_low_1_value;
 static float32_t i_low_2_value;
@@ -90,6 +96,26 @@ static float32_t Ts = control_task_period * 1e-6;
 static PidParams pid_params(Ts, kp, Ti, Td, N, lower_bound, upper_bound);
 static Pid pid;
 
+/* Grid PLL */
+static constexpr float32_t grid_voltage_rms = 230.0F;
+static constexpr float32_t grid_frequency_hz = 50.0F;
+static constexpr float32_t grid_voltage_amplitude =
+    grid_voltage_rms * 1.41421356237F;
+static constexpr float32_t grid_pll_rise_time = 50e-3F;
+/* One nominal 50 Hz period at the 10 kHz critical task rate. */
+static constexpr uint32_t v_ac_rms_window_sample_count = 200U;
+static PllSinus grid_pll;
+static PllDatas grid_pll_datas;
+static float32_t grid_angle;
+static float32_t v_ac_rms_square_sum;
+static uint32_t v_ac_rms_sample_count;
+
+/* ScopeMimicry */
+static constexpr uint16_t scope_buffer_sample_count = 1024U;
+static constexpr uint16_t scope_channel_count = 2U;
+static ScopeMimicry scope(scope_buffer_sample_count, scope_channel_count);
+static bool is_scope_downloading;
+
 /*--------------------------------------------------------------- */
 
 /* LIST OF POSSIBLE MODES FOR THE OWNTECH CONVERTER */
@@ -101,6 +127,23 @@ enum serial_interface_menu_mode
 
 uint8_t mode = IDLEMODE;
 
+bool scope_trigger()
+{
+    return true;
+}
+
+void dump_scope_datas(ScopeMimicry &scope)
+{
+    printk("begin record\n");
+    scope.reset_dump();
+    while (scope.get_dump_state() != finished)
+    {
+        printk("%s", scope.dump_datas());
+        task.suspendBackgroundUs(200);
+    }
+    printk("end record\n");
+}
+
 /*--------------SETUP FUNCTIONS------------------------------- */
 
 /**
@@ -108,13 +151,13 @@ uint8_t mode = IDLEMODE;
  * Here the setup :
  *  - Initializes the power shield in Buck mode
  *  - Initializes the power shield sensors
- *  - Initializes the PID controller
+ *  - Initializes the PID controller, grid PLL, and scope
  *  - Spawns three tasks.
  */
 void setup_routine()
 {
     /* Buck voltage mode */
-    // shield.power.initBoost(LEG1_LOW);
+    shield.power.initBoost(LEG1_LOW);
     shield.power.initBoost(LEG2_LOW);
     shield.power.setDeadTime(LEG2_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
     shield.power.setDutyCycleMin(ALL, 0.0);
@@ -127,6 +170,13 @@ void setup_routine()
 
     spin.gpio.configurePin(22, OUTPUT);
     pid.init(pid_params);
+    grid_pll.init(Ts, grid_voltage_amplitude, grid_frequency_hz, grid_pll_rise_time);
+    grid_pll.reset(grid_frequency_hz);
+    scope.connectChannel(v_ac_value, "VAC");
+    scope.connectChannel(grid_angle, "grid_angle");
+    scope.set_trigger(&scope_trigger);
+    scope.set_delay(0.0F);
+    scope.start();
 
     /* Then declare tasks */
     uint32_t app_task_number = task.createBackground(loop_application_task);
@@ -160,6 +210,8 @@ void loop_communication_task()
                "|     press d : voltage reference DOWN   |\n"
                "|     press w : deadtime UP              |\n"
                "|     press s : deadtime DOWN            |\n"
+               "|     press r : retrieve scope data      |\n"
+               "|     press q : restart scope acquisition|\n"
                "|________________________________________|\n\n");
         /*------------------------------------------------------ */
         break;
@@ -172,10 +224,10 @@ void loop_communication_task()
         mode = POWERMODE;
         break;
     case 'u':
-        duty_cycle += 0.01;
+        duty_cycle += 0.001;
         break;
     case 'd':
-        duty_cycle -= 0.01;
+        duty_cycle -= 0.001;
         break;
     case 'w':
         leg2_low_deadtime_ns += deadtime_step_ns;
@@ -195,7 +247,11 @@ void loop_communication_task()
         printk("LEG2_LOW deadtime: %u ns\n", leg2_low_deadtime_ns);
         break;
     case 'r':
-        spin.gpio.setPin(22);
+        is_scope_downloading = true;
+        break;
+    case 'q':
+        scope.start();
+        printk("scope acquisition restarted\n");
         break;
     case 't':
         spin.gpio.resetPin(22);
@@ -211,6 +267,14 @@ void loop_communication_task()
  */
 void loop_application_task()
 {
+    if (is_scope_downloading)
+    {
+        dump_scope_datas(scope);
+        is_scope_downloading = false;
+        task.suspendBackgroundMs(100);
+        return;
+    }
+
     if (mode == IDLEMODE)
     {
         spin.led.turnOff();
@@ -219,6 +283,8 @@ void loop_application_task()
         printk("%7.3f:", (double)v_low_value);
         printk("%7.3f:", (double)duty_cycle);
         printk("%7.3f:", (double)v_ac_value);
+        printk("%7.3f:", (double)v_ac_rms_value);
+        printk("%7.3f:", (double)grid_angle);
         printk("%7.3f:", (double)i_ac_value);
         printk("%7.3f:", (double)v_dc_bus_value);
         printk("\n");
@@ -232,6 +298,8 @@ void loop_application_task()
         printk("%7.3f:", (double)v_low_value);
         printk("%7.3f:", (double)duty_cycle);
         printk("%7.3f:", (double)v_ac_value);
+        printk("%7.3f:", (double)v_ac_rms_value);
+        printk("%7.3f:", (double)grid_angle);
         printk("%7.3f:", (double)i_ac_value);
         printk("%7.3f:", (double)v_dc_bus_value);
         printk("\n");
@@ -243,7 +311,7 @@ void loop_application_task()
  * This is the code loop of the critical task
  * This task runs at 10kHz.
  *  - It retrieves sensors values
- *  - It runs the PID controller
+ *  - It runs the grid PLL
  *  - It update the PWM signals
  */
 void loop_critical_task()
@@ -255,7 +323,26 @@ void loop_critical_task()
     if (meas_data != NO_VALUE) v_low_value = meas_data;
 
     meas_data = shield.sensors.getLatestValue(VAC);
-    if (meas_data != NO_VALUE) v_ac_value = meas_data;
+    if (meas_data != NO_VALUE)
+    {
+        v_ac_value = meas_data;
+        grid_pll_datas = grid_pll.calculateWithReturn(v_ac_value);
+        grid_angle = grid_pll_datas.angle;
+        if (!is_scope_downloading)
+        {
+            scope.acquire();
+        }
+
+        v_ac_rms_square_sum += v_ac_value * v_ac_value;
+        v_ac_rms_sample_count++;
+        if (v_ac_rms_sample_count >= v_ac_rms_window_sample_count)
+        {
+            arm_sqrt_f32(v_ac_rms_square_sum / v_ac_rms_window_sample_count,
+                         &v_ac_rms_value);
+            v_ac_rms_square_sum = 0.0F;
+            v_ac_rms_sample_count = 0U;
+        }
+    }
 
     meas_data = shield.sensors.getLatestValue(ILow2);
     if (meas_data != NO_VALUE) i_low_2_value = meas_data;
@@ -277,6 +364,7 @@ void loop_critical_task()
     }
     else if (mode == POWERMODE)
     {
+        shield.power.setDutyCycle(LEG1_LOW,duty_cycle);
         shield.power.setDutyCycle(LEG2_LOW,duty_cycle);
 
         /* Set POWER ON */
