@@ -93,7 +93,7 @@
 			compatible = "shield-sensors";
 			sensor-name = "VAC";
 			default-gain = <0x3e4792e2>;
-			default-offset = <0xc3c792e2>;
+			default-offset = <0xc3dc8734>;
 			sensor-conv-type = "LINEAR";
 			v-ac-adc1 {
 				io-channels = <&adc1 6>;
