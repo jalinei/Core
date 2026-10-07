@@ -30,6 +30,16 @@
 
 /* Current file header */
 #include "stm32_timer_driver.h"
+#include <errno.h>
+
+static bool timer2_master_mode = false;
+static bool timer2_master_started = false;
+static uint32_t timer2_master_open_ticks;
+
+bool timer2_master_sync_enabled(void)
+{
+	return timer2_master_mode;
+}
 
 
 static int timer_stm32_init(const struct device* dev)
@@ -77,6 +87,15 @@ static void timer_stm32_callback(const void* arg)
 
 	if (data->timer_struct == TIM2)
 	{
+		if (timer2_master_mode && LL_TIM_IsEnabledIT_CC2(TIM2) &&
+			LL_TIM_IsActiveFlag_CC2(TIM2))
+		{
+			LL_TIM_ClearFlag_CC2(TIM2);
+			LL_TIM_DisableIT_CC2(TIM2);
+			/* Only accept the next PWM reset, at the control boundary. */
+			LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_COMBINED_RESETTRIGGER);
+			LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_ALTERNATE);
+		}
 		if ( !LL_TIM_IsEnabledIT_CC1(TIM2) || !LL_TIM_IsActiveFlag_CC1(TIM2) )
 			return;
 
@@ -115,11 +134,20 @@ void timer_stm32_config(const struct device* dev,
 	{
 		if (tim_dev == TIM2)
 		{
-			timer_stm32_stop(dev);
+			if (!timer2_master_mode)
+				timer_stm32_stop(dev);
+			else
+			{
+				LL_TIM_DisableIT_CC1(TIM2);
+				LL_TIM_DisableDMAReq_CC1(TIM2);
+			}
 			data->timer_mode = unconfigured;
 			/* Leave room for ARR beyond the CH1 compare value. */
 			if (config->timer_compare_t_usec == 0 ||
 				config->timer_compare_t_usec > (UINT32_MAX - 1U) / 10U)
+				return;
+			if (timer2_master_mode &&
+				config->timer_compare_t_usec * 10U >= timer2_master_open_ticks)
 				return;
 
 			data->timer_compare_dma = config->timer_enable_compare_dma;
@@ -303,6 +331,17 @@ void timer_stm32_start(const struct device* dev)
 	{
 		if (data->timer_mode == synchronized_compare)
 		{
+			if (timer2_master_mode)
+			{
+				/* Rearm TX without disturbing the master control-period clock. */
+				LL_TIM_OC_SetCompareCH1(TIM2, data->timer_compare_usec * 10U);
+				LL_TIM_ClearFlag_CC1(TIM2);
+				if (data->timer_compare_dma)
+					LL_TIM_EnableDMAReq_CC1(TIM2);
+				else
+					LL_TIM_EnableIT_CC1(TIM2);
+				return;
+			}
 			LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
 			LL_TIM_DisableCounter(TIM2);
 			LL_TIM_DisableIT_CC1(TIM2);
@@ -352,6 +391,7 @@ void timer_stm32_stop(const struct device* dev)
 
 	if (tim_dev == TIM2)
 	{
+		timer2_master_sync_stop();
 		/* Disable the trigger as well, so incoming sync cannot restart it. */
 		LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
 		LL_TIM_DisableCounter(TIM2);
@@ -394,6 +434,87 @@ uint32_t timer_stm32_get_count(const struct device* dev)
 				((struct stm32_timer_driver_data*)dev->data)->timer_struct;
 
 	return LL_TIM_GetCounter(tim_dev);
+}
+
+int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks)
+{
+#if DT_NODE_HAS_STATUS(TIMER2_NODE, okay)
+	const struct device* dev = DEVICE_DT_GET(TIMER2_DEVICE);
+	/* Fixed 1 us lead. It must fit entirely between two PWM events. */
+	if (!device_is_ready(dev))
+		return -ENODEV;
+	if (control_ticks <= 10U || pwm_ticks <= 10U || control_ticks == UINT32_MAX)
+		return -EINVAL;
+
+	bool dma_armed = LL_TIM_IsEnabledDMAReq_CC1(TIM2);
+	bool irq_armed = LL_TIM_IsEnabledIT_CC1(TIM2);
+	struct stm32_timer_driver_data* data = dev->data;
+	if (data->timer_mode == synchronized_compare &&
+		data->timer_compare_usec * 10U >= control_ticks - 10U)
+		return -EINVAL;
+	timer2_master_sync_stop();
+	timer2_master_open_ticks = control_ticks - 10U;
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+	LL_TIM_DisableCounter(TIM2);
+	LL_TIM_DisableIT_CC1(TIM2);
+	LL_TIM_DisableDMAReq_CC1(TIM2);
+	LL_TIM_SetOnePulseMode(TIM2, LL_TIM_ONEPULSEMODE_SINGLE);
+	LL_TIM_SetAutoReload(TIM2, control_ticks);
+	LL_TIM_OC_SetMode(TIM2, LL_TIM_CHANNEL_CH2, LL_TIM_OCMODE_FROZEN);
+	LL_TIM_OC_SetCompareCH2(TIM2, timer2_master_open_ticks);
+	LL_TIM_GenerateEvent_UPDATE(TIM2);
+	LL_TIM_ClearFlag_UPDATE(TIM2);
+	LL_TIM_ClearFlag_CC1(TIM2);
+	LL_TIM_ClearFlag_CC2(TIM2);
+	NVIC_ClearPendingIRQ((IRQn_Type)TIMER2_INTERRUPT_LINE);
+	irq_connect_dynamic(TIMER2_INTERRUPT_LINE, TIMER2_INTERRUPT_PRIO,
+						timer_stm32_callback, dev, 0);
+	irq_enable(TIMER2_INTERRUPT_LINE);
+	timer2_master_mode = true;
+	/* Preserve a TX prepared before startCritical() reconfigures the clock. */
+	if (dma_armed)
+		LL_TIM_EnableDMAReq_CC1(TIM2);
+	if (irq_armed)
+		LL_TIM_EnableIT_CC1(TIM2);
+	return 0;
+#else
+	return -ENODEV;
+#endif
+}
+
+void timer2_master_sync_event(void)
+{
+	if (!timer2_master_mode)
+		return;
+
+	LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_OUTPUT);
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+	LL_TIM_ClearFlag_CC2(TIM2);
+	LL_TIM_EnableIT_CC2(TIM2);
+	if (!timer2_master_started)
+	{
+		/* Software bootstrap only once. Later boundaries reset via ITR10. */
+		LL_TIM_GenerateEvent_UPDATE(TIM2);
+		LL_TIM_ClearFlag_UPDATE(TIM2);
+		LL_TIM_ClearFlag_CC1(TIM2);
+		LL_TIM_EnableCounter(TIM2);
+		timer2_master_started = true;
+	}
+}
+
+void timer2_master_sync_stop(void)
+{
+	if (!timer2_master_mode)
+		return;
+
+	LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_OUTPUT);
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+	LL_TIM_DisableIT_CC2(TIM2);
+	LL_TIM_ClearFlag_CC2(TIM2);
+	LL_TIM_DisableDMAReq_CC1(TIM2);
+	LL_TIM_DisableCounter(TIM2);
+	timer2_master_mode = false;
+	timer2_master_started = false;
 }
 
 /* Per-timer inits */

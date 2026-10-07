@@ -103,13 +103,15 @@ class Rs485Communication
          */
         void startTransmission();
 
-        /** @brief Configure the slave TX delay after SCIN (1..429496729 us).
-         * Call configure() and communication.sync.initSlave() first.
+        /** @brief Configure TX delay after a sync/control boundary.
+         * Call configure() and initSlave() or initMaster() first.
+         * For master mode, create the HRTIM critical task before this call.
+         * Its delay must be less than the control period minus 1 us.
          * Uses TIM2 CH1 and DMA2 channel 1. Returns 0 or a negative errno.
          */
         int configureSynchronizedTransmission(uint32_t delay_us);
 
-        /** @brief Arm one message for the next SCIN pulse.
+        /** @brief Arm one message for the next TIM2 CH1 compare.
          * Returns -EBUSY while a trigger/TX is pending. The configured buffer
          * must remain unchanged until TX completes. Rearm for each message.
          * The TIM2 event starts DMA without a CPU interrupt; TX completion
@@ -117,7 +119,9 @@ class Rs485Communication
          */
         int prepareSynchronizedTransmission();
 
-        /** @brief Cancel a pending trigger without aborting an active TX. */
+        /** @brief Cancel a pending TX trigger without aborting an active TX.
+         * In master mode, SCOUT timing continues independently of TX arming.
+         */
         void stopSynchronizedTransmission();
 
         /**

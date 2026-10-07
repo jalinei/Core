@@ -120,7 +120,9 @@ void serial_tx_on();
 
 /** @brief Configure TIM2 CH1 to start a prepared TX after HRTIM ITR10.
  * Reserves TIM2 and DMA2 channel 1. Call after RS485 configuration.
- * Returns 0 on success or a negative errno. Master timing is not supported.
+ * In master mode, first configure the HRTIM critical task so its control
+ * period is known. Delay must precede the SCOUT opening compare.
+ * Returns 0 on success or a negative errno.
  */
 int serial_sync_tx_config(uint32_t delay_us);
 

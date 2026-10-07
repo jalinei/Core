@@ -47,6 +47,10 @@ public:
 	/**
 	 * @brief Initialization synchronization as `MASTER`,
 	 * 		  the master send the synchronization pulse.
+	 * Initialize PWM Timer A first: it must reset on the master period event.
+	 * Then create/start an HRTIM critical task. TIM2 CH2 opens SCOUT and ITR10
+	 * 1 us before each boundary; the repetition ISR closes them. The first ISR
+	 * bootstraps TIM2 in software. The control task must finish before CH2.
 	 */
 	static void initMaster();
 
