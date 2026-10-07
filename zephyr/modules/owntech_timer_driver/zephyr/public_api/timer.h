@@ -63,6 +63,15 @@ extern "C" {
 #define TIMER6_DEVICE DT_NODELABEL(timers6)
 #define TIMER7_DEVICE DT_NODELABEL(timers7)
 
+/* HRTIM master synchronization hooks. Timing values are TIM2 ticks (0.1 us).
+ * Configure before starting the critical task. The first repetition callback
+ * bootstraps TIM2; later callbacks only close the SCOUT and ITR10 gates.
+ */
+int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks);
+void timer2_master_sync_event(void);
+void timer2_master_sync_stop(void);
+bool timer2_master_sync_enabled(void);
+
 /**
  *  Configuration structure
  */
