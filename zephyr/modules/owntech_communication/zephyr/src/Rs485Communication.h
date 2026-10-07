@@ -103,6 +103,23 @@ class Rs485Communication
          */
         void startTransmission();
 
+        /** @brief Configure the slave TX delay after SCIN (1..429496729 us).
+         * Call configure() and communication.sync.initSlave() first.
+         * Uses TIM2 CH1 and DMA2 channel 1. Returns 0 or a negative errno.
+         */
+        int configureSynchronizedTransmission(uint32_t delay_us);
+
+        /** @brief Arm one message for the next SCIN pulse.
+         * Returns -EBUSY while a trigger/TX is pending. The configured buffer
+         * must remain unchanged until TX completes. Rearm for each message.
+         * The TIM2 event starts DMA without a CPU interrupt; TX completion
+         * still uses the existing DMA completion interrupt.
+         */
+        int prepareSynchronizedTransmission();
+
+        /** @brief Cancel a pending trigger without aborting an active TX. */
+        void stopSynchronizedTransmission();
+
         /**
          * @brief Turn on the RS485 communication
          *

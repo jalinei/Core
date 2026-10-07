@@ -67,11 +67,20 @@ void SyncCommunication::initSlave()
 	/* Enable the master timer reset
 	 * when receiving a synchronization input event */
 	LL_HRTIM_TIM_EnableResetOnSync(HRTIM1, LL_HRTIM_TIMER_MASTER);
+	LL_HRTIM_TIM_EnableStartOnSync(HRTIM1, LL_HRTIM_TIMER_MASTER);
+	/* Relay each SCIN reset/start to the on-chip timers through ITR10. */
+	LL_HRTIM_ConfigSyncOut(HRTIM1,
+						   LL_HRTIM_SYNCOUT_POSITIVE_PULSE,
+						   LL_HRTIM_SYNCOUT_SRC_MASTER_START);
 
 	/* HRTIM_SCIN pin configuration */
 	LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOB);
 
-#ifdef CONFIG_SHIELD_TWIST_V1_4_1
+#if defined(CONFIG_SHIELD_TWIST_V1_4_0) || \
+	defined(CONFIG_SHIELD_TWIST_V1_4_1) || \
+	defined(CONFIG_SHIELD_TWIST_V1_4_2) || \
+	defined(CONFIG_SHIELD_OWNVERTER_V1_0_0) || \
+	defined(CONFIG_SHIELD_OWNVERTER_V1_1_0)
 	LL_GPIO_SetPinMode      (GPIOB, LL_GPIO_PIN_2, LL_GPIO_MODE_ALTERNATE);
 	LL_GPIO_SetPinSpeed     (GPIOB,
 							 LL_GPIO_PIN_2,

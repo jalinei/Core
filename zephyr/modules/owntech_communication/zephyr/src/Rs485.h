@@ -118,6 +118,21 @@ void dma_channel_init_rx();
  */
 void serial_tx_on();
 
+/** @brief Configure TIM2 CH1 to start a prepared TX after HRTIM ITR10.
+ * Reserves TIM2 and DMA2 channel 1. Call after RS485 configuration.
+ * Returns 0 on success or a negative errno. Master timing is not supported.
+ */
+int serial_sync_tx_config(uint32_t delay_us);
+
+/** @brief Prepare one TX for the next sync, without sending immediately.
+ * Returns -EBUSY if a TX or prepared trigger is pending. Keep the TX buffer
+ * unchanged until transmission completes. Call again to arm another message.
+ */
+int serial_sync_tx_prepare();
+
+/** @brief Cancel a pending synchronized TX; an active TX is not aborted. */
+void serial_sync_tx_stop();
+
 /**
  * @brief Disable USART
  */

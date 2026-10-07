@@ -37,7 +37,9 @@ static int timer_stm32_init(const struct device* dev)
 	TIM_TypeDef* tim_dev =
 				((struct stm32_timer_driver_data*)dev->data)->timer_struct;
 
-	if (tim_dev == TIM4)
+	if (tim_dev == TIM2)
+		init_timer_2();
+	else if (tim_dev == TIM4)
 		init_timer_4();
 	else if (tim_dev == TIM3)
 		init_timer_3();
@@ -73,7 +75,17 @@ static void timer_stm32_callback(const void* arg)
 	struct stm32_timer_driver_data* data =
 							(struct stm32_timer_driver_data*)timer_dev->data;
 
-	timer_stm32_clear(timer_dev);
+	if (data->timer_struct == TIM2)
+	{
+		if ( !LL_TIM_IsEnabledIT_CC1(TIM2) || !LL_TIM_IsActiveFlag_CC1(TIM2) )
+			return;
+
+		LL_TIM_ClearFlag_CC1(TIM2);
+	}
+	else
+	{
+		timer_stm32_clear(timer_dev);
+	}
 
 	if (data->timer_irq_callback != NULL)
 	{
@@ -99,13 +111,33 @@ void timer_stm32_config(const struct device* dev,
 
 	TIM_TypeDef* tim_dev = data->timer_struct;
 
-	if ( (tim_dev == TIM6) || (tim_dev == TIM7) )
+	if ( (tim_dev == TIM2) || (tim_dev == TIM6) || (tim_dev == TIM7) )
 	{
+		if (tim_dev == TIM2)
+		{
+			timer_stm32_stop(dev);
+			data->timer_mode = unconfigured;
+			/* Leave room for ARR beyond the CH1 compare value. */
+			if (config->timer_compare_t_usec == 0 ||
+				config->timer_compare_t_usec > (UINT32_MAX - 1U) / 10U)
+				return;
+
+			data->timer_compare_dma = config->timer_enable_compare_dma;
+			if (data->timer_compare_dma)
+			{
+				data->timer_mode = synchronized_compare;
+				data->timer_compare_usec = config->timer_compare_t_usec;
+			}
+		}
+
 		if (config->timer_enable_irq == 1)
 		{
-			data->timer_mode = periodic_interrupt;
+			data->timer_mode = (tim_dev == TIM2) ?
+							   synchronized_compare : periodic_interrupt;
 			data->timer_irq_callback = config->timer_irq_callback;
 			data->timer_irq_period_usec = config->timer_irq_t_usec;
+			if (tim_dev == TIM2)
+				data->timer_compare_usec = config->timer_compare_t_usec;
 			uint32_t flags = 0;
 
 			if (config->timer_use_zero_latency == 1)
@@ -267,7 +299,32 @@ void timer_stm32_start(const struct device* dev)
 
 	TIM_TypeDef* tim_dev = data->timer_struct;
 
-	if ( (tim_dev == TIM6) || (tim_dev == TIM7) )
+	if (tim_dev == TIM2)
+	{
+		if (data->timer_mode == synchronized_compare)
+		{
+			LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+			LL_TIM_DisableCounter(TIM2);
+			LL_TIM_DisableIT_CC1(TIM2);
+			LL_TIM_DisableDMAReq_CC1(TIM2);
+			uint32_t compare = data->timer_compare_usec * 10U;
+			LL_TIM_OC_SetCompareCH1(TIM2, compare);
+			LL_TIM_SetAutoReload(TIM2, compare + 1U);
+			/* Load the prescaler and start each arm from zero. */
+			LL_TIM_GenerateEvent_UPDATE(TIM2);
+			LL_TIM_SetCounter(TIM2, 0);
+			LL_TIM_ClearFlag_UPDATE(TIM2);
+			LL_TIM_ClearFlag_CC1(TIM2);
+			NVIC_ClearPendingIRQ((IRQn_Type)data->interrupt_line);
+			if (data->timer_compare_dma)
+				LL_TIM_EnableDMAReq_CC1(TIM2);
+			else
+				LL_TIM_EnableIT_CC1(TIM2);
+			/* Hardware starts/restarts the counter on each ITR10 pulse. */
+			LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_COMBINED_RESETTRIGGER);
+		}
+	}
+	else if ( (tim_dev == TIM6) || (tim_dev == TIM7) )
 	{
 		if (data->timer_mode == periodic_interrupt)
 		{
@@ -293,7 +350,17 @@ void timer_stm32_stop(const struct device* dev)
 
 	TIM_TypeDef* tim_dev = data->timer_struct;
 
-	if ( (tim_dev == TIM6) || (tim_dev == TIM7) )
+	if (tim_dev == TIM2)
+	{
+		/* Disable the trigger as well, so incoming sync cannot restart it. */
+		LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+		LL_TIM_DisableCounter(TIM2);
+		LL_TIM_DisableIT_CC1(TIM2);
+		LL_TIM_DisableDMAReq_CC1(TIM2);
+		LL_TIM_ClearFlag_CC1(TIM2);
+		LL_TIM_ClearFlag_UPDATE(TIM2);
+	}
+	else if ( (tim_dev == TIM6) || (tim_dev == TIM7) )
 	{
 		if (data->timer_mode == periodic_interrupt)
 		{
@@ -330,6 +397,27 @@ uint32_t timer_stm32_get_count(const struct device* dev)
 }
 
 /* Per-timer inits */
+
+void init_timer_2()
+{
+	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM2);
+
+	LL_TIM_InitTypeDef TIM_InitStruct = {0};
+	/* Same 0.1 microsecond time base as TIM6/TIM7 on SPIN. */
+	TIM_InitStruct.Prescaler = (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC/10000000U) - 1U;
+	TIM_InitStruct.CounterMode = LL_TIM_COUNTERMODE_UP;
+	TIM_InitStruct.Autoreload = UINT32_MAX;
+	LL_TIM_Init(TIM2, &TIM_InitStruct);
+	LL_TIM_DisableARRPreload(TIM2);
+	LL_TIM_SetOnePulseMode(TIM2, LL_TIM_ONEPULSEMODE_SINGLE);
+	LL_TIM_OC_SetMode(TIM2, LL_TIM_CHANNEL_CH1, LL_TIM_OCMODE_FROZEN);
+	LL_TIM_CC_SetDMAReqTrigger(TIM2, LL_TIM_CCDMAREQUEST_CC);
+	LL_TIM_SetTriggerInput(TIM2, LL_TIM_TS_ITR10);
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+	LL_TIM_DisableIT_UPDATE(TIM2);
+	LL_TIM_DisableIT_CC1(TIM2);
+	LL_TIM_ClearFlag_UPDATE(TIM2);
+}
 
  void init_timer_3()
  {
@@ -459,6 +547,30 @@ void init_timer_7()
 }
 
 /* Device definitions */
+
+/* Timer 2 */
+#if DT_NODE_HAS_STATUS(TIMER2_NODE, okay)
+
+struct stm32_timer_driver_data timer2_data =
+{
+	.timer_struct       = TIM2,
+	.interrupt_line     = TIMER2_INTERRUPT_LINE,
+	.interrupt_prio     = TIMER2_INTERRUPT_PRIO,
+	.timer_mode         = unconfigured,
+	.timer_irq_callback = NULL
+};
+
+DEVICE_DT_DEFINE(TIMER2_NODE,
+                 timer_stm32_init,
+                 NULL,
+                 &timer2_data,
+                 NULL,
+                 PRE_KERNEL_1,
+                 CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+                 &timer_funcs
+                );
+
+#endif /* Timer 2 */
 
 /* Timer4 */
 #if DT_NODE_HAS_STATUS(TIMER3_NODE, okay)
