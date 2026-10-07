@@ -43,6 +43,27 @@ static bool timer2_master_acquiring = false;
 static bool timer2_master_dma_armed = false;
 static bool timer2_master_irq_armed = false;
 static uint32_t timer2_master_open_ticks;
+static bool timer2_slave_clock_configured = false;
+
+static void timer2_slave_sync_configure(struct stm32_timer_driver_data* data)
+{
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+	LL_TIM_DisableCounter(TIM2);
+	LL_TIM_DisableIT_CC1(TIM2);
+	LL_TIM_DisableDMAReq_CC1(TIM2);
+	uint32_t compare = data->timer_compare_usec * 10U;
+	LL_TIM_OC_SetCompareCH1(TIM2, compare);
+	LL_TIM_SetAutoReload(TIM2, compare + 1U);
+	/* Load PSC before accepting sync; TX arming must preserve this phase. */
+	LL_TIM_GenerateEvent_UPDATE(TIM2);
+	LL_TIM_SetCounter(TIM2, 0);
+	LL_TIM_ClearFlag_UPDATE(TIM2);
+	LL_TIM_ClearFlag_CC1(TIM2);
+	LL_TIM_ClearFlag_TRIG(TIM2);
+	NVIC_ClearPendingIRQ((IRQn_Type)data->interrupt_line);
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_COMBINED_RESETTRIGGER);
+	timer2_slave_clock_configured = true;
+}
 
 bool timer2_master_sync_enabled(void)
 {
@@ -191,6 +212,9 @@ void timer_stm32_config(const struct device* dev,
 
 			irq_enable(data->interrupt_line);
 		}
+		if (tim_dev == TIM2 && !timer2_master_mode &&
+			data->timer_mode == synchronized_compare)
+			timer2_slave_sync_configure(data);
 	}
 	else if (tim_dev == TIM4)
 	{
@@ -358,25 +382,14 @@ void timer_stm32_start(const struct device* dev)
 					LL_TIM_EnableIT_CC1(TIM2);
 				return;
 			}
-			LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
-			LL_TIM_DisableCounter(TIM2);
-			LL_TIM_DisableIT_CC1(TIM2);
-			LL_TIM_DisableDMAReq_CC1(TIM2);
-			uint32_t compare = data->timer_compare_usec * 10U;
-			LL_TIM_OC_SetCompareCH1(TIM2, compare);
-			LL_TIM_SetAutoReload(TIM2, compare + 1U);
-			/* Load the prescaler and start each arm from zero. */
-			LL_TIM_GenerateEvent_UPDATE(TIM2);
-			LL_TIM_SetCounter(TIM2, 0);
-			LL_TIM_ClearFlag_UPDATE(TIM2);
+			if (!timer2_slave_clock_configured)
+				timer2_slave_sync_configure(data);
+			/* SCIN may already have started TIM2 before the control callback. */
 			LL_TIM_ClearFlag_CC1(TIM2);
-			NVIC_ClearPendingIRQ((IRQn_Type)data->interrupt_line);
 			if (data->timer_compare_dma)
 				LL_TIM_EnableDMAReq_CC1(TIM2);
 			else
 				LL_TIM_EnableIT_CC1(TIM2);
-			/* Hardware starts/restarts the counter on each ITR10 pulse. */
-			LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_COMBINED_RESETTRIGGER);
 		}
 	}
 	else if ( (tim_dev == TIM6) || (tim_dev == TIM7) )
@@ -407,6 +420,7 @@ void timer_stm32_stop(const struct device* dev)
 
 	if (tim_dev == TIM2)
 	{
+		timer2_slave_clock_configured = false;
 		timer2_master_sync_stop();
 		/* Disable the trigger as well, so incoming sync cannot restart it. */
 		LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
@@ -470,6 +484,7 @@ int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks)
 		data->timer_compare_usec * 10U >= control_ticks - TIMER2_MASTER_SYNC_LEAD_TICKS)
 		return -EINVAL;
 	irq_disable(TIMER2_INTERRUPT_LINE);
+	timer2_slave_clock_configured = false;
 	timer2_master_sync_stop();
 	timer2_master_open_ticks = control_ticks - TIMER2_MASTER_SYNC_LEAD_TICKS;
 	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
