@@ -177,9 +177,10 @@ int8_t scheduling_define_uninterruptible_synchronous_task(
 		if (repetition == 0)
 			return -1;
 
+		if (hrtim_PeriodicEvent_configure(MSTR, repetition, user_task_proxy) != 0)
+			return -1;
 		task_period = task_period_us;
 		user_periodic_task = periodic_task;
-		hrtim_PeriodicEvent_configure(MSTR, repetition, user_task_proxy);
 
 		uninterruptibleTaskStatus = task_status_t::defined;
 
@@ -245,7 +246,11 @@ void scheduling_start_uninterruptible_synchronous_task(
 		if (user_periodic_task == NULL)
 			return;
 
-		hrtim_PeriodicEvent_en(MSTR);
+		if (hrtim_PeriodicEvent_en(MSTR) != 0)
+		{
+			printk("Unable to start critical task: invalid HRTIM synchronization timing\n");
+			return;
+		}
 
 		uninterruptibleTaskStatus = task_status_t::running;
 	}

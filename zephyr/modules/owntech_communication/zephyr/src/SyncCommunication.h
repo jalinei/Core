@@ -50,7 +50,9 @@ public:
 	 * Initialize PWM Timer A first: it must reset on the master period event.
 	 * Then create/start an HRTIM critical task. TIM2 CH2 opens SCOUT and ITR10
 	 * 1 us before each boundary; the repetition ISR closes them. The first ISR
-	 * bootstraps TIM2 in software. The control task must finish before CH2.
+	 * arms hardware phase acquisition with SCOUT closed and TX deferred; the
+	 * next ISR ends acquisition. The control task must finish before CH2 and
+	 * CH2 must execute within its 1 us lead. A missed trigger reacquires phase.
 	 */
 	static void initMaster();
 

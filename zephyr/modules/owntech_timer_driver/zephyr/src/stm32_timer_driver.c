@@ -34,6 +34,9 @@
 
 static bool timer2_master_mode = false;
 static bool timer2_master_started = false;
+static bool timer2_master_acquiring = false;
+static bool timer2_master_dma_armed = false;
+static bool timer2_master_irq_armed = false;
 static uint32_t timer2_master_open_ticks;
 
 bool timer2_master_sync_enabled(void)
@@ -93,6 +96,7 @@ static void timer_stm32_callback(const void* arg)
 			LL_TIM_ClearFlag_CC2(TIM2);
 			LL_TIM_DisableIT_CC2(TIM2);
 			/* Only accept the next PWM reset, at the control boundary. */
+			LL_TIM_ClearFlag_TRIG(TIM2);
 			LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_COMBINED_RESETTRIGGER);
 			LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_ALTERNATE);
 		}
@@ -138,8 +142,7 @@ void timer_stm32_config(const struct device* dev,
 				timer_stm32_stop(dev);
 			else
 			{
-				LL_TIM_DisableIT_CC1(TIM2);
-				LL_TIM_DisableDMAReq_CC1(TIM2);
+				timer2_compare_disarm();
 			}
 			data->timer_mode = unconfigured;
 			/* Leave room for ARR beyond the CH1 compare value. */
@@ -336,6 +339,12 @@ void timer_stm32_start(const struct device* dev)
 				/* Rearm TX without disturbing the master control-period clock. */
 				LL_TIM_OC_SetCompareCH1(TIM2, data->timer_compare_usec * 10U);
 				LL_TIM_ClearFlag_CC1(TIM2);
+				if (timer2_master_acquiring)
+				{
+					timer2_master_dma_armed = data->timer_compare_dma;
+					timer2_master_irq_armed = !data->timer_compare_dma;
+					return;
+				}
 				if (data->timer_compare_dma)
 					LL_TIM_EnableDMAReq_CC1(TIM2);
 				else
@@ -446,8 +455,8 @@ int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks)
 	if (control_ticks <= 10U || pwm_ticks <= 10U || control_ticks == UINT32_MAX)
 		return -EINVAL;
 
-	bool dma_armed = LL_TIM_IsEnabledDMAReq_CC1(TIM2);
-	bool irq_armed = LL_TIM_IsEnabledIT_CC1(TIM2);
+	bool dma_armed = LL_TIM_IsEnabledDMAReq_CC1(TIM2) || timer2_master_dma_armed;
+	bool irq_armed = LL_TIM_IsEnabledIT_CC1(TIM2) || timer2_master_irq_armed;
 	struct stm32_timer_driver_data* data = dev->data;
 	if (data->timer_mode == synchronized_compare &&
 		data->timer_compare_usec * 10U >= control_ticks - 10U)
@@ -466,20 +475,28 @@ int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks)
 	LL_TIM_ClearFlag_UPDATE(TIM2);
 	LL_TIM_ClearFlag_CC1(TIM2);
 	LL_TIM_ClearFlag_CC2(TIM2);
+	LL_TIM_ClearFlag_TRIG(TIM2);
 	NVIC_ClearPendingIRQ((IRQn_Type)TIMER2_INTERRUPT_LINE);
 	irq_connect_dynamic(TIMER2_INTERRUPT_LINE, TIMER2_INTERRUPT_PRIO,
 						timer_stm32_callback, dev, 0);
 	irq_enable(TIMER2_INTERRUPT_LINE);
 	timer2_master_mode = true;
-	/* Preserve a TX prepared before startCritical() reconfigures the clock. */
-	if (dma_armed)
-		LL_TIM_EnableDMAReq_CC1(TIM2);
-	if (irq_armed)
-		LL_TIM_EnableIT_CC1(TIM2);
+	timer2_master_acquiring = true;
+	/* Defer prepared TX until hardware has acquired a control boundary. */
+	timer2_master_dma_armed = dma_armed;
+	timer2_master_irq_armed = irq_armed;
 	return 0;
 #else
 	return -ENODEV;
 #endif
+}
+
+void timer2_compare_disarm(void)
+{
+	LL_TIM_DisableIT_CC1(TIM2);
+	LL_TIM_DisableDMAReq_CC1(TIM2);
+	timer2_master_dma_armed = false;
+	timer2_master_irq_armed = false;
 }
 
 void timer2_master_sync_event(void)
@@ -488,17 +505,40 @@ void timer2_master_sync_event(void)
 		return;
 
 	LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_OUTPUT);
-	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+	LL_TIM_DisableIT_CC2(TIM2);
 	LL_TIM_ClearFlag_CC2(TIM2);
-	LL_TIM_EnableIT_CC2(TIM2);
-	if (!timer2_master_started)
+	if (!timer2_master_started || !LL_TIM_IsActiveFlag_TRIG(TIM2))
 	{
-		/* Software bootstrap only once. Later boundaries reset via ITR10. */
-		LL_TIM_GenerateEvent_UPDATE(TIM2);
-		LL_TIM_ClearFlag_UPDATE(TIM2);
-		LL_TIM_ClearFlag_CC1(TIM2);
-		LL_TIM_EnableCounter(TIM2);
+		/* Acquire phase from PWM resets until the next repetition callback.
+		 * Keep SCOUT closed and TX deferred. This also recovers a missed gate.
+		 */
+		timer2_master_dma_armed |= LL_TIM_IsEnabledDMAReq_CC1(TIM2);
+		timer2_master_irq_armed |= LL_TIM_IsEnabledIT_CC1(TIM2);
+		LL_TIM_DisableDMAReq_CC1(TIM2);
+		LL_TIM_DisableIT_CC1(TIM2);
+		LL_TIM_ClearFlag_TRIG(TIM2);
+		LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_COMBINED_RESETTRIGGER);
 		timer2_master_started = true;
+		timer2_master_acquiring = true;
+		return;
+	}
+
+	/* The hardware reset at the repetition boundary establishes the phase.
+	 * Close the internal gate before the next PWM event, then arm CH2.
+	 */
+	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
+	LL_TIM_ClearFlag_TRIG(TIM2);
+	LL_TIM_EnableIT_CC2(TIM2);
+	if (timer2_master_acquiring)
+	{
+		LL_TIM_ClearFlag_CC1(TIM2);
+		if (timer2_master_dma_armed)
+			LL_TIM_EnableDMAReq_CC1(TIM2);
+		if (timer2_master_irq_armed)
+			LL_TIM_EnableIT_CC1(TIM2);
+		timer2_master_dma_armed = false;
+		timer2_master_irq_armed = false;
+		timer2_master_acquiring = false;
 	}
 }
 
@@ -513,8 +553,10 @@ void timer2_master_sync_stop(void)
 	LL_TIM_ClearFlag_CC2(TIM2);
 	LL_TIM_DisableDMAReq_CC1(TIM2);
 	LL_TIM_DisableCounter(TIM2);
+	timer2_compare_disarm();
 	timer2_master_mode = false;
 	timer2_master_started = false;
+	timer2_master_acquiring = false;
 }
 
 /* Per-timer inits */

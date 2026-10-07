@@ -31,6 +31,7 @@
 /* include */
 #include <stm32_ll_rcc.h>
 #include "assert.h"
+#include <errno.h>
 #include "hrtim.h"
 #ifdef CONFIG_OWNTECH_TIMER_DRIVER
 #include "timer.h"
@@ -357,7 +358,7 @@ static inline uint32_t _period_ckpsc(uint32_t freq, timer_hrtim_t *tu)
  *
  * This function manages various HRTIM (High-Resolution Timer) synchronization 
  * conditions and clears the corresponding hardware flags. It also temporarily 
- * closes the master synchronization window and bootstraps TIM2 if required,
+ * closes the master synchronization window and manages TIM2 phase acquisition,
  * and finally calls a user-defined callback if one is set.
  *
  * - Clears the master repetition flag if no synchronization input is configured.
@@ -366,7 +367,7 @@ static inline uint32_t _period_ckpsc(uint32_t freq, timer_hrtim_t *tu)
  *   detected.
  *
  * - In master communication mode, restores PB1 to output mode and disables
- *   TIM2's ITR10 gate. Only the first callback starts TIM2 in software.
+ *   TIM2's ITR10 gate. Startup and missed triggers acquire phase in hardware.
  *
  * - Executes the user-defined callback if it is not `NULL`.
  *
@@ -1420,56 +1421,49 @@ hrtim_adc_edgetrigger_t hrtim_adc_rollover_get(hrtim_tu_number_t tu_number)
  */
 static int _configure_master_sync_timing(void)
 {
-#ifdef CONFIG_OWNTECH_TIMER_DRIVER
     if (LL_HRTIM_GetSyncInSrc(HRTIM1) == LL_HRTIM_SYNCIN_SRC_NONE &&
         LL_HRTIM_GetSyncOutConfig(HRTIM1) == LL_HRTIM_SYNCOUT_POSITIVE_PULSE &&
         LL_HRTIM_GetSyncOutSrc(HRTIM1) == LL_HRTIM_SYNCOUT_SRC_TIMA_START)
     {
+#ifdef CONFIG_OWNTECH_TIMER_DRIVER
         if (!(LL_HRTIM_TIM_GetResetTrig(HRTIM1, TIMA) & LL_HRTIM_RESETTRIG_MASTER_PER))
             return -1;
         uint64_t pwm_ticks = (uint64_t)LL_HRTIM_TIM_GetPeriod(HRTIM1, MSTR)
             * (1U << LL_HRTIM_TIM_GetPrescaler(HRTIM1, MSTR))
-            * (LL_TIM_GetPrescaler(TIM2) + 1U)
             * CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC;
-        uint64_t divisor = (uint64_t)hrtim_get_apb2_clock() * 32U;
+        uint64_t divisor = (uint64_t)hrtim_get_apb2_clock() * 32U
+            * (LL_TIM_GetPrescaler(TIM2) + 1U);
         uint64_t control_ticks = pwm_ticks *
             (LL_HRTIM_TIM_GetRepetition(HRTIM1, MSTR) + 1U) / divisor;
         if (control_ticks >= UINT32_MAX)
             return -1;
         return timer2_master_sync_configure(control_ticks, pwm_ticks / divisor);
-    }
+#else
+        return -ENODEV;
 #endif
+    }
     return 0;
 }
 
-void hrtim_PeriodicEvent_configure(hrtim_tu_t tu, uint32_t repetition,
+int hrtim_PeriodicEvent_configure(hrtim_tu_t tu, uint32_t repetition,
                                    hrtim_callback_t callback)
 {
-    /* Memorize user callback */
+    int result = hrtim_PeriodicEvent_SetRep(tu, repetition);
+    if (result != 0)
+        return result;
     user_callback = callback;
-
-    /* Set repetition counter to repetition-1 so that an event
-     * is triggered every "repetition" number of periods.
-     */
-    LL_HRTIM_TIM_SetRepetition(HRTIM1, tu, repetition - 1);
-    if (tu == MSTR)
-    {
-        int result = _configure_master_sync_timing();
-        __ASSERT(result == 0, "Invalid TIM2 master sync timing");
-        (void)result;
-    }
+    return 0;
 }
 
-void hrtim_PeriodicEvent_en(hrtim_tu_t tu)
+int hrtim_PeriodicEvent_en(hrtim_tu_t tu)
 {
-    if (tu == MSTR && _configure_master_sync_timing() != 0)
-    {
-        printk("Unable to configure TIM2 master sync timing\n");
-        return;
-    }
+    int result = tu == MSTR ? _configure_master_sync_timing() : 0;
+    if (result != 0)
+        return result;
     if (LL_HRTIM_GetSyncInSrc(HRTIM1) == LL_HRTIM_SYNCIN_SRC_NONE)
     {
         /* Enabling the interrupt on repetition counter event*/
+        LL_HRTIM_ClearFlag_REP(HRTIM1, tu);
         LL_HRTIM_EnableIT_REP(HRTIM1, tu);
     }
 
@@ -1477,6 +1471,7 @@ void hrtim_PeriodicEvent_en(hrtim_tu_t tu)
     {
         /* Enabling interruption on synch pulse
         in case of slave communication mode*/
+        LL_HRTIM_ClearFlag_SYNC(HRTIM1);
         LL_HRTIM_EnableIT_SYNC(HRTIM1);
     }
 
@@ -1487,6 +1482,7 @@ void hrtim_PeriodicEvent_en(hrtim_tu_t tu)
                 HRTIM_IRQ_FLAGS);
 
     irq_enable(HRTIM_IRQ_NUMBER);
+    return 0;
 }
 
 void hrtim_PeriodicEvent_dis(hrtim_tu_t tu)
@@ -1497,14 +1493,25 @@ void hrtim_PeriodicEvent_dis(hrtim_tu_t tu)
     irq_disable(HRTIM_IRQ_NUMBER);
     /* Disabling the interrupt on repetition counter event */
     LL_HRTIM_DisableIT_REP(HRTIM1, tu);
+    LL_HRTIM_DisableIT_SYNC(HRTIM1);
 }
 
-void hrtim_PeriodicEvent_SetRep(hrtim_tu_t tu, uint32_t repetition)
+int hrtim_PeriodicEvent_SetRep(hrtim_tu_t tu, uint32_t repetition)
 {
-    /* Set repetition counter to repetition-1 so that an event
-     * is triggered every "repetition" number of periods.
-     */
-    LL_HRTIM_TIM_SetRepetition(HRTIM1, tu, repetition - 1);
+    if (repetition == 0 || repetition > 256U)
+        return -EINVAL;
+#ifdef CONFIG_OWNTECH_TIMER_DRIVER
+    /* Changing a live repetition preload would leave TIM2 on the old phase. */
+    if (tu == MSTR && timer2_master_sync_enabled() &&
+        LL_HRTIM_IsEnabledIT_REP(HRTIM1, MSTR))
+        return -EBUSY;
+#endif
+    uint32_t previous = LL_HRTIM_TIM_GetRepetition(HRTIM1, tu);
+    LL_HRTIM_TIM_SetRepetition(HRTIM1, tu, repetition - 1U);
+    int result = tu == MSTR ? _configure_master_sync_timing() : 0;
+    if (result != 0)
+        LL_HRTIM_TIM_SetRepetition(HRTIM1, tu, previous);
+    return result;
 }
 
 uint32_t hrtim_PeriodicEvent_GetRep(hrtim_tu_t tu)

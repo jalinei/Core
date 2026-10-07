@@ -469,7 +469,7 @@ void serial_sync_tx_stop()
         return;
 
     if (timer2_master_sync_enabled())
-        LL_TIM_DisableDMAReq_CC1(TIM2);
+        timer2_compare_disarm();
     else
         timer_stop(timer2);
     LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_1);

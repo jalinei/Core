@@ -65,12 +65,15 @@ extern "C" {
 
 /* HRTIM master synchronization hooks. Timing values are TIM2 ticks (0.1 us).
  * Configure before starting the critical task. The first repetition callback
- * bootstraps TIM2; later callbacks only close the SCOUT and ITR10 gates.
+ * arms phase acquisition from PWM resets with SCOUT closed and TX deferred.
+ * The next callback closes ITR10; subsequent CH2 events open the sync window.
  */
 int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks);
 void timer2_master_sync_event(void);
 void timer2_master_sync_stop(void);
 bool timer2_master_sync_enabled(void);
+/* Cancel CH1 including a transmission deferred during phase acquisition. */
+void timer2_compare_disarm(void);
 
 /**
  *  Configuration structure

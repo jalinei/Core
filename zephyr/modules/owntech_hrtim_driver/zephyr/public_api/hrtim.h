@@ -486,18 +486,20 @@ hrtim_adc_edgetrigger_t hrtim_adc_rollover_get(hrtim_tu_number_t tu_number);
  *        E.g. when set to 10, one event will be triggered every 10 HRTIM period.
  * @param callback Pointer to a void(void) function that will be called
  *        when the event is triggerred.
+ * @return 0 on success, negative error on invalid timing/configuration.
  */
-void hrtim_PeriodicEvent_configure(hrtim_tu_t tu,
+int hrtim_PeriodicEvent_configure(hrtim_tu_t tu,
                                    uint32_t repetition,
                                    hrtim_callback_t callback);
 
 /**
  * @brief Enables interrupt on repetition counter for the chosen timing unit.
  *        The periodic event configuration must have been done previously.
+ * @return 0 on success, negative error if synchronization cannot be configured.
  * @param tu_src timing unit which will be the source for the ISR:
  *                  `MSTR`, `TIMA`, `TIMB`, `TIMC`, `TIMD`, `TIME`, `TIMF`
  */
-void hrtim_PeriodicEvent_en(hrtim_tu_t tu);
+int hrtim_PeriodicEvent_en(hrtim_tu_t tu);
 
 /**
  * @brief Disables interrupt on repetition counter for the chosen timing unit
@@ -508,13 +510,15 @@ void hrtim_PeriodicEvent_dis(hrtim_tu_t tu);
 
 /**
  * @brief Changes the repetition counter value to control the ISR interrupt
+ * @return 0 on success, -EINVAL for invalid timing, -EBUSY for a running
+ *         synchronized master. Stop the periodic event before changing it.
  * @param tu_src timing unit which will be the source for the ISR:
  *                  `MSTR`, `TIMA`, `TIMB`, `TIMC`, `TIMD`, `TIME`, `TIMF`
  * @param repetion value between 1 and 256 for the repetition counter:
  * period of the event write periods of the HRTIM.
  * E.g. when set to 10, one event will be triggered every 10 HRTIM period.
  */
-void hrtim_PeriodicEvent_SetRep(hrtim_tu_t tu, uint32_t repetition);
+int hrtim_PeriodicEvent_SetRep(hrtim_tu_t tu, uint32_t repetition);
 
 /**
  * @brief Gets the current value of the repetition counter.
