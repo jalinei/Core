@@ -493,10 +493,8 @@ void serial_sync_tx_stop()
     if (!sync_tx_configured)
         return;
 
-    if (timer2_master_sync_enabled())
-        timer2_compare_disarm();
-    else
-        timer_stop(timer2);
+    /* Cancel TX without discarding the phase acquired from HRTIM sync. */
+    timer2_compare_disarm();
     LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_1);
     LL_DMA_ClearFlag_GI1(DMA2);
 }

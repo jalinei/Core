@@ -144,7 +144,9 @@ struct timer_config_t
 	/* TIM2 only: CH1 compare delay after HRTIM ITR10, in microseconds.
 	 * Set timer_enable_irq and timer_irq_callback, or timer_enable_compare_dma.
 	 * Valid range: 1..429496729.
-	 * TIM2 waits for sync and stops after each compare; a new sync restarts it.
+	 * Configuring slave TIM2 enables sync reception; start arms the compare
+	 * without resetting the counter. TIM2 stops after each compare and a new
+	 * sync restarts it. Prepare TX before its compare deadline.
 	 * HRTIM synchronization output must be configured separately.
 	 */
 	uint32_t         timer_compare_t_usec;
