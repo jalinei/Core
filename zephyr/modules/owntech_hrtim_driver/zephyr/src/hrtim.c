@@ -384,7 +384,8 @@ void _hrtim_callback()
         LL_HRTIM_ClearFlag_SYNC(HRTIM1);
     }
 
-    if (LL_HRTIM_GetSyncOutConfig(HRTIM1) == LL_HRTIM_SYNCOUT_POSITIVE_PULSE)
+    if (LL_HRTIM_GetSyncInSrc(HRTIM1) == LL_HRTIM_SYNCIN_SRC_NONE &&
+        LL_HRTIM_GetSyncOutConfig(HRTIM1) == LL_HRTIM_SYNCOUT_POSITIVE_PULSE)
     {
         /* In case of master communication mode, the master will send a
         synchronization pulse every control period allowing the slave to

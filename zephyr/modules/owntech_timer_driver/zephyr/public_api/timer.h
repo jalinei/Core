@@ -30,6 +30,8 @@
  *         at becoming more generic over time.
  *
  *         This version supports:
+ *
+ *         * Timer 2: HRTIM ITR10 synchronized CH1 compare IRQ or DMA request.
  * 
  *         * Timer 6 and Timer 7: Periodic call of a callback function
  * 			 with period ranging from 2 to 6553 µs.
@@ -55,6 +57,7 @@ extern "C" {
  *  Public devices names
  */
 
+#define TIMER2_DEVICE DT_NODELABEL(timers2)
 #define TIMER3_DEVICE DT_NODELABEL(timers3)
 #define TIMER4_DEVICE DT_NODELABEL(timers4)
 #define TIMER6_DEVICE DT_NODELABEL(timers6)
@@ -103,7 +106,8 @@ typedef enum
  * *** Incremental encoder mode (ignored if timer_enable_encoder=0) ***
  * - timer_pin_mode : Pin mode for incremental coder interface.
  *
- * @note At this time, only irq mode is supported on TIM6/TIM7, and
+ * @note TIM2 uses CH1 compare IRQ or DMA mode with timer_compare_t_usec.
+ * Only periodic irq mode is supported on TIM6/TIM7, and
  * only incremental coder mode is supported on TIM4.
  * 
  * This limitation makes this configuration structure almost pointless 
@@ -122,6 +126,17 @@ struct timer_config_t
 	uint32_t         timer_use_zero_latency : 1;
 	/* Incremental encoder option */
 	pin_mode_t       timer_enc_pin_mode;
+	/* TIM2 only: CH1 compare delay after HRTIM ITR10, in microseconds.
+	 * Set timer_enable_irq and timer_irq_callback, or timer_enable_compare_dma.
+	 * Valid range: 1..429496729.
+	 * TIM2 waits for sync and stops after each compare; a new sync restarts it.
+	 * HRTIM synchronization output must be configured separately.
+	 */
+	uint32_t         timer_compare_t_usec;
+	/* TIM2 only: emit a CH1 DMA request instead of requiring an IRQ.
+	 * The caller configures and arms the DMA channel before timer_start().
+	 */
+	uint32_t         timer_enable_compare_dma : 1;
 };
 
 /**

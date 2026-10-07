@@ -114,6 +114,10 @@ zephyr_udc0: &usb {
 /* Timer */
 /*********/
 
+&timers2 {
+	status = "okay";
+};
+
 &timers4 {
 	pinctrl-names = "incremental_encoder";
 	pinctrl-0 = <&tim4_etr_pb3 &tim4_ch1_pb6 &tim4_ch2_pb7 >;

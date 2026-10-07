@@ -53,6 +53,8 @@ public:
 	/**
 	 * @brief Initialization synchronization as `SLAVE`,
 	 * 		  the slave receive the synchronization pulse.
+	 * HRTIM must be initialized first. The master waits for SCIN, resets on
+	 * each pulse, and relays its start/reset to TIM2 through ITR10.
 	 */
 	static void initSlave();
 };

@@ -33,6 +33,10 @@
 #include "timer.h"
 
 
+#define TIMER2_NODE           DT_NODELABEL(timers2)
+#define TIMER2_INTERRUPT_LINE DT_IRQN(TIMER2_NODE)
+#define TIMER2_INTERRUPT_PRIO DT_IRQ_BY_IDX(TIMER2_NODE, 0, priority)
+
 #define TIMER4_NODE           DT_NODELABEL(timers4)
 #define TIMER4_INTERRUPT_LINE DT_IRQN(TIMER4_NODE)
 #define TIMER4_INTERRUPT_PRIO DT_IRQ_BY_IDX(TIMER4_NODE, 0, priority)
@@ -66,7 +70,9 @@ extern "C" {
 typedef enum
 {
 	periodic_interrupt,
-	incremental_coder
+	incremental_coder,
+	synchronized_compare,
+	unconfigured
 } timer_mode_t;
 
 
@@ -98,6 +104,8 @@ struct stm32_timer_driver_data
 	timer_mode_t     timer_mode;
 	timer_callback_t timer_irq_callback;
 	uint32_t         timer_irq_period_usec;
+	uint32_t         timer_compare_usec;
+	bool             timer_compare_dma;
 };
 
 /**
@@ -189,6 +197,9 @@ void timer_stm32_clear(const struct device* dev);
  *
  */
 void init_timer_3();
+
+/** @brief Initialize TIM2 with a 0.1 microsecond tick and CH1 compare. */
+void init_timer_2();
 
 
 /**

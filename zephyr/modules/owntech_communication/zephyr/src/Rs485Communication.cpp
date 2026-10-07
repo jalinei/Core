@@ -85,6 +85,21 @@ void Rs485Communication::startTransmission()
     serial_tx_on();
 }
 
+int Rs485Communication::configureSynchronizedTransmission(uint32_t delay_us)
+{
+    return serial_sync_tx_config(delay_us);
+}
+
+int Rs485Communication::prepareSynchronizedTransmission()
+{
+    return serial_sync_tx_prepare();
+}
+
+void Rs485Communication::stopSynchronizedTransmission()
+{
+    serial_sync_tx_stop();
+}
+
 void Rs485Communication::turnOnCommunication()
 {
     serial_start();
