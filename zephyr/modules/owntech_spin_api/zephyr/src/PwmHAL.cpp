@@ -346,12 +346,16 @@ void PwmHAL::configurePeriodEvnt(hrtim_tu_t PWM_tu,
 								 uint32_t repetition,
 								 hrtim_callback_t callback)
 {
-	hrtim_PeriodicEvent_configure(PWM_tu, repetition, callback);
+	int result = hrtim_PeriodicEvent_configure(PWM_tu, repetition, callback);
+	if (result != 0)
+		printk("Unable to configure periodic event (%d)\n", result);
 }
 
 void PwmHAL::enablePeriodEvnt(hrtim_tu_t PWM_tu)
 {
-	hrtim_PeriodicEvent_en(PWM_tu);
+	int result = hrtim_PeriodicEvent_en(PWM_tu);
+	if (result != 0)
+		printk("Unable to enable periodic event (%d)\n", result);
 }
 
 void PwmHAL::disablePeriodEvnt(hrtim_tu_t PWM_tu)
@@ -361,7 +365,9 @@ void PwmHAL::disablePeriodEvnt(hrtim_tu_t PWM_tu)
 
 void PwmHAL::setPeriodEvntRep(hrtim_tu_t PWM_tu, uint32_t repetition)
 {
-	hrtim_PeriodicEvent_SetRep(PWM_tu, repetition);
+	int result = hrtim_PeriodicEvent_SetRep(PWM_tu, repetition);
+	if (result != 0)
+		printk("Unable to change periodic event repetition (%d)\n", result);
 }
 
 uint32_t PwmHAL::getPeriodEvntRep(hrtim_tu_t PWM_tu)
