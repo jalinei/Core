@@ -176,6 +176,7 @@ void timer_stm32_config(const struct device* dev,
 				flags = IRQ_ZERO_LATENCY;
 			}
 
+			irq_disable(data->interrupt_line);
 			irq_connect_dynamic(data->interrupt_line,
 								data->interrupt_prio,
 								timer_stm32_callback,
@@ -461,6 +462,7 @@ int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks)
 	if (data->timer_mode == synchronized_compare &&
 		data->timer_compare_usec * 10U >= control_ticks - 10U)
 		return -EINVAL;
+	irq_disable(TIMER2_INTERRUPT_LINE);
 	timer2_master_sync_stop();
 	timer2_master_open_ticks = control_ticks - 10U;
 	LL_TIM_SetSlaveMode(TIM2, LL_TIM_SLAVEMODE_DISABLED);
@@ -479,12 +481,12 @@ int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks)
 	NVIC_ClearPendingIRQ((IRQn_Type)TIMER2_INTERRUPT_LINE);
 	irq_connect_dynamic(TIMER2_INTERRUPT_LINE, TIMER2_INTERRUPT_PRIO,
 						timer_stm32_callback, dev, 0);
-	irq_enable(TIMER2_INTERRUPT_LINE);
 	timer2_master_mode = true;
 	timer2_master_acquiring = true;
 	/* Defer prepared TX until hardware has acquired a control boundary. */
 	timer2_master_dma_armed = dma_armed;
 	timer2_master_irq_armed = irq_armed;
+	irq_enable(TIMER2_INTERRUPT_LINE);
 	return 0;
 #else
 	return -ENODEV;
