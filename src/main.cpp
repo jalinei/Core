@@ -46,6 +46,7 @@
 
 /*-- Zephyr includes --*/
 #include "zephyr/console/console.h"
+#include <string.h>
 
 
 #define MMC_LEAD 0
@@ -229,7 +230,6 @@ uint8_t module_ID = detect_module_id(); // The ID of the module, can be set to M
 static uint8_t module_comand; // The command the followers needs to apply
 static uint8_t module_command_past; // The command the followers applied in t-1 (last critical task)
 static bool change_state_command = false; // Flag to change the state of the command
-static bool send_idle = false;            // Flag to send idle command from master to followers
 
 constexpr uint8_t MMC_STATUS_CODE_BITS = 3;
 constexpr uint32_t MMC_STATUS_CODE_MASK = (1UL << MMC_STATUS_CODE_BITS) - 1U;
@@ -462,15 +462,25 @@ static inline bool mmc_is_upper_arm_module(uint8_t id)
 }
 
 static MMC_frame_t dataTX_mmc;
-static MMC_frame_t dataRX_mmc;
 
 float32_t MMC_capacitor_voltage[MMC_SM_COUNT];
 float32_t MMC_arm_current[MMC_SM_COUNT];
 
 constexpr size_t MMC_FRAME_SIZE = sizeof(MMC_frame_t);
 
-uint8_t buffer_tx[MMC_FRAME_SIZE];
-uint8_t buffer_rx[MMC_FRAME_SIZE];
+/* Keep the existing packed MMC frame on the wire: no marker or CRC.
+ * Dispatch runs in the quiet interval between complete bus rounds. Size the
+ * ring for several rounds, including local echo if the transceiver provides it.
+ */
+constexpr size_t MMC_RX_SIZE = 4 * (MMC_SM_COUNT + 1) * MMC_FRAME_SIZE;
+
+static uint8_t buffer_tx[MMC_FRAME_SIZE];
+static uint8_t rx_ring[MMC_RX_SIZE];
+static uint8_t rx_snapshot[MMC_RX_SIZE];
+static uint32_t rs485_errors;
+static uint32_t rs485_tx_skipped;
+static uint32_t rs485_tx_errors;
+static uint32_t rs485_rx_discarded;
 
 float32_t Cap_voltage = 0.0f;
 static float32_t Arm_current = 0.0f;
@@ -496,6 +506,25 @@ serial_interface_menu_mode mode = IDLEMODE;
 
 /* [us] period of the control task (=critical task) */
 static constexpr uint32_t control_task_period = 200; // µs
+/* Delay from SCOUT/SCIN boundary: lead=60 us, SM1=72 us, ..., SM10=180 us.
+ * The lead must prepare TX before 60 us; all control work must finish before
+ * the master's SCOUT gate opens at 199 us. Verify these deadlines on hardware.
+ * Keep the existing SPEED_20M baud/oversampling settings (21.25 Mbit/s).
+ */
+constexpr uint32_t MMC_RS485_BASE_BAUD = 10625000;
+constexpr uint32_t MMC_RS485_WIRE_BAUD = 2 * MMC_RS485_BASE_BAUD;
+constexpr uint32_t MMC_SLOT_FIRST_US = 60;
+constexpr uint32_t MMC_SLOT_SPACING_US = 12;
+constexpr uint32_t MMC_SLOT_GUARD_US = 4;
+constexpr uint32_t MMC_QUIET_US = 10;
+constexpr uint32_t MMC_TX_WIRE_US =
+    (MMC_FRAME_SIZE * 10ULL * 1000000 + MMC_RS485_WIRE_BAUD - 1) /
+    MMC_RS485_WIRE_BAUD;
+static_assert(MMC_TX_WIRE_US + MMC_SLOT_GUARD_US <= MMC_SLOT_SPACING_US,
+              "RS485 slot needs frame time plus DE/clock guard time");
+static_assert(MMC_SLOT_FIRST_US + MMC_SM_COUNT * MMC_SLOT_SPACING_US +
+              MMC_TX_WIRE_US + MMC_SLOT_GUARD_US + MMC_QUIET_US < control_task_period - 1,
+              "RS485 slots must finish before the next synchronization gate");
 static float32_t Ts = control_task_period * 1e-6F; // s
 /* [bool] state of the PWM (ctrl task) */
 static bool pwm_enable = false;
@@ -680,83 +709,99 @@ static void update_measurements(void)
     }
 }
 
-void reception_function(void)
+static void mmc_receive_frame(const MMC_frame_t &frame)
 {
-    dataRX_mmc = *(MMC_frame_t *)buffer_rx;
-    uint8_t sender_id = mmc_frame_get_sm_identifier(dataRX_mmc);
-    uint8_t status_code = mmc_frame_get_status_code(dataRX_mmc);
-
-    if (module_ID == MMC_LEAD)
+    const uint8_t sender_id = mmc_frame_get_sm_identifier(frame);
+    const uint8_t status_code = mmc_frame_get_status_code(frame);
+    if (sender_id > MMC_SM_LAST || status_code > OVER_CURRENT ||
+        mmc_frame_is_upper_arm(frame) != mmc_is_upper_arm_module(sender_id))
     {
-        if ((sender_id >= MMC_SM_FIRST) && (sender_id <= MMC_SM_LAST))
-        {
-            const uint8_t index = sender_id - MMC_SM_FIRST;
-            MMC_capacitor_voltage[index] =
-                mmc_decode_voltage(mmc_frame_get_voltage_raw(dataRX_mmc));
-            MMC_arm_current[index] =
-                mmc_decode_current(mmc_frame_get_current_raw(dataRX_mmc));
-
-            if ((status_code >= LEAD_ERROR) && (mode != IDLEMODE))
-            {
-                mode = IDLEMODE;
-                send_idle = false;
-            }
-        }
+        return;
     }
 
-    else
+    if (module_ID == MMC_LEAD && sender_id >= MMC_SM_FIRST)
     {
-        if (sender_id == MMC_LEAD)
+        const uint8_t index = sender_id - MMC_SM_FIRST;
+        MMC_capacitor_voltage[index] =
+            mmc_decode_voltage(mmc_frame_get_voltage_raw(frame));
+        MMC_arm_current[index] =
+            mmc_decode_current(mmc_frame_get_current_raw(frame));
+        if (status_code >= LEAD_ERROR)
         {
-            /* retrieving command from lead message*/
-            module_comand = static_cast<uint8_t>(
-                mmc_frame_get_sm_inserted(dataRX_mmc, module_ID));
-
-            /* retrieving status */
-            if (status_code == POWER)
-            {
-                mode = POWERMODE;
-            }
-            else
-            {
-                mode = IDLEMODE;
-            }
-        }
-
-        /* The board following the ID of the one who sent will start sending
-            the next message */
-        if (sender_id == static_cast<uint8_t>(module_ID - 1))
-        {
-            dataTX_mmc = dataRX_mmc; // Copy the received data to the transmission data
-            mmc_frame_set_sm_identifier(dataTX_mmc, module_ID);
-            mmc_frame_set_upper_arm_flag(dataTX_mmc, mmc_is_upper_arm_module(module_ID));
-            mmc_frame_set_voltage_raw(dataTX_mmc,
-                                      mmc_encode_voltage(Cap_voltage));
-            mmc_frame_set_current_raw(dataTX_mmc,
-                                      mmc_encode_current(Arm_current));
-            
-            /* Verifies overvoltage protection criteria */
-            if(Cap_voltage > overvoltage_tolerance)
-            {
-                // mmc_frame_set_status_code(dataTX_mmc, OVER_VOLTAGE);
-                mmc_frame_set_status_code(dataTX_mmc, POWER);
-            }
-            /* Verifies overcurrent protection criteria */
-            else if(Arm_current > overcurrent_tolerance)
-            {
-                // mmc_frame_set_status_code(dataTX_mmc, OVER_CURRENT);
-                mmc_frame_set_status_code(dataTX_mmc, POWER);
-            }
-            else{
-                mmc_frame_set_status_code(dataTX_mmc, POWER);
-            }
-            memcpy(buffer_tx, &dataTX_mmc, sizeof(dataTX_mmc));
-
-            communication.rs485.startTransmission();
-            
+            mode = IDLEMODE;
         }
     }
-    counter_receive++;
+    else if (module_ID != MMC_LEAD && sender_id == MMC_LEAD)
+    {
+        module_comand = static_cast<uint8_t>(
+            mmc_frame_get_sm_inserted(frame, module_ID));
+        mode = status_code == POWER ? POWERMODE : IDLEMODE;
+    }
+    ++counter_receive;
+}
+
+/* Dispatch snapshots the previous bus round before the user critical task.
+ * With the quiet interval and master offset, frames must be complete at this
+ * boundary. Discard an incomplete/error round rather than carrying bytes into
+ * the next round and losing alignment. No checksum validation is performed.
+ */
+static void mmc_receive_dispatch()
+{
+    const uint32_t errors = communication.rs485.dispatchErrors();
+    rs485_errors |= errors;
+    constexpr uint32_t rx_errors = RS485_ERROR_RX_OVERRUN |
+        RS485_ERROR_RX_FRAMING | RS485_ERROR_RX_NOISE |
+        RS485_ERROR_RX_PARITY | RS485_ERROR_RX_DMA;
+    const uint16_t received = communication.rs485.receivedSize();
+    if ((errors & rx_errors) || received % MMC_FRAME_SIZE != 0)
+    {
+        ++rs485_rx_discarded;
+        return;
+    }
+
+    /* Validate the whole snapshot before applying commands or measurements. */
+    for (size_t offset = 0; offset < received; offset += MMC_FRAME_SIZE)
+    {
+        MMC_frame_t frame;
+        memcpy(&frame, rx_snapshot + offset, MMC_FRAME_SIZE);
+        const uint8_t sender_id = mmc_frame_get_sm_identifier(frame);
+        if (sender_id > MMC_SM_LAST ||
+            mmc_frame_get_status_code(frame) > OVER_CURRENT ||
+            mmc_frame_is_upper_arm(frame) != mmc_is_upper_arm_module(sender_id) ||
+            (frame.status.raw & 0xF0U) != 0 ||
+            (frame.sm_insertion.raw & ~((1U << MMC_SM_COUNT) - 1U)) != 0)
+        {
+            ++rs485_rx_discarded;
+            return;
+        }
+    }
+    for (size_t offset = 0; offset < received; offset += MMC_FRAME_SIZE)
+    {
+        MMC_frame_t frame;
+        memcpy(&frame, rx_snapshot + offset, MMC_FRAME_SIZE);
+        mmc_receive_frame(frame);
+    }
+}
+
+static void mmc_prepare_transmission()
+{
+    /* Never change the DMA buffer while a compare or transmission is pending. */
+    if (communication.rs485.transmissionBusy())
+    {
+        ++rs485_tx_skipped;
+        return;
+    }
+    dataTX_mmc.status.raw = 0;
+    mmc_frame_set_status_code(dataTX_mmc, mode == POWERMODE ? POWER : IDLE);
+    mmc_frame_set_upper_arm_flag(dataTX_mmc, mmc_is_upper_arm_module(module_ID));
+    mmc_frame_set_sm_identifier(dataTX_mmc, module_ID);
+    mmc_frame_set_voltage_raw(dataTX_mmc, mmc_encode_voltage(Cap_voltage));
+    mmc_frame_set_current_raw(dataTX_mmc, mmc_encode_current(Arm_current));
+    memcpy(buffer_tx, &dataTX_mmc, MMC_FRAME_SIZE);
+    if (communication.rs485.prepareSynchronizedTransmission() != 0)
+    {
+        ++rs485_tx_errors;
+    }
 }
 
 
@@ -779,8 +824,6 @@ void setup_routine()
     /* Declare task */
     uint32_t background_task_number =
         task.createBackground(loop_background_task);
-
-    task.createCritical(loop_critical_task, control_task_period);
 
     shield.sensors.enableDefaultTwistSensors();
 
@@ -812,17 +855,6 @@ void setup_routine()
     shield.power.setDutyCycleMax(ALL,1.0);
     shield.power.setDutyCycleMin(ALL,0.0);
 
-    /* Finally, start tasks */
-    task.startBackground(background_task_number);
-
-    task.startCritical();
-    CommTask_num = task.createBackground(loop_communication_task);
-    task.startBackground(CommTask_num);
-
-    communication.rs485.configure(buffer_tx, buffer_rx, sizeof(buffer_rx),
-                                  reception_function,
-                                  SPEED_20M); // custom configuration for RS485
-                                              /* Configure scope channels, what measurements do you want to acquire? */
     if (master == true)
     {
         /* Defines lead's clock as reference for communication synchorinization */
@@ -856,6 +888,33 @@ void setup_routine()
         /* Defines module as follower for communication synchorinization */
         communication.sync.initSlave();
     }
+
+    /* Master TIM2 timing is established by creating the HRTIM critical task.
+     * Configure/prime communication before enabling any user task.
+     */
+    if (task.createCritical(loop_critical_task, control_task_period) != 0)
+    {
+        printk("Unable to create the MMC critical task\n");
+        return;
+    }
+    const uint32_t slot_us = MMC_SLOT_FIRST_US + module_ID * MMC_SLOT_SPACING_US;
+    const int result = communication.rs485.configureSynchronous(
+        buffer_tx, sizeof(buffer_tx), rx_ring, rx_snapshot, sizeof(rx_ring),
+        slot_us, MMC_RS485_BASE_BAUD, true);
+    if (result != 0)
+    {
+        printk("Unable to configure synchronous RS485: %d\n", result);
+        return;
+    }
+    /* Prime before SCIN: the current slave driver arms for the next pulse.
+     * Later prepares use the same API; a pending TX is left intact. Verify
+     * per-cycle slave rearming separately before changing driver behavior.
+     */
+    mmc_prepare_transmission();
+    task.startCritical();
+    task.startBackground(background_task_number);
+    CommTask_num = task.createBackground(loop_communication_task);
+    task.startBackground(CommTask_num);
 }
 
 /* --------------LOOP FUNCTIONS-------------------------------- */
@@ -891,7 +950,6 @@ void loop_communication_task()
     case 'p':
         printk("power mode\n");
         mode = POWERMODE;
-        send_idle = false; // Set the flag to send idle command to false 
         break;
     case 'r':
         is_downloading = true;
@@ -1072,14 +1130,14 @@ void sorting_lower_arm()
 
 /**
  * This is the code loop of the critical task
- * It is executed every 100 micro-seconds defined in the setup_software
- * function.
+ * It is executed every control_task_period microseconds.
  *
  * In the critical task, we implement the MMC control algorithms that will
  * run in Real Time.
  */
 void loop_critical_task()
 {
+    mmc_receive_dispatch();
     update_measurements();
 
     if (mode == POWERMODE)
@@ -1133,18 +1191,8 @@ void loop_critical_task()
                 mmc_frame_set_sm_inserted(dataTX_mmc, MMC_SM6 + counter, g_l[counter] != 0U);
             }
 
-            /* Fills all other communication trame spaces */
-            dataTX_mmc.status.raw = 0U; // Reset status code
-
-            mmc_frame_set_status_code(dataTX_mmc, POWER);
-            mmc_frame_set_upper_arm_flag(dataTX_mmc, mmc_is_upper_arm_module(module_ID));
-            mmc_frame_set_sm_identifier(dataTX_mmc, module_ID);
-            mmc_frame_set_voltage_raw(dataTX_mmc, mmc_encode_voltage(Cap_voltage));
-            mmc_frame_set_current_raw(dataTX_mmc, mmc_encode_current(Arm_current));
-            memcpy(buffer_tx, &dataTX_mmc, sizeof(dataTX_mmc));
-
-            /* LEAD communicates to MODULES */
-            communication.rs485.startTransmission();
+            /* Arm the lead's slot after computing the new insertion flags. */
+            mmc_prepare_transmission();
 
             /* Scope data acquisition */
             g_u_1 = (float)g_u[0];  // recuperate for scope acquisition
@@ -1219,25 +1267,19 @@ void loop_critical_task()
     }
     else if (mode == IDLEMODE)
     {
-        /* Made  such that the LEAD send IDLE flag only once to all modules */
-        if (!send_idle && module_ID == MMC_LEAD)
-        {
-            dataTX_mmc.sm_insertion.raw = 0U;
-            dataTX_mmc.status.raw = 0U;
-            mmc_frame_set_status_code(dataTX_mmc, IDLE);
-            mmc_frame_set_upper_arm_flag(dataTX_mmc, mmc_is_upper_arm_module(module_ID));
-            mmc_frame_set_sm_identifier(dataTX_mmc, module_ID);
-            mmc_frame_set_voltage_raw(dataTX_mmc, mmc_encode_voltage(Cap_voltage));
-            mmc_frame_set_current_raw(dataTX_mmc, mmc_encode_current(Arm_current));
-            memcpy(buffer_tx, &dataTX_mmc, sizeof(dataTX_mmc));
-            communication.rs485.startTransmission();
-            send_idle = true; // Set the flag to send idle command
-        }
+        dataTX_mmc.sm_insertion.raw = 0U;
         if (pwm_enable == true)
         {
             shield.power.stop(ALL);
         }
         pwm_enable = false;
+    }
+    /* Followers report independently of earlier module slots, also in IDLE.
+     * Repeat lead IDLE commands so a missed frame is corrected next cycle.
+     */
+    if (module_ID != MMC_LEAD || mode == IDLEMODE)
+    {
+        mmc_prepare_transmission();
     }
     counter_timer++;
 }
