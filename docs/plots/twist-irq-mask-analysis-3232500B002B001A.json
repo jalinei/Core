@@ -1,0 +1,29 @@
+{
+  "cpu_hz": 170000000,
+  "period_cycles": 34000,
+  "recorded": 1024,
+  "dropped": 2439,
+  "masked_intervals": 1132531,
+  "pending_masked_intervals": 997792,
+  "pending_masks_busy_over_4us": 1753,
+  "max_busy_mask_us": 22.341176470588234,
+  "all_positive_abnormal_isr_intervals": 1715,
+  "all_positive_abnormal_with_recent_pending_mask": 1715,
+  "recorded_positive_intervals": 502,
+  "recorded_positive_with_recent_pending_mask": 502,
+  "recorded_positive_with_recent_pending_mask_and_busy_over_4us": 71,
+  "associated_starting_contexts": {
+    "Thread": 207,
+    "SysTick": 295
+  },
+  "associated_callers": {
+    "arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; cdc_acm_poll_out @ /home/jal/.platformio/packages/framework-zephyr/subsys/usb/device/class/cdc_acm.c:1035": 3,
+    "arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 (discriminator 2) ; k_spin_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/spinlock.h:191 (discriminator 2) ; k_work_schedule_for_queue @ /home/jal/.platformio/packages/framework-zephyr/kernel/work.c:987 (discriminator 2)": 1,
+    "arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; k_spin_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/spinlock.h:191 ; sys_clock_tick_get @ /home/jal/.platformio/packages/framework-zephyr/kernel/timeout.c:265": 8,
+    "arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; k_spin_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/spinlock.h:191 ; z_time_slice @ /home/jal/.platformio/packages/framework-zephyr/kernel/timeslicing.c:105": 295,
+    "arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; k_spin_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/spinlock.h:191 ; z_tick_sleep @ /home/jal/.platformio/packages/framework-zephyr/kernel/sched.c:1123": 24,
+    "arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; idle @ /home/jal/.platformio/packages/framework-zephyr/kernel/idle.c:50": 171
+  },
+  "elf_sha256": "de938fd83d0bb047da7e28ff63f83a3f351c408b8d62b9f6ffa93dba336456e1",
+  "interpretation": "Nearby-mask correlation; end timestamp precedes actual restore and trace-hook overhead. Idle sleep is separated. No absolute hardware release timestamp."
+}

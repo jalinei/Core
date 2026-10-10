@@ -1,0 +1,14 @@
+Captured 1024 abnormal ISR intervals; dropped 2439.
+All positive abnormal ISR intervals: 1715; recent pending-mask association: 1715.
+Recorded positive intervals: 502; with recent pending mask: 502; busy >4 us: 71.
+Total masked intervals: 1132531; HRTIM pending before restore: 997792; with busy >4 us: 1753.
+Maximum traced busy mask: 22.341 us.
+Associated positive-event contexts: {'Thread': 207, 'SysTick': 295}
+Associated callers:
+295 events: arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; k_spin_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/spinlock.h:191 ; z_time_slice @ /home/jal/.platformio/packages/framework-zephyr/kernel/timeslicing.c:105
+171 events: arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; idle @ /home/jal/.platformio/packages/framework-zephyr/kernel/idle.c:50
+24 events: arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; k_spin_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/spinlock.h:191 ; z_tick_sleep @ /home/jal/.platformio/packages/framework-zephyr/kernel/sched.c:1123
+8 events: arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; k_spin_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/spinlock.h:191 ; sys_clock_tick_get @ /home/jal/.platformio/packages/framework-zephyr/kernel/timeout.c:265
+3 events: arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 ; cdc_acm_poll_out @ /home/jal/.platformio/packages/framework-zephyr/subsys/usb/device/class/cdc_acm.c:1035
+1 events: arch_irq_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/arch/arm/asm_inline_gcc.h:68 (discriminator 2) ; k_spin_lock @ /home/jal/.platformio/packages/framework-zephyr/include/zephyr/spinlock.h:191 (discriminator 2) ; k_work_schedule_for_queue @ /home/jal/.platformio/packages/framework-zephyr/kernel/work.c:987 (discriminator 2)
+Timestamp boundaries include measurement uncertainty; correlation is not an absolute ISR-latency measurement.

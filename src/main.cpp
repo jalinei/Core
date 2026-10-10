@@ -35,6 +35,7 @@
 #include "TaskAPI.h"
 #include "ShieldAPI.h"
 #include "CommunicationAPI.h"
+#include "timer.h"
 
 /*--------------OWNTECH Libraries----------------------------- */
 #include "filters.h"
@@ -481,6 +482,10 @@ static uint32_t rs485_errors;
 static uint32_t rs485_tx_skipped;
 static uint32_t rs485_tx_errors;
 static uint32_t rs485_rx_discarded;
+static uint32_t rs485_tx_prepared;
+static int rs485_tx_last_error;
+static uint32_t rs485_tx_late;
+static uint32_t rs485_tx_arm_max_ticks;
 
 float32_t Cap_voltage = 0.0f;
 static float32_t Arm_current = 0.0f;
@@ -785,6 +790,18 @@ static void mmc_receive_dispatch()
 
 static void mmc_prepare_transmission()
 {
+    /* TIM2 ticks are 0.1 us from the accepted synchronization boundary.
+     * Record late attempts without resetting the bus phase or forcing TX.
+     */
+    const uint32_t arm_ticks = timer_get_count(DEVICE_DT_GET(TIMER2_DEVICE));
+    if (arm_ticks > rs485_tx_arm_max_ticks)
+    {
+        rs485_tx_arm_max_ticks = arm_ticks;
+    }
+    if (arm_ticks >= (MMC_SLOT_FIRST_US + module_ID * MMC_SLOT_SPACING_US) * 10U)
+    {
+        ++rs485_tx_late;
+    }
     /* Never change the DMA buffer while a compare or transmission is pending. */
     if (communication.rs485.transmissionBusy())
     {
@@ -798,9 +815,15 @@ static void mmc_prepare_transmission()
     mmc_frame_set_voltage_raw(dataTX_mmc, mmc_encode_voltage(Cap_voltage));
     mmc_frame_set_current_raw(dataTX_mmc, mmc_encode_current(Arm_current));
     memcpy(buffer_tx, &dataTX_mmc, MMC_FRAME_SIZE);
-    if (communication.rs485.prepareSynchronizedTransmission() != 0)
+    const int result = communication.rs485.prepareSynchronizedTransmission();
+    if (result != 0)
     {
         ++rs485_tx_errors;
+        rs485_tx_last_error = result;
+    }
+    else
+    {
+        ++rs485_tx_prepared;
     }
 }
 
@@ -940,6 +963,7 @@ void loop_communication_task()
                "|     press p : power mode               |\n"
                "|     press r : record data              |\n"
                "|     press a : toggle enable_acq var    |\n"
+               "|     press d : RS485 diagnostics        |\n"
                "|________________________________________|\n\n");
         /*------------------------------------------------------ */
         break;
@@ -957,6 +981,28 @@ void loop_communication_task()
     case 'a':
         enable_acq = !(enable_acq);
         break;
+    case 'd':
+    {
+        /* Snapshot briefly; print after unlocking so console output cannot
+         * hold off the control interrupt for the duration of the message.
+         */
+        const unsigned int key = irq_lock();
+        const uint32_t prepared = rs485_tx_prepared;
+        const uint32_t skipped = rs485_tx_skipped;
+        const uint32_t tx_errors = rs485_tx_errors;
+        const int last_error = rs485_tx_last_error;
+        const uint32_t faults = rs485_errors;
+        const uint32_t discarded = rs485_rx_discarded;
+        const uint32_t late = rs485_tx_late;
+        const uint32_t max_ticks = rs485_tx_arm_max_ticks;
+        irq_unlock(key);
+        printk("RS485: prepared=%u busy_skips=%u prepare_errors=%u last_error=%d "
+               "faults=0x%08x rx_discarded=%u late_attempts=%u "
+               "max_arm_ticks=%u (0.1 us/tick)\n",
+               prepared, skipped, tx_errors, last_error, faults, discarded,
+               late, max_ticks);
+        break;
+    }
     default:
         break;
     }

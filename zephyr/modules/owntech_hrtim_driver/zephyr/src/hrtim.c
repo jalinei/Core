@@ -33,6 +33,12 @@
 #include "assert.h"
 #include <errno.h>
 #include "hrtim.h"
+#ifdef CONFIG_OWNTECH_TASK_JITTER_STATS
+#include "task_jitter_isr.h"
+#ifdef CONFIG_OWNTECH_TASK_IRQ_LOCK_TRACE
+#include "owntech_irq_trace.h"
+#endif
+#endif
 #ifdef CONFIG_OWNTECH_TIMER_DRIVER
 #include "timer.h"
 #include <stm32_ll_tim.h>
@@ -376,6 +382,12 @@ static inline uint32_t _period_ckpsc(uint32_t freq, timer_hrtim_t *tu)
  */
 void _hrtim_callback()
 {
+#ifdef CONFIG_OWNTECH_TASK_JITTER_STATS
+    owntech_task_isr_entry_cycles = DWT->CYCCNT;
+#ifdef CONFIG_OWNTECH_TASK_IRQ_LOCK_TRACE
+    owntech_irq_trace_isr(owntech_task_isr_entry_cycles);
+#endif
+#endif
 #ifdef CONFIG_OWNTECH_TIMER_DRIVER
     if (LL_HRTIM_GetSyncInSrc(HRTIM1) == LL_HRTIM_SYNCIN_SRC_NONE)
     {

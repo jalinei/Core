@@ -1,0 +1,8 @@
+***** delaying boot 1500ms (per build configuration) *****
+*** Booting Zephyr OS build zephyr-v40000 (delayed boot 1500ms) ***
+Board UID: 0x002B001A
+Module ID : 0 
+No calibration value found in persistent storage. Default values will be used for data conversion.
+Period jitter (us): min -9.441176, max 12.476471, mean 0.000010, mean absolute 0.456381
+Absolute jitter > 4 us: 500 (0.050000%); no updates skipped
+Control execution (us): min 12.247059, max 19.041176, mean 15.321941

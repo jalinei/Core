@@ -66,6 +66,11 @@ void TaskAPI::stopCritical()
 	scheduling_stop_uninterruptible_synchronous_task();
 }
 
+bool TaskAPI::getCriticalJitterStats(TaskJitterStats &stats)
+{
+	return scheduling_get_critical_jitter_stats(stats);
+}
+
 
 /* Asynchronous tasks */
 

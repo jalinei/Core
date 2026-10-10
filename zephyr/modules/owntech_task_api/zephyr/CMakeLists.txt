@@ -6,6 +6,8 @@ if(CONFIG_OWNTECH_TASK_API)
   zephyr_library()
 
   # Select source files to be compiled
+  zephyr_library_sources_ifdef(CONFIG_OWNTECH_TASK_IRQ_LOCK_TRACE src/irq_mask_trace.cpp)
+
   zephyr_library_sources(
     public_api/TaskAPI.cpp
     src/scheduling_common.cpp

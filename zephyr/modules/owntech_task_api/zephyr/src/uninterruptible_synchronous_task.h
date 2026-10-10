@@ -86,5 +86,7 @@ void scheduling_start_uninterruptible_synchronous_task(
  */
 void scheduling_stop_uninterruptible_synchronous_task();
 
+bool scheduling_get_critical_jitter_stats(TaskJitterStats &stats);
+
 
 #endif /* UNINTERRUPTIBLESYNCHRONOUSTASK_H_ */

@@ -6,6 +6,23 @@ config OWNTECH_TASK_API
 
 if OWNTECH_TASK_API
 
+	config OWNTECH_TASK_JITTER_STATS
+		bool "Collect DWT control task timing statistics"
+		depends on CPU_CORTEX_M4
+		default y
+		help
+			Collect one window of 1000000 control invocations per boot.
+			Print the report from a background thread. This never skips control
+			updates. Requires a constant CPU clock and a running DWT counter.
+
+    config OWNTECH_TASK_IRQ_LOCK_TRACE
+        bool "Temporary Cortex-M interrupt-mask diagnostic trace"
+        depends on OWNTECH_TASK_JITTER_STATS && ARMV7_M_ARMV8_M_MAINLINE
+        default n
+        help
+            Requires the guarded Zephyr kernel patch in scripts/irq_trace_kernel_patch.py.
+            Traces arch_irq_lock, PendSV and CPU idle masking. Adds timing overhead.
+
 	config OWNTECH_TASK_ENABLE_ASYNCHRONOUS_TASKS
 		bool "Enable support for asychronous tasks"
 		help

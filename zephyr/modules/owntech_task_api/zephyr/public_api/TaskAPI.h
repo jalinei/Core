@@ -28,6 +28,7 @@
 
 /* Stdlib */
 #include <stdint.h>
+#include "TaskJitterStats.h"
 
 /* Zephyr */
 #include <zephyr/kernel.h>
@@ -126,6 +127,15 @@ public:
 	 *        startCritical() again.
 	 */
 	void stopCritical();
+
+	/** Copy the completed million-invocation timing report, from thread context.
+	 * Returns false until ready (or when CONFIG_OWNTECH_TASK_JITTER_STATS=n).
+	 * The report is immutable and remains available until reboot; console
+	 * reporting is automatic. Stop/start preserves the window and excludes
+	 * the stopped interval. Redefining resets an unfinished window; a completed
+	 * report remains available until reboot.
+	 */
+	bool getCriticalJitterStats(TaskJitterStats &stats);
 
 
 #ifdef CONFIG_OWNTECH_TASK_ENABLE_ASYNCHRONOUS_TASKS
