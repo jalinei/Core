@@ -49,6 +49,7 @@ static uint32_t timer1_window_end;
 static bool timer1_window_pending;
 static bool timer1_window_armed;
 static bool timer1_window_finished;
+static bool timer1_sync_gate_closing;
 
 static void timer1_window_close(void)
 {
@@ -106,6 +107,34 @@ static int timer_stm32_init(const struct device* dev)
  * @param arg Pointer to the timer device (cast from a generic void pointer).
  *
  */
+/* CH4 alternates between opening the gate before the boundary and closing
+ * it one tick after the accepted reset. Both transitions run in the same ZLI;
+ * a delayed, maskable HRTIM callback cannot admit additional PWM resets.
+ */
+static void timer1_sync_gate_event(void)
+{
+	LL_TIM_ClearFlag_CC4(TIM1);
+	if (timer1_sync_gate_closing)
+	{
+		LL_TIM_SetSlaveMode(TIM1, LL_TIM_SLAVEMODE_DISABLED);
+		if (timer1_master_mode)
+			LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_OUTPUT);
+		timer1_sync_gate_closing = false;
+		LL_TIM_OC_SetCompareCH4(TIM1, timer1_sync_open_ticks);
+		/* Keep TRIG latched for the normal HRTIM callback. */
+		return;
+	}
+	timer1_window_close();
+	if (timer1_window_finished)
+		LL_TIM_DisableDMAReq_CC3(TIM1);
+	LL_TIM_ClearFlag_TRIG(TIM1);
+	timer1_sync_gate_closing = true;
+	LL_TIM_OC_SetCompareCH4(TIM1, 1U);
+	LL_TIM_SetSlaveMode(TIM1, LL_TIM_SLAVEMODE_COMBINED_RESETTRIGGER);
+	if (timer1_master_mode)
+		LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_ALTERNATE);
+}
+
 static void timer_stm32_callback(const void* arg)
 {
 	const struct device* timer_dev = (const struct device*)arg;
@@ -117,16 +146,7 @@ static void timer_stm32_callback(const void* arg)
 		if (timer1_sync_enabled() && LL_TIM_IsEnabledIT_CC4(TIM1) &&
 			LL_TIM_IsActiveFlag_CC4(TIM1))
 		{
-			LL_TIM_ClearFlag_CC4(TIM1);
-			LL_TIM_DisableIT_CC4(TIM1);
-			timer1_window_close();
-			if (timer1_window_finished)
-				LL_TIM_DisableDMAReq_CC3(TIM1);
-			/* Only accept the next PWM reset, at the control boundary. */
-			LL_TIM_ClearFlag_TRIG(TIM1);
-			LL_TIM_SetSlaveMode(TIM1, LL_TIM_SLAVEMODE_COMBINED_RESETTRIGGER);
-			if (timer1_master_mode)
-				LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_ALTERNATE);
+			timer1_sync_gate_event();
 		}
 		if ( !LL_TIM_IsEnabledIT_CC3(TIM1) || !LL_TIM_IsActiveFlag_CC3(TIM1) )
 			return;
@@ -487,6 +507,7 @@ static int timer1_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks,
 	irq_disable(TIMER1_INTERRUPT_LINE);
 	timer1_sync_stop();
 	timer1_sync_open_ticks = control_ticks - TIMER1_SYNC_LEAD_TICKS;
+	timer1_sync_gate_closing = false;
 	LL_TIM_SetSlaveMode(TIM1, LL_TIM_SLAVEMODE_DISABLED);
 	LL_TIM_DisableCounter(TIM1);
 	LL_TIM_DisableIT_CC3(TIM1);
@@ -618,13 +639,15 @@ static void timer1_sync_event(void)
 	if (!timer1_sync_enabled())
 		return;
 
-	/* Prevent the zero-latency CH4 handler from reopening the pin while
-	 * the HRTIM repetition/SCIN callback is closing the sync window.
+	/* Serialize reconfiguration with the CH4 ZLI. It already closes the
+	 * gate after a locked boundary; acquisition still uses PWM resets.
 	 */
 	LL_TIM_DisableIT_CC4(TIM1);
 	if (timer1_master_mode)
 		LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_OUTPUT);
 	LL_TIM_ClearFlag_CC4(TIM1);
+	timer1_sync_gate_closing = false;
+	LL_TIM_OC_SetCompareCH4(TIM1, timer1_sync_open_ticks);
 	if (!timer1_sync_started || !LL_TIM_IsActiveFlag_TRIG(TIM1))
 	{
 		/* Acquire phase from PWM resets until the next HRTIM callback.
@@ -701,6 +724,7 @@ void timer1_sync_stop(void)
 	timer1_slave_mode = false;
 	timer1_sync_started = false;
 	timer1_sync_acquiring = false;
+	timer1_sync_gate_closing = false;
 }
 
 void timer1_master_sync_stop(void)

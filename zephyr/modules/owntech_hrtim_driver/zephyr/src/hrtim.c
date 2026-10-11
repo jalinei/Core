@@ -368,8 +368,8 @@ static inline uint32_t _period_ckpsc(uint32_t freq, timer_hrtim_t *tu)
  *
  * - In master communication mode, restores PB1 to output mode and disables
  *   TIM1's ITR10 gate. Startup and missed triggers acquire phase in hardware.
- * - In slave communication mode, closes TIM1's ITR10 gate on the SCIN callback
- *   before invoking the user callback. CH4 alone opens the gate from a ZLI.
+ * - In slave communication mode, manages TIM1 phase acquisition on SCIN.
+ *   Once acquired, CH4 opens and closes the gate from the same ZLI.
  *
  * - Executes the user-defined callback if it is not `NULL`.
  *
@@ -1434,14 +1434,16 @@ static int _configure_sync_timing(void)
         LL_HRTIM_GetSyncOutSrc(HRTIM1) == LL_HRTIM_SYNCOUT_SRC_TIMA_START)
     {
 #ifdef CONFIG_OWNTECH_TIMER_DRIVER
-        if (!(LL_HRTIM_TIM_GetResetTrig(HRTIM1, TIMA) & LL_HRTIM_RESETTRIG_MASTER_PER))
+        if (sync_in == LL_HRTIM_SYNCIN_SRC_NONE &&
+            !(LL_HRTIM_TIM_GetResetTrig(HRTIM1, TIMA) & LL_HRTIM_RESETTRIG_MASTER_PER))
             return -EINVAL;
         if (sync_in == LL_HRTIM_SYNCIN_SRC_EXTERNAL_EVENT &&
-            (LL_HRTIM_TIM_GetResetTrig(HRTIM1, TIMA) != LL_HRTIM_RESETTRIG_MASTER_PER ||
-             LL_HRTIM_TIM_GetCounterMode(HRTIM1, TIMA) != LL_HRTIM_MODE_CONTINUOUS ||
-             LL_HRTIM_TIM_IsEnabledStartOnSync(HRTIM1, TIMA) ||
-             LL_HRTIM_TIM_IsEnabledResetOnSync(HRTIM1, TIMA) ||
-             !(HRTIM1->sMasterRegs.MCR & HRTIM_MCR_TACEN)))
+            (LL_HRTIM_TIM_GetCounterMode(HRTIM1, TIMA) != LL_HRTIM_MODE_CONTINUOUS ||
+             LL_HRTIM_TIM_GetResetTrig(HRTIM1, TIMA) != LL_HRTIM_RESETTRIG_NONE ||
+             !LL_HRTIM_TIM_IsEnabledStartOnSync(HRTIM1, TIMA) ||
+             !LL_HRTIM_TIM_IsEnabledResetOnSync(HRTIM1, TIMA) ||
+             !LL_HRTIM_TIM_IsEnabledStartOnSync(HRTIM1, MSTR) ||
+             !LL_HRTIM_TIM_IsEnabledResetOnSync(HRTIM1, MSTR)))
             return -EINVAL;
         uint64_t pwm_ticks = (uint64_t)LL_HRTIM_TIM_GetPeriod(HRTIM1, MSTR)
             * (1U << LL_HRTIM_TIM_GetPrescaler(HRTIM1, MSTR))
@@ -1453,7 +1455,8 @@ static int _configure_sync_timing(void)
         if (control_ticks >= UINT16_MAX)
             return -1;
         if (sync_in == LL_HRTIM_SYNCIN_SRC_EXTERNAL_EVENT)
-            return timer1_slave_sync_configure(control_ticks, pwm_ticks / divisor);
+            /* Slave ITR10 only sees external sync reset events. */
+            return timer1_slave_sync_configure(control_ticks, control_ticks);
         return timer1_master_sync_configure(control_ticks, pwm_ticks / divisor);
 #else
         return -ENODEV;

@@ -66,7 +66,8 @@ extern "C" {
 /* HRTIM master synchronization hooks. Timing values are TIM1 ticks (0.1 us).
  * Configure before starting the critical task. The first repetition callback
  * arms phase acquisition from PWM resets with SCOUT closed and TX deferred.
- * The next callback closes ITR10; subsequent CH4 events open the sync window.
+ * The next callback ends acquisition. Thereafter CH4 opens the sync window
+ * and closes it one tick after the accepted reset, using the same ZLI.
  * CH4 is scheduled 3 us before the boundary; the PWM period must exceed 3 us.
  * Master mode uses a zero-latency ISR. Any TIM1 CH3 user callback sharing
  * this interrupt must not call Zephyr kernel APIs.
@@ -75,11 +76,11 @@ int timer1_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks);
 void timer1_master_sync_event(void);
 void timer1_master_sync_stop(void);
 bool timer1_master_sync_enabled(void);
-/* Slave synchronization uses Timer A resets on each master period event.
+/* Slave synchronization uses Timer A start events on external sync reset.
  * Configure the HRTIM critical task first. TIM1 counts until sync or its
  * 16-bit safety overflow; CH4 opens
- * ITR10 reception 3 us before each control boundary. The HRTIM SCIN callback
- * closes reception before the user callback, then rearms CH4. As in master
+ * ITR10 reception 3 us before each control boundary and closes it one tick
+ * after reset from the same ZLI. The HRTIM SCIN callback handles acquisition. As in master
  * mode, the first callback arms hardware phase acquisition with TX deferred;
  * a subsequent callback with an accepted trigger ends acquisition. A missing
  * trigger keeps reception open for reacquisition. No TIM1 trigger IRQ is used.

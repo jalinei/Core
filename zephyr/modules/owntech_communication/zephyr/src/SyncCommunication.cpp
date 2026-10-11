@@ -72,10 +72,13 @@ void SyncCommunication::initSlave()
 	 * when receiving a synchronization input event */
 	LL_HRTIM_TIM_EnableResetOnSync(HRTIM1, LL_HRTIM_TIMER_MASTER);
 	LL_HRTIM_TIM_EnableStartOnSync(HRTIM1, LL_HRTIM_TIMER_MASTER);
-	/* RM0440 28.3.19: MASTER_START does not provide a period-rollover
-	 * source. Timer A resets on MASTER_PER and emits SYNCOUT on each reset.
-	 * Initialize PWM Timer A at zero phase before entering slave mode.
+	/* Only SCIN resets Timer A. Continuous PWM rollovers do not produce
+	 * TIMA_START synchronization pulses (RM0440 28.3.19), so ITR10 receives
+	 * one hardware pulse per external boundary instead of a PWM train.
 	 */
+	LL_HRTIM_TIM_SetResetTrig(HRTIM1, LL_HRTIM_TIMER_A, LL_HRTIM_RESETTRIG_NONE);
+	LL_HRTIM_TIM_EnableResetOnSync(HRTIM1, LL_HRTIM_TIMER_A);
+	LL_HRTIM_TIM_EnableStartOnSync(HRTIM1, LL_HRTIM_TIMER_A);
 	LL_HRTIM_ConfigSyncOut(HRTIM1,
 						   LL_HRTIM_SYNCOUT_POSITIVE_PULSE,
 						   LL_HRTIM_SYNCOUT_SRC_TIMA_START);
