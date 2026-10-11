@@ -48,10 +48,10 @@ public:
 	 * @brief Initialization synchronization as `MASTER`,
 	 * 		  the master send the synchronization pulse.
 	 * Initialize PWM Timer A first: it must reset on the master period event.
-	 * Then create/start an HRTIM critical task. TIM2 CH2 opens SCOUT and ITR10
+	 * Then create/start an HRTIM critical task. TIM1 CH4 opens SCOUT and ITR10
 	 * 3 us before each boundary; the repetition ISR closes them. The first ISR
 	 * arms hardware phase acquisition with SCOUT closed and TX deferred; the
-	 * next ISR ends acquisition. CH2 uses a zero-latency ISR and can preempt
+	 * next ISR ends acquisition. CH4 uses a zero-latency ISR and can preempt
 	 * the control task. It must execute within its 3 us lead; other zero-latency
 	 * ISRs can still delay it. A missed trigger reacquires phase.
 	 */
@@ -64,11 +64,11 @@ public:
 	 * MASTER_PER as its only reset trigger. The HRTIM master waits for SCIN
 	 * and resets on each pulse. Timer A relays each local master rollover
 	 * through SYNCOUT to ITR10, with PB1 held low. Then create/start an HRTIM
-	 * critical task: TIM2 keeps counting, opens ITR10 from a ZLI 3 us before
+	 * critical task: TIM1 keeps counting, opens ITR10 from a ZLI 3 us before
 	 * each control boundary, and closes it in the SCIN callback before the
 	 * critical task runs. The first SCIN callback arms hardware acquisition;
 	 * a subsequent callback with an accepted ITR10 trigger ends acquisition.
-	 * Other ZLIs may delay CH2; a missed trigger causes reacquisition.
+	 * Other ZLIs may delay CH4; a missed trigger causes reacquisition.
 	 */
 	static void initSlave();
 };

@@ -45,7 +45,7 @@ void SyncCommunication::initMaster()
 	/* HRTIM_SCOUT pin configuration */
 	LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOB);
 
-	/* TIM2 CH2 opens this pin before a control boundary. Start closed. */
+	/* TIM1 CH4 opens this pin before a control boundary. Start closed. */
 	LL_GPIO_ResetOutputPin(GPIOB, LL_GPIO_PIN_1);
 	LL_GPIO_SetPinMode(GPIOB, LL_GPIO_PIN_1, LL_GPIO_MODE_OUTPUT);
 	LL_GPIO_SetPinSpeed     (GPIOB,
@@ -61,7 +61,7 @@ void SyncCommunication::initMaster()
 
 void SyncCommunication::initSlave()
 {
-	timer2_sync_stop();
+	timer1_sync_stop();
 	LL_HRTIM_TIM_CounterDisable(HRTIM1, LL_HRTIM_TIMER_MASTER);
 	LL_HRTIM_TIM_CounterDisable(HRTIM1, LL_HRTIM_TIMER_A);
 

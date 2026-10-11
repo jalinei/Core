@@ -31,7 +31,7 @@
  *
  *         This version supports:
  *
- *         * Timer 2: HRTIM ITR10 synchronized CH1 compare IRQ or DMA request.
+ *         * Timer 1: HRTIM ITR10 synchronized CH3 compare IRQ or DMA request.
  * 
  *         * Timer 6 and Timer 7: Periodic call of a callback function
  * 			 with period ranging from 2 to 6553 µs.
@@ -57,39 +57,48 @@ extern "C" {
  *  Public devices names
  */
 
-#define TIMER2_DEVICE DT_NODELABEL(timers2)
+#define TIMER1_DEVICE DT_NODELABEL(timers1)
 #define TIMER3_DEVICE DT_NODELABEL(timers3)
 #define TIMER4_DEVICE DT_NODELABEL(timers4)
 #define TIMER6_DEVICE DT_NODELABEL(timers6)
 #define TIMER7_DEVICE DT_NODELABEL(timers7)
 
-/* HRTIM master synchronization hooks. Timing values are TIM2 ticks (0.1 us).
+/* HRTIM master synchronization hooks. Timing values are TIM1 ticks (0.1 us).
  * Configure before starting the critical task. The first repetition callback
  * arms phase acquisition from PWM resets with SCOUT closed and TX deferred.
- * The next callback closes ITR10; subsequent CH2 events open the sync window.
- * CH2 is scheduled 3 us before the boundary; the PWM period must exceed 3 us.
- * Master mode uses a zero-latency ISR. Any TIM2 CH1 user callback sharing
+ * The next callback closes ITR10; subsequent CH4 events open the sync window.
+ * CH4 is scheduled 3 us before the boundary; the PWM period must exceed 3 us.
+ * Master mode uses a zero-latency ISR. Any TIM1 CH3 user callback sharing
  * this interrupt must not call Zephyr kernel APIs.
  */
-int timer2_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks);
-void timer2_master_sync_event(void);
-void timer2_master_sync_stop(void);
-bool timer2_master_sync_enabled(void);
+int timer1_master_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks);
+void timer1_master_sync_event(void);
+void timer1_master_sync_stop(void);
+bool timer1_master_sync_enabled(void);
 /* Slave synchronization uses Timer A resets on each master period event.
- * Configure the HRTIM critical task first. TIM2 runs continuously; CH2 opens
+ * Configure the HRTIM critical task first. TIM1 counts until sync or its
+ * 16-bit safety overflow; CH4 opens
  * ITR10 reception 3 us before each control boundary. The HRTIM SCIN callback
- * closes reception before the user callback, then rearms CH2. As in master
+ * closes reception before the user callback, then rearms CH4. As in master
  * mode, the first callback arms hardware phase acquisition with TX deferred;
  * a subsequent callback with an accepted trigger ends acquisition. A missing
- * trigger keeps reception open for reacquisition. No TIM2 trigger IRQ is used.
- * Slave mode never opens PB1. CH1 callbacks share the ZLI restrictions above.
+ * trigger keeps reception open for reacquisition. No TIM1 trigger IRQ is used.
+ * Slave mode never opens PB1. CH3 callbacks share the ZLI restrictions above.
  */
-int timer2_slave_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks);
-void timer2_slave_sync_event(void);
-bool timer2_sync_enabled(void);
-void timer2_sync_stop(void);
-/* Cancel CH1 including a transmission deferred during phase acquisition. */
-void timer2_compare_disarm(void);
+int timer1_slave_sync_configure(uint32_t control_ticks, uint32_t pwm_ticks);
+void timer1_slave_sync_event(void);
+bool timer1_sync_enabled(void);
+void timer1_sync_stop(void);
+/* Cancel CH3 including a transmission deferred during phase acquisition. */
+void timer1_compare_disarm(void);
+/* PB14/CH2N is high from start_us to deadline_us after the control boundary.
+ * deadline_us=0 selects the synchronization opening (period minus 3 us).
+ * Both edges are hardware compares; CH3 requests DMA at start_us.
+ */
+int timer1_tx_window_configure(uint32_t start_us, uint32_t deadline_us);
+/* Returns -ETIME if too late to arm this period; queues during acquisition. */
+int timer1_tx_window_arm(void);
+bool timer1_tx_window_expired(void);
 
 /**
  *  Configuration structure
@@ -134,7 +143,7 @@ typedef enum
  * *** Incremental encoder mode (ignored if timer_enable_encoder=0) ***
  * - timer_pin_mode : Pin mode for incremental coder interface.
  *
- * @note TIM2 uses CH1 compare IRQ or DMA mode with timer_compare_t_usec.
+ * @note TIM1 uses CH3 compare IRQ or DMA mode with timer_compare_t_usec.
  * Only periodic irq mode is supported on TIM6/TIM7, and
  * only incremental coder mode is supported on TIM4.
  * 
@@ -154,17 +163,17 @@ struct timer_config_t
 	uint32_t         timer_use_zero_latency : 1;
 	/* Incremental encoder option */
 	pin_mode_t       timer_enc_pin_mode;
-	/* TIM2 only: CH1 compare delay after HRTIM ITR10, in microseconds.
+	/* TIM1 only: CH3 compare delay after HRTIM ITR10, in microseconds.
 	 * Set timer_enable_irq and timer_irq_callback, or timer_enable_compare_dma.
-	 * Valid range: 1..429496729.
-	 * Configure the HRTIM critical task before configuring TIM2. Start arms
+	 * Valid range: 1..6553; the control period must fit in 16 bits.
+	 * Configure the HRTIM critical task before configuring TIM1. Start arms
 	 * the compare without resetting the running control-period counter.
-	 * Delay must precede CH2 (control period minus 3 us). Prepare TX before
+	 * Delay must precede CH4 (control period minus 3 us). Prepare TX before
 	 * its compare deadline.
 	 * HRTIM synchronization output must be configured separately.
 	 */
 	uint32_t         timer_compare_t_usec;
-	/* TIM2 only: emit a CH1 DMA request instead of requiring an IRQ.
+	/* TIM1 only: emit a CH3 DMA request instead of requiring an IRQ.
 	 * The caller configures and arms the DMA channel before timer_start().
 	 */
 	uint32_t         timer_enable_compare_dma : 1;

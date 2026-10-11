@@ -358,7 +358,7 @@ static inline uint32_t _period_ckpsc(uint32_t freq, timer_hrtim_t *tu)
  *
  * This function manages various HRTIM (High-Resolution Timer) synchronization 
  * conditions and clears the corresponding hardware flags. It also temporarily 
- * closes the synchronization window and manages TIM2 phase acquisition,
+ * closes the synchronization window and manages TIM1 phase acquisition,
  * and finally calls a user-defined callback if one is set.
  *
  * - Clears the master repetition flag if no synchronization input is configured.
@@ -367,9 +367,9 @@ static inline uint32_t _period_ckpsc(uint32_t freq, timer_hrtim_t *tu)
  *   detected.
  *
  * - In master communication mode, restores PB1 to output mode and disables
- *   TIM2's ITR10 gate. Startup and missed triggers acquire phase in hardware.
- * - In slave communication mode, closes TIM2's ITR10 gate on the SCIN callback
- *   before invoking the user callback. CH2 alone opens the gate from a ZLI.
+ *   TIM1's ITR10 gate. Startup and missed triggers acquire phase in hardware.
+ * - In slave communication mode, closes TIM1's ITR10 gate on the SCIN callback
+ *   before invoking the user callback. CH4 alone opens the gate from a ZLI.
  *
  * - Executes the user-defined callback if it is not `NULL`.
  *
@@ -379,11 +379,11 @@ void _hrtim_callback()
 #ifdef CONFIG_OWNTECH_TIMER_DRIVER
     if (LL_HRTIM_GetSyncInSrc(HRTIM1) == LL_HRTIM_SYNCIN_SRC_NONE)
     {
-        timer2_master_sync_event();
+        timer1_master_sync_event();
     }
     else if (LL_HRTIM_GetSyncInSrc(HRTIM1) == LL_HRTIM_SYNCIN_SRC_EXTERNAL_EVENT)
     {
-        timer2_slave_sync_event();
+        timer1_slave_sync_event();
     }
 #endif
     if (LL_HRTIM_GetSyncInSrc(HRTIM1) == LL_HRTIM_SYNCIN_SRC_NONE)
@@ -1421,8 +1421,8 @@ hrtim_adc_edgetrigger_t hrtim_adc_rollover_get(hrtim_tu_number_t tu_number)
     return tu_channel[tu_number]->adc_hrtim.adc_rollover;
 }
 
-/* Derive TIM2 timing from the actual HRTIM registers, avoiding the rounded
- * microsecond period used by TaskAPI. TIM2 uses the same system-clock time
+/* Derive TIM1 timing from the actual HRTIM registers, avoiding the rounded
+ * microsecond period used by TaskAPI. TIM1 uses the same system-clock time
  * base as the existing TIM6/TIM7 driver on SPIN.
  */
 static int _configure_sync_timing(void)
@@ -1447,14 +1447,14 @@ static int _configure_sync_timing(void)
             * (1U << LL_HRTIM_TIM_GetPrescaler(HRTIM1, MSTR))
             * CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC;
         uint64_t divisor = (uint64_t)hrtim_get_apb2_clock() * 32U
-            * (LL_TIM_GetPrescaler(TIM2) + 1U);
+            * (LL_TIM_GetPrescaler(TIM1) + 1U);
         uint64_t control_ticks = pwm_ticks *
             (LL_HRTIM_TIM_GetRepetition(HRTIM1, MSTR) + 1U) / divisor;
-        if (control_ticks >= UINT32_MAX)
+        if (control_ticks >= UINT16_MAX)
             return -1;
         if (sync_in == LL_HRTIM_SYNCIN_SRC_EXTERNAL_EVENT)
-            return timer2_slave_sync_configure(control_ticks, pwm_ticks / divisor);
-        return timer2_master_sync_configure(control_ticks, pwm_ticks / divisor);
+            return timer1_slave_sync_configure(control_ticks, pwm_ticks / divisor);
+        return timer1_master_sync_configure(control_ticks, pwm_ticks / divisor);
 #else
         return -ENODEV;
 #endif
@@ -1505,7 +1505,7 @@ int hrtim_PeriodicEvent_en(hrtim_tu_t tu)
 void hrtim_PeriodicEvent_dis(hrtim_tu_t tu)
 {
 #ifdef CONFIG_OWNTECH_TIMER_DRIVER
-    timer2_sync_stop();
+    timer1_sync_stop();
 #endif
     irq_disable(HRTIM_IRQ_NUMBER);
     /* Disabling the interrupt on repetition counter event */
@@ -1518,8 +1518,8 @@ int hrtim_PeriodicEvent_SetRep(hrtim_tu_t tu, uint32_t repetition)
     if (repetition == 0 || repetition > 256U)
         return -EINVAL;
 #ifdef CONFIG_OWNTECH_TIMER_DRIVER
-    /* Changing a live repetition preload would leave TIM2 on the old phase. */
-    if (tu == MSTR && timer2_sync_enabled() &&
+    /* Changing a live repetition preload would leave TIM1 on the old phase. */
+    if (tu == MSTR && timer1_sync_enabled() &&
         (LL_HRTIM_IsEnabledIT_REP(HRTIM1, MSTR) || LL_HRTIM_IsEnabledIT_SYNC(HRTIM1)))
         return -EBUSY;
 #endif

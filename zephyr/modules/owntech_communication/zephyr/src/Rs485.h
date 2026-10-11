@@ -130,24 +130,27 @@ bool serial_tx_busy();
 uint16_t serial_rx_write_position();
 void serial_synchronous_mode(uint16_t reception_size);
 
-/** @brief Configure TIM2 CH1 to start a prepared TX after HRTIM ITR10.
- * Reserves TIM2 and DMA1 channel 8. Call after RS485 configuration.
+/** @brief Configure TIM1 CH3 to start a prepared TX after HRTIM ITR10.
+ * Reserves TIM1 and DMA1 channel 8. Call after RS485 configuration.
  * First configure the HRTIM critical task in either sync mode so its control
  * period is known. Delay must precede the ITR10 opening compare.
+ * In synchronous mode deadline_us is the PB14 hardware cutoff after the
+ * boundary; zero selects the control period minus 3 us. Must exceed delay_us.
  * Returns 0 on success or a negative errno.
  */
-int serial_sync_tx_config(uint32_t delay_us);
+int serial_sync_tx_config(uint32_t delay_us, uint32_t deadline_us = 0);
 
 /** @brief Prepare one TX for the next synchronized compare.
  * Returns -EBUSY if a TX or prepared trigger is pending. Keep the TX buffer
  * unchanged until transmission completes. Call again to arm another message.
  * In slave mode, prepare before the compare deadline of the desired period;
  * preparation preserves the counter phased by the accepted HRTIM rollover.
+ * Synchronous preparation returns -ETIME with less than 1 us of arming margin.
  */
 int serial_sync_tx_prepare();
 
 /** @brief Cancel a pending synchronized TX, preserving the sync clock.
- * An active TX is not aborted.
+ * Synchronous DE is forced low; USART bytes may drain internally afterward.
  */
 void serial_sync_tx_stop();
 

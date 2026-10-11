@@ -90,14 +90,16 @@ static uint16_t dma_buffer_size;
 static uint16_t rx_buffer_size;
 static bool synchronous_mode = false;
 
-/* TIM2 CH1 performs one word write to enable the USART-paced TX channel.
+/* TIM1 CH3 performs one word write to enable the USART-paced TX channel.
  * DMA1 channels 1..5 are used by ADC acquisition, 6..7 by USART3.
  * DMA1 channel 8 is reserved for this trigger and has no enabled IRQs.
  */
 static uint32_t sync_tx_enable;
 static bool tx_configured = false;
 static bool sync_tx_configured = false;
-static const struct device *timer2 = DEVICE_DT_GET(TIMER2_DEVICE);
+static bool sync_tx_pending = false;
+static uint32_t sync_tx_errors;
+static const struct device *timer1 = DEVICE_DT_GET(TIMER1_DEVICE);
 
 /* User function to call in RX callback */
 static dma_callbackRXfunc_t user_fnc = NULL;
@@ -230,14 +232,21 @@ void init_DEmode(void)
     /* Set GPIO_InitStruct */
     GPIO_InitStruct.Pin = LL_GPIO_PIN_14;
     GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
-    GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = synchronous_mode ? LL_GPIO_SPEED_FREQ_VERY_HIGH :
+                                              LL_GPIO_SPEED_FREQ_LOW;
     GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-    GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-    GPIO_InitStruct.Alternate = LL_GPIO_AF_7;
+    GPIO_InitStruct.Pull = synchronous_mode ? LL_GPIO_PULL_DOWN : LL_GPIO_PULL_NO;
+    GPIO_InitStruct.Alternate = synchronous_mode ? LL_GPIO_AF_6 : LL_GPIO_AF_7;
+    /* Timer output is held low until a fresh synchronous TX is armed. */
+    if (synchronous_mode)
+        LL_TIM_DisableAllOutputs(TIM1);
     LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     /* Enable DE mode */
-    LL_USART_EnableDEMode(USART3);
+    if (synchronous_mode)
+        LL_USART_DisableDEMode(USART3);
+    else
+        LL_USART_EnableDEMode(USART3);
     /* Polarity is high ie. PB14 will be at high level when sending datas */
     LL_USART_SetDESignalPolarity(USART3, LL_USART_DE_POLARITY_HIGH);
 
@@ -269,6 +278,8 @@ void dma_channel_init_tx()
 {
     serial_sync_tx_stop();
     sync_tx_configured = false;
+    sync_tx_pending = false;
+    sync_tx_errors = RS485_ERROR_NONE;
     synchronous_mode = false;
     communication_dispatch_reset();
     /* Configure DMA */
@@ -398,13 +409,17 @@ void serial_tx_on()
     LL_DMA_EnableChannel(DMA_USART, LL_DMA_CHANNEL_TX);
 }
 
-int serial_sync_tx_config(uint32_t delay_us)
+int serial_sync_tx_config(uint32_t delay_us, uint32_t deadline_us)
 {
+    if (!synchronous_mode && deadline_us != 0)
+        return -EINVAL;
     if (!tx_configured || tx_usart_val == NULL || dma_buffer_size == 0 ||
-        delay_us == 0 || delay_us > (UINT32_MAX - 1U) / 10U)
+        delay_us == 0 || delay_us > (UINT16_MAX - 1U) / 10U ||
+        deadline_us > UINT16_MAX / 10U ||
+        (deadline_us != 0 && deadline_us <= delay_us))
         return -EINVAL;
 
-    if (!device_is_ready(timer2))
+    if (!device_is_ready(timer1))
         return -ENODEV;
 
     bool master = LL_HRTIM_GetSyncInSrc(HRTIM1) == LL_HRTIM_SYNCIN_SRC_NONE;
@@ -413,9 +428,11 @@ int serial_sync_tx_config(uint32_t delay_us)
         LL_HRTIM_GetSyncOutSrc(HRTIM1) != source ||
         LL_HRTIM_GetSyncOutConfig(HRTIM1) != LL_HRTIM_SYNCOUT_POSITIVE_PULSE)
         return -EINVAL;
-    if (!timer2_sync_enabled())
+    if (!timer1_sync_enabled())
         return -EAGAIN;
-    if (delay_us * 10U >= LL_TIM_OC_GetCompareCH2(TIM2))
+    if (delay_us * 10U >= LL_TIM_OC_GetCompareCH4(TIM1))
+        return -EINVAL;
+    if (deadline_us * 10U > LL_TIM_OC_GetCompareCH4(TIM1))
         return -EINVAL;
 
     if (LL_DMA_IsEnabledChannel(DMA_USART, LL_DMA_CHANNEL_TX) ||
@@ -436,7 +453,7 @@ int serial_sync_tx_config(uint32_t delay_us)
     DMA_InitStruct.PeriphOrM2MSrcDataSize = LL_DMA_PDATAALIGN_WORD;
     DMA_InitStruct.PeriphOrM2MSrcIncMode = LL_DMA_PERIPH_NOINCREMENT;
     DMA_InitStruct.MemoryOrM2MDstIncMode = LL_DMA_MEMORY_NOINCREMENT;
-    DMA_InitStruct.PeriphRequest = LL_DMAMUX_REQ_TIM2_CH1;
+    DMA_InitStruct.PeriphRequest = LL_DMAMUX_REQ_TIM1_CH3;
     DMA_InitStruct.NbData = 1;
     DMA_InitStruct.Priority = LL_DMA_PRIORITY_VERYHIGH;
     LL_DMA_Init(DMA1, LL_DMA_CHANNEL_8, &DMA_InitStruct);
@@ -448,7 +465,13 @@ int serial_sync_tx_config(uint32_t delay_us)
     struct timer_config_t timer_cfg = {0};
     timer_cfg.timer_compare_t_usec = delay_us;
     timer_cfg.timer_enable_compare_dma = 1;
-    timer_config(timer2, &timer_cfg);
+    timer_config(timer1, &timer_cfg);
+    if (synchronous_mode)
+    {
+        int result = timer1_tx_window_configure(delay_us, deadline_us);
+        if (result != 0)
+            return result;
+    }
     sync_tx_configured = true;
     return 0;
 }
@@ -479,7 +502,20 @@ int serial_sync_tx_prepare()
     LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_8, 1);
     __DMB();
     LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_8);
-    timer_start(timer2);
+    if (synchronous_mode)
+    {
+        int result = timer1_tx_window_arm();
+        if (result != 0)
+        {
+            serial_sync_tx_stop();
+            if (result == -ETIME)
+                sync_tx_errors |= RS485_ERROR_TX_DEADLINE;
+            return result;
+        }
+        sync_tx_pending = true;
+    }
+    else
+        timer_start(timer1);
     return 0;
 }
 
@@ -489,14 +525,28 @@ void serial_sync_tx_stop()
         return;
 
     /* Cancel TX without discarding the phase acquired from HRTIM sync. */
-    timer2_compare_disarm();
+    timer1_compare_disarm();
     LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_8);
     LL_DMA_ClearFlag_GI8(DMA1);
+    sync_tx_pending = false;
 }
 
 /* Poll completion in synchronous mode; USART TC remains set until next TX. */
 void serial_tx_poll()
 {
+    if (synchronous_mode && sync_tx_pending && timer1_tx_window_expired())
+    {
+        /* Hardware already closed DE at CCR1. Cancel outstanding DMA before
+         * the next arm. Bytes in USART may drain with DE low; require TC
+         * before rearming so they cannot escape into a later slot.
+         */
+        if (!LL_USART_IsActiveFlag_TC(USART3) ||
+            !LL_DMA_IsActiveFlag_TC8(DMA1))
+            sync_tx_errors |= RS485_ERROR_TX_DEADLINE;
+        serial_sync_tx_stop();
+        LL_DMA_DisableChannel(DMA_USART, LL_DMA_CHANNEL_TX);
+        LL_DMA_ClearFlag_GI6(DMA_USART);
+    }
     if (synchronous_mode && LL_DMA_IsActiveFlag_TC6(DMA_USART))
     {
         LL_DMA_DisableChannel(DMA_USART, LL_DMA_CHANNEL_TX);
@@ -510,10 +560,12 @@ uint32_t serial_poll_errors()
     if (!synchronous_mode)
         return RS485_ERROR_NONE;
 
+    serial_tx_poll();
     /* Snapshot before clearing: faults must remain visible to the caller. */
     const uint32_t uart_faults = USART3->ISR &
         (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE | USART_ISR_PE);
-    uint32_t errors = RS485_ERROR_NONE;
+    uint32_t errors = sync_tx_errors;
+    sync_tx_errors = RS485_ERROR_NONE;
     if (uart_faults & USART_ISR_ORE)
         errors |= RS485_ERROR_RX_OVERRUN;
     if (uart_faults & USART_ISR_FE)

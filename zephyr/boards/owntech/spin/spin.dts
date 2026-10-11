@@ -192,7 +192,7 @@ zephyr_udc0: &usb {
 /* Timer */
 /*********/
 
-&timers2 {
+&timers1 {
 	status = "okay";
 };
 

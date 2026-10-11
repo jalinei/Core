@@ -99,9 +99,10 @@ void Rs485Communication::startTransmission()
     serial_tx_on();
 }
 
-int Rs485Communication::configureSynchronizedTransmission(uint32_t delay_us)
+int Rs485Communication::configureSynchronizedTransmission(uint32_t delay_us,
+                                                          uint32_t deadline_us)
 {
-    return serial_sync_tx_config(delay_us);
+    return serial_sync_tx_config(delay_us, deadline_us);
 }
 
 int Rs485Communication::prepareSynchronizedTransmission()
@@ -131,7 +132,8 @@ int Rs485Communication::configureSynchronous(uint8_t *transmission_buffer,
                                             uint16_t reception_size,
                                             uint32_t delay_us,
                                             uint32_t baudrate,
-                                            bool oversampling_8)
+                                            bool oversampling_8,
+                                            uint32_t deadline_us)
 {
     if (transmission_buffer == nullptr || rx_ring == nullptr ||
         rx_snapshot == nullptr || transmission_size == 0 ||
@@ -158,7 +160,7 @@ int Rs485Communication::configureSynchronous(uint8_t *transmission_buffer,
     serial_init();
     init_DEmode();
     oversamp_set(oversampling_8 ? OVER8 : OVER16);
-    int result = serial_sync_tx_config(delay_us);
+    int result = serial_sync_tx_config(delay_us, deadline_us);
     if (result != 0)
         return result;
     communication_dispatch_configure(rx_ring, rx_snapshot, reception_size);

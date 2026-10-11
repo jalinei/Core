@@ -33,9 +33,9 @@
 #include "timer.h"
 
 
-#define TIMER2_NODE           DT_NODELABEL(timers2)
-#define TIMER2_INTERRUPT_LINE DT_IRQN(TIMER2_NODE)
-#define TIMER2_INTERRUPT_PRIO DT_IRQ_BY_IDX(TIMER2_NODE, 0, priority)
+#define TIMER1_NODE           DT_NODELABEL(timers1)
+#define TIMER1_INTERRUPT_LINE DT_IRQ_BY_NAME(TIMER1_NODE, cc, irq)
+#define TIMER1_INTERRUPT_PRIO DT_IRQ_BY_NAME(TIMER1_NODE, cc, priority)
 
 #define TIMER4_NODE           DT_NODELABEL(timers4)
 #define TIMER4_INTERRUPT_LINE DT_IRQN(TIMER4_NODE)
@@ -198,8 +198,8 @@ void timer_stm32_clear(const struct device* dev);
  */
 void init_timer_3();
 
-/** @brief Initialize TIM2 with a 0.1 microsecond tick and CH1 compare. */
-void init_timer_2();
+/** @brief Initialize TIM1 with a 0.1 microsecond tick and CH3 compare. */
+void init_timer_1();
 
 
 /**

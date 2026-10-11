@@ -63,6 +63,10 @@ enum rs485_error_t : uint32_t {
     RS485_ERROR_RX_DMA = 1U << 4,
     RS485_ERROR_TX_DMA = 1U << 5,
     RS485_ERROR_TRIGGER_DMA = 1U << 6,
+    /* Late preparation, or unfinished TX observed after the DE cutoff.
+     * Completion between cutoff and polling is not timestamped.
+     */
+    RS485_ERROR_TX_DEADLINE = 1U << 7,
 };
 
 /**
@@ -119,6 +123,11 @@ class Rs485Communication
          * reconfiguring buffers or switching modes.
          * Initialize HRTIM synchronization first; in either sync mode create the
          * critical task first. TX is armed separately for each message.
+         * PB14 uses TIM1_CH2N: DE rises at delay_us and falls at deadline_us,
+         * both measured from the control boundary. A zero deadline selects
+         * control period minus 3 us. Require delay_us < deadline <= that bound.
+         * The window must include transceiver enable time, the entire frame,
+         * and a release guard before the next bus slot. Late frames are truncated.
          * rx_ring and rx_snapshot must each hold reception_size bytes and
          * must not overlap each other or TX. Keep all buffers alive.
          * Dispatch copies new bytes before each critical task; it does not
@@ -131,7 +140,8 @@ class Rs485Communication
                                  uint8_t *rx_ring, uint8_t *rx_snapshot,
                                  uint16_t reception_size, uint32_t delay_us,
                                  uint32_t baudrate = 10625000,
-                                 bool oversampling_8 = false);
+                                 bool oversampling_8 = false,
+                                 uint32_t deadline_us = 0);
 
         /** @brief Bytes copied by the latest critical-task dispatch.
          * Read from the configured rx_snapshot inside the critical task.
@@ -161,20 +171,27 @@ class Rs485Communication
          * Call configure() and initSlave() or initMaster() first.
          * For master mode, create the HRTIM critical task before this call.
          * Its delay must be less than the control period minus 3 us.
-         * Uses TIM2 CH1 and DMA1 channel 8. Returns 0 or a negative errno.
+         * In synchronous mode deadline_us sets the hardware DE cutoff;
+         * zero selects control period minus 3 us. In conventional mode DE
+         * remains USART-controlled and deadline_us must be zero.
+         * Uses TIM1 CH3 and DMA1 channel 8. Returns 0 or a negative errno.
          */
-        int configureSynchronizedTransmission(uint32_t delay_us);
+        int configureSynchronizedTransmission(uint32_t delay_us,
+                                             uint32_t deadline_us = 0);
 
-        /** @brief Arm one message for the next TIM2 CH1 compare.
-         * Returns -EBUSY while a trigger/TX is pending. The configured buffer
-         * must remain unchanged until TX completes. Rearm for each message.
-         * The TIM2 event starts DMA without a CPU interrupt. Synchronous
+        /** @brief Arm one message for the next TIM1 CH3 compare.
+         * Returns -EBUSY while a trigger/TX is pending.
+         * Synchronous mode returns -ETIME if preparation misses the arming
+         * deadline (one microsecond before delay_us); skip that period.
+         * The configured buffer must remain unchanged until TX completes.
+         * Rearm for each message.
+         * The TIM1 event starts DMA without a CPU interrupt. Synchronous
          * configuration polls TX completion; software-triggered configuration
          * retains the DMA completion interrupt.
          */
         int prepareSynchronizedTransmission();
 
-        /** @brief Cancel a pending TX trigger without aborting an active TX.
+        /** @brief Cancel a pending TX trigger; synchronous DE is forced low.
          * In master mode, SCOUT timing continues independently of TX arming.
          */
         void stopSynchronizedTransmission();
