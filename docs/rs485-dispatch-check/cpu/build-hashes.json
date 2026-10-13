@@ -1,0 +1,17 @@
+{
+  "baseline": {
+    "firmware.elf": "d44d23882ca38dd645942044cf786a4fe3e3095aa010da07c185fba7505ea544",
+    "firmware.bin": "26b88e022c72e3330d3d34242dd1c0b35ac67044886cf067ee8e78f3a9c775aa",
+    "firmware.mcuboot.bin": "090ade99d518d6551443210a4e2db9ca41def8e5817aa73076dfa1598071b25e"
+  },
+  "detailed": {
+    "firmware.elf": "bf0655f1b88e3e80db3f22e430cf6f999049297ce60eedc8c26dbf67497f0b47",
+    "firmware.bin": "41d349e58ba5fc93c70e0a5af60e23b8c530c65f7ffb614a4e15c1eed09fcdac",
+    "firmware.mcuboot.bin": "cd35e8ed46327830c75810582ff943c25185e54ed1bd22b9c02d8b561c448072"
+  },
+  "optimized": {
+    "firmware.elf": "e0823411f10bd201833255ffbc41f5bdaffc93c52b140130e8d9edff9353d27c",
+    "firmware.bin": "c337fb504f9b51cc89d8c0cf1d645860fef1aba82f6f70a567444b8110280e09",
+    "firmware.mcuboot.bin": "f489d3a08a428b4440f2793a331b398028c5cd1e593123fe439ed4c2089eced9"
+  }
+}

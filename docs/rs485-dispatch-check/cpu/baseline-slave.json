@@ -1,0 +1,126 @@
+{
+  "role": "slave",
+  "mode": 1,
+  "cpu_hz": 170000000,
+  "stats": {
+    "dispatch": {
+      "count": 100000,
+      "minimum_cycles": 1346,
+      "maximum_cycles": 1348,
+      "last_cycles": 1346,
+      "sum_cycles": 134600010,
+      "bytes": 700000,
+      "mean_us": 7.917647647058823,
+      "minimum_us": 7.91764705882353,
+      "maximum_us": 7.929411764705883
+    },
+    "poll_before": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "bytes": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0
+    },
+    "extra_tx_poll": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "bytes": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0
+    },
+    "dma_position": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "bytes": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0
+    },
+    "copy": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "bytes": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0
+    },
+    "poll_after": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "bytes": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0
+    },
+    "frame_parse": {
+      "count": 99999,
+      "minimum_cycles": 586,
+      "maximum_cycles": 586,
+      "last_cycles": 586,
+      "sum_cycles": 58599414,
+      "bytes": 0,
+      "mean_us": 3.447058823529412,
+      "minimum_us": 3.447058823529412,
+      "maximum_us": 3.447058823529412
+    },
+    "tx_prepare": {
+      "count": 99999,
+      "minimum_cycles": 1546,
+      "maximum_cycles": 1558,
+      "last_cycles": 1546,
+      "sum_cycles": 154598522,
+      "bytes": 0,
+      "mean_us": 9.094121647098824,
+      "minimum_us": 9.094117647058823,
+      "maximum_us": 9.16470588235294
+    },
+    "clock_floor": {
+      "count": 100000,
+      "minimum_cycles": 1,
+      "maximum_cycles": 1,
+      "last_cycles": 1,
+      "sum_cycles": 100000,
+      "bytes": 0,
+      "mean_us": 0.0058823529411764705,
+      "minimum_us": 0.0058823529411764705,
+      "maximum_us": 0.0058823529411764705
+    }
+  },
+  "counters": {
+    "before": {
+      "received": 41677,
+      "tasks": 41677,
+      "discarded": 0,
+      "tx_errors": 0,
+      "tx_skipped": 2,
+      "errors": 0
+    },
+    "after": {
+      "received": 146705,
+      "tasks": 146705,
+      "discarded": 0,
+      "tx_errors": 0,
+      "tx_skipped": 2,
+      "errors": 0
+    }
+  },
+  "environment": "STLink",
+  "elf_sha256": "d44d23882ca38dd645942044cf786a4fe3e3095aa010da07c185fba7505ea544"
+}

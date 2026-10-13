@@ -40,6 +40,12 @@
 
 /* Current file header */
 #include "data_dispatch.h"
+#include "adc_dispatch_profile.h"
+
+#ifdef ADC_DISPATCH_PROFILE
+volatile AdcProfileStats adc_profile_stats[ADC_PROFILE_STAGE_COUNT];
+volatile uint32_t adc_profile_mode;
+#endif
 
 /**
  *  Local variables
@@ -109,16 +115,6 @@ __STATIC_INLINE uint32_t _data_dispatch_get_count(uint8_t adc_index,
 	return buffers_data_count[adc_index][channel_index];
 }
 
-__STATIC_INLINE void _data_dispatch_increment_count(uint8_t adc_index,
-													uint8_t channel_index)
-{
-	uint32_t* current_count = &buffers_data_count[adc_index][channel_index];
-	if ( (*current_count) < CHANNELS_BUFFERS_SIZE)
-	{
-		(*current_count)++;
-	}
-}
-
 __STATIC_INLINE void _data_dispatch_swap_buffers(uint8_t adc_index,
 												 uint8_t channel_index)
 {
@@ -134,6 +130,7 @@ __STATIC_INLINE void _data_dispatch_swap_buffers(uint8_t adc_index,
 
 void data_dispatch_init(dispatch_t dispatch_method, uint32_t repetitions)
 {
+    adc_profile_init();
 	/* Store dispatch method */
 	dispatch_type = dispatch_method;
 
@@ -275,6 +272,7 @@ void data_dispatch_init(dispatch_t dispatch_method, uint32_t repetitions)
 void data_dispatch_do_dispatch(uint8_t adc_num)
 {
 	uint8_t adc_index = adc_num - 1;
+    AdcProfileScope profile(static_cast<AdcProfileStage>(ADC_PROFILE_ADC1 + adc_index));
 
 	if (enabled_channels_count[adc_index] == 0)
 		return;
@@ -300,54 +298,49 @@ void data_dispatch_do_dispatch(uint8_t adc_num)
 	}
 	else
 	{
+		AdcProfileScope cursor(ADC_PROFILE_CURSOR);
 		data_count_in_dma_buffer = dma_get_retrieved_data_count(adc_num);
 	}
+    profile.setSamples(data_count_in_dma_buffer);
+    AdcProfileScope copy(ADC_PROFILE_COPY);
+    copy.setSamples(data_count_in_dma_buffer);
 
-	for (size_t dma_index = 0 ;
-		 dma_index < data_count_in_dma_buffer ;
-		 dma_index++)
-	{
-		/* Copy data */
-		size_t dma_buffer_index;
-		if (dispatch_type == interrupt)
-		{
-			dma_buffer_index = dma_index % enabled_channels_count[adc_index];
-		}
-		else
-		{
-			static size_t next_dma_buffer_index[ADC_COUNT] = {0};
+    /* Cache the per-ADC rows once. The DMA ring and per-channel double
+     * buffers remain unchanged; only the sample-loop indexing is simplified.
+     */
+    static size_t next_dma_buffer_index[ADC_COUNT] = {0};
+    const bool interrupt_dispatch = dispatch_type == interrupt;
+    const size_t channel_count = enabled_channels_count[adc_index];
+    const size_t ring_size = interrupt_dispatch ? channel_count : dma_buffer_sizes[adc_index];
+    size_t dma_index = interrupt_dispatch ? 0 : next_dma_buffer_index[adc_index];
+    size_t channel_index = dma_index % channel_count;
+    uint16_t*** const channel_buffers = adc_channel_buffers[adc_index];
+    uint32_t* const counts = buffers_data_count[adc_index];
+    const uint8_t* const active_buffers = current_buffer[adc_index];
 
-			dma_buffer_index = next_dma_buffer_index[adc_index];
+    for (size_t sample = 0; sample < data_count_in_dma_buffer; ++sample)
+    {
+        const uint32_t count = counts[channel_index];
+        /* Retain the first CHANNELS_BUFFERS_SIZE values until consumption.
+         * The old loop capped the count but still wrote one past the buffer.
+         */
+        if (count < CHANNELS_BUFFERS_SIZE)
+        {
+            channel_buffers[channel_index][active_buffers[channel_index]][count] =
+                dma_buffer[dma_index];
+            counts[channel_index] = count + 1;
+        }
+        if (++dma_index == ring_size) dma_index = 0;
+        if (++channel_index == channel_count) channel_index = 0;
+    }
+    if (!interrupt_dispatch) next_dma_buffer_index[adc_index] = dma_index;
 
-			if (next_dma_buffer_index[adc_index] < dma_buffer_sizes[adc_index] - 1)
-			{
-				next_dma_buffer_index[adc_index]++;
-			}
-			else
-			{
-				next_dma_buffer_index[adc_index] = 0;
-			}
-		}
-
-		/* Get info on buffer */
-		size_t channel_index =
-					dma_buffer_index % enabled_channels_count[adc_index];
-
-		uint16_t* active_buffer =
-					_data_dispatch_get_buffer(adc_index, channel_index);
-
-		uint32_t  current_count =
-					_data_dispatch_get_count(adc_index, channel_index);
-
-		active_buffer[current_count] = dma_buffer[dma_buffer_index];
-
-		/* Increment count */
-		_data_dispatch_increment_count(adc_index, channel_index);
-	}
 }
 
 void data_dispatch_do_full_dispatch()
 {
+    { AdcProfileScope clock(ADC_PROFILE_CLOCK); }
+    AdcProfileScope profile(ADC_PROFILE_TOTAL);
 	for (uint8_t adc_num = 1 ; adc_num <= ADC_COUNT ; adc_num++)
 	{
 		data_dispatch_do_dispatch(adc_num);

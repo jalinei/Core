@@ -1,0 +1,127 @@
+{
+  "role": "master",
+  "kind": "adc",
+  "mode": 1,
+  "environment": "STLink",
+  "cpu_hz": 170000000,
+  "elf_sha256": "6d97557cfcb584572f84a848e12f3c65bb574efb55c4fee5a56b460d82870c55",
+  "stats": {
+    "dispatch": {
+      "count": 100000,
+      "minimum_cycles": 3521,
+      "maximum_cycles": 6463,
+      "last_cycles": 6331,
+      "sum_cycles": 632624599,
+      "mean_us": 37.21321170588236,
+      "minimum_us": 20.711764705882352,
+      "maximum_us": 38.01764705882353,
+      "samples": 0
+    },
+    "adc1": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0,
+      "samples": 0
+    },
+    "adc2": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0,
+      "samples": 0
+    },
+    "adc3": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0,
+      "samples": 0
+    },
+    "adc4": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0,
+      "samples": 0
+    },
+    "adc5": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0,
+      "samples": 0
+    },
+    "dma_cursor": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0,
+      "samples": 0
+    },
+    "copy": {
+      "count": 0,
+      "minimum_cycles": 0,
+      "maximum_cycles": 0,
+      "last_cycles": 0,
+      "sum_cycles": 0,
+      "mean_us": null,
+      "minimum_us": 0.0,
+      "maximum_us": 0.0,
+      "samples": 0
+    },
+    "clock_floor": {
+      "count": 100000,
+      "minimum_cycles": 1,
+      "maximum_cycles": 1,
+      "last_cycles": 1,
+      "sum_cycles": 100000,
+      "mean_us": 0.0058823529411764705,
+      "minimum_us": 0.0058823529411764705,
+      "maximum_us": 0.0058823529411764705,
+      "samples": 0
+    }
+  },
+  "counters": {
+    "before": {
+      "received": 186753,
+      "tasks": 186757,
+      "discarded": 0,
+      "tx_errors": 0,
+      "tx_skipped": 2,
+      "errors": 0
+    },
+    "after": {
+      "received": 291782,
+      "tasks": 291786,
+      "discarded": 0,
+      "tx_errors": 0,
+      "tx_skipped": 2,
+      "errors": 0
+    }
+  }
+}

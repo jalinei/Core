@@ -1,0 +1,127 @@
+{
+  "role": "master",
+  "kind": "adc",
+  "mode": 2,
+  "environment": "STLink",
+  "cpu_hz": 170000000,
+  "elf_sha256": "0d929572ca99208f084f3d78bb9f4ff2f91c1c39e2a9fd632ae4e5fe81c80c22",
+  "stats": {
+    "dispatch": {
+      "count": 100000,
+      "minimum_cycles": 4540,
+      "maximum_cycles": 7576,
+      "last_cycles": 7432,
+      "sum_cycles": 742947531,
+      "mean_us": 43.70279594117647,
+      "minimum_us": 26.705882352941178,
+      "maximum_us": 44.56470588235294,
+      "samples": 0
+    },
+    "adc1": {
+      "count": 100000,
+      "minimum_cycles": 521,
+      "maximum_cycles": 3490,
+      "last_cycles": 3413,
+      "sum_cycles": 341101406,
+      "mean_us": 20.064788588235295,
+      "minimum_us": 3.0647058823529414,
+      "maximum_us": 20.529411764705884,
+      "samples": 3998278
+    },
+    "adc2": {
+      "count": 100000,
+      "minimum_cycles": 208,
+      "maximum_cycles": 3014,
+      "last_cycles": 2939,
+      "sum_cycles": 293836237,
+      "mean_us": 17.284484529411763,
+      "minimum_us": 1.223529411764706,
+      "maximum_us": 17.729411764705883,
+      "samples": 3999706
+    },
+    "adc3": {
+      "count": 100000,
+      "minimum_cycles": 204,
+      "maximum_cycles": 206,
+      "last_cycles": 204,
+      "sum_cycles": 20400159,
+      "mean_us": 1.2000093529411764,
+      "minimum_us": 1.2,
+      "maximum_us": 1.2117647058823529,
+      "samples": 0
+    },
+    "adc4": {
+      "count": 100000,
+      "minimum_cycles": 204,
+      "maximum_cycles": 206,
+      "last_cycles": 204,
+      "sum_cycles": 20400011,
+      "mean_us": 1.2000006470588236,
+      "minimum_us": 1.2,
+      "maximum_us": 1.2117647058823529,
+      "samples": 0
+    },
+    "adc5": {
+      "count": 100000,
+      "minimum_cycles": 9,
+      "maximum_cycles": 11,
+      "last_cycles": 9,
+      "sum_cycles": 900004,
+      "mean_us": 0.05294141176470588,
+      "minimum_us": 0.052941176470588235,
+      "maximum_us": 0.06470588235294118,
+      "samples": 0
+    },
+    "dma_cursor": {
+      "count": 400000,
+      "minimum_cycles": 40,
+      "maximum_cycles": 119,
+      "last_cycles": 40,
+      "sum_cycles": 24000015,
+      "mean_us": 0.3529413970588235,
+      "minimum_us": 0.23529411764705882,
+      "maximum_us": 0.7,
+      "samples": 0
+    },
+    "copy": {
+      "count": 400000,
+      "minimum_cycles": 30,
+      "maximum_cycles": 3035,
+      "last_cycles": 30,
+      "sum_cycles": 577790625,
+      "mean_us": 8.496920955882352,
+      "minimum_us": 0.17647058823529413,
+      "maximum_us": 17.852941176470587,
+      "samples": 7997984
+    },
+    "clock_floor": {
+      "count": 100000,
+      "minimum_cycles": 1,
+      "maximum_cycles": 1,
+      "last_cycles": 1,
+      "sum_cycles": 100000,
+      "mean_us": 0.0058823529411764705,
+      "minimum_us": 0.0058823529411764705,
+      "maximum_us": 0.0058823529411764705,
+      "samples": 0
+    }
+  },
+  "counters": {
+    "before": {
+      "received": 138802,
+      "tasks": 138806,
+      "discarded": 0,
+      "tx_errors": 0,
+      "tx_skipped": 2,
+      "errors": 0
+    },
+    "after": {
+      "received": 243832,
+      "tasks": 243836,
+      "discarded": 0,
+      "tx_errors": 0,
+      "tx_skipped": 2,
+      "errors": 0
+    }
+  }
+}

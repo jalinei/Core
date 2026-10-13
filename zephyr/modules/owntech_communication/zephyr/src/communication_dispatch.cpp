@@ -2,6 +2,12 @@
 #include "communication_dispatch.h"
 #include "Rs485.h"
 #include <string.h>
+#include "rs485_profile.h"
+
+#ifdef RS485_DISPATCH_PROFILE
+volatile Rs485ProfileStats rs485_profile_stats[RS485_PROFILE_STAGE_COUNT];
+volatile uint32_t rs485_profile_mode;
+#endif
 
 static uint8_t *rx_ring;
 static uint8_t *rx_snapshot;
@@ -41,18 +47,29 @@ uint32_t communication_dispatch_errors()
 
 void communication_dispatch()
 {
+    // Empty scope measures the timestamp/scoping floor, outside total timing.
+    { Rs485ProfileScope clock(RS485_PROFILE_CLOCK); }
+    Rs485ProfileScope total(RS485_PROFILE_TOTAL);
     if (ring_size == 0)
         return;
 
-    dispatch_errors = serial_poll_errors();
-    serial_tx_poll();
+    {
+        Rs485ProfileScope profile(RS485_PROFILE_POLL_BEFORE);
+        dispatch_errors = serial_poll_errors();
+    }
+    // serial_poll_errors() already polls TX completion. The ring is configured
+    // only in synchronous mode, so a second completion poll here is redundant.
     received_size = 0;
     if (dispatch_errors & RS485_RX_ERRORS)
     {
         read_position = 0;
         return;
     }
-    const uint16_t write_position = serial_rx_write_position();
+    uint16_t write_position;
+    {
+        Rs485ProfileScope profile(RS485_PROFILE_POSITION);
+        write_position = serial_rx_write_position();
+    }
     /* DMA keeps receiving. The caller must size the ring so it cannot lap
      * this read position between dispatches or during either copy.
      */
@@ -61,11 +78,19 @@ void communication_dispatch()
         write_position - read_position : ring_size - read_position + write_position;
     const uint16_t tail = ring_size - read_position;
     const uint16_t first = available < tail ? available : tail;
-    memcpy(rx_snapshot, rx_ring + read_position, first);
-    if (available > first)
-        memcpy(rx_snapshot + first, rx_ring, available - first);
+    {
+        Rs485ProfileScope profile(RS485_PROFILE_COPY);
+        profile.setBytes(available);
+        memcpy(rx_snapshot, rx_ring + read_position, first);
+        if (available > first)
+            memcpy(rx_snapshot + first, rx_ring, available - first);
+    }
+    total.setBytes(available);
     /* Also reject errors arriving while the DMA ring was being copied. */
-    dispatch_errors |= serial_poll_errors();
+    {
+        Rs485ProfileScope profile(RS485_PROFILE_POLL_AFTER);
+        dispatch_errors |= serial_poll_errors();
+    }
     if (dispatch_errors & RS485_RX_ERRORS)
     {
         read_position = 0;

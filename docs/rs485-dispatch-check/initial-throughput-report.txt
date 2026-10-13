@@ -1,0 +1,76 @@
+RS485 dispatch check — 2026-10-12T19:59:46+02:00
+
+Read-only live check of the connected master and SM1 through ST-Link.
+No firmware flashed, no reset, no CPU halt, no power-mode command issued.
+
+Targets
+Master: UID 002B001A / 3232500B / 2037304B; module ID 0;
+        ST-Link 000D00304741500520383733.
+Slave:  UID 002B004E / 3232500B / 2037304B; module ID 1;
+        ST-Link 001E003A3331511234333834.
+
+Measured results
+                         Master             Slave
+Sample interval          20.050 s           20.048 s
+Control task increments  100240             100234
+Accepted frame increments 100240            100234
+Accepted frames/second   4999.50            4999.70
+New discarded snapshots  0                  0
+New TX preparation errors 0                 0
+New TX skips             0                  0
+Latched RS485 error mask 0x00000000         0x00000000
+Snapshot size at all 21 samples: 7 bytes on both targets.
+DMA receive ring size: 308 bytes on both targets.
+
+Each target received one accepted peer frame per control period on average.
+Across this observation window, received and task counter increments agree
+exactly on each target. Host timestamps have millisecond resolution and memory
+reads are not atomic; the ~0.01% rate difference from 5000 Hz is not a clock-
+accuracy measurement. There are two cumulative TX skips on each target, already
+present before sampling, with no increase during the run. Their cause was not
+established. Discard counters and TX-error counters were zero throughout.
+
+Configured transport and timing
+USART3 CR1=0x03ff800d, BRR=0x10, 8N1, oversampling by 8.
+With the project's 170 MHz clock this corresponds to 21.25 Mbit/s.
+Calculated serialization time: 7 bytes x 10 bits / 21.25 Mbit/s = 3.294 us.
+Measured accepted payload rate: about 35 kB/s in each direction, 70 kB/s total.
+Calculated aggregate wire utilization for two 7-byte frames per 200 us: 3.294%.
+
+Live TIM1 PSC=16, giving 0.1 us ticks with a 170 MHz timer clock.
+Master CCR2/CCR3=900, CCR1=950: programmed TX window 90–95 us.
+Slave CCR2/CCR3=1020, CCR1=1070: programmed TX window 102–107 us.
+Both windows are 5 us, leaving 1.706 us beyond calculated serialization time.
+These are programmed timer offsets relative to each timer, not scope-measured
+DE edges or independently verified shared-clock offsets. The slave's live
+102 us offset differs from the current source's nominal 100 us SM1 slot.
+
+Firmware and interpretation
+The running application differs from .pio/build/USB/firmware.elf. Before reading
+counters, flash snapshots and disassembly were used to check the address layout.
+The running communication_dispatch is at 0x0801cc44. Its data pointers and
+receive/error fields match the local ELF's RAM addresses. Both targets contain
+matching receive-size, error-poll, and configuration routines; running control
+code references the same accepted-frame/discard counters. Diagnostic code
+confirms the task/TX/error counter addresses.
+
+RAM addresses used:
+0x20002170 counter_receive; 0x20002174 counter_timer;
+0x20002180 rs485_rx_discarded; 0x20002184 critical_entry_ticks_max;
+0x20002188 rs485_last_prepare_result; 0x2000218c rs485_tx_errors;
+0x20002190 rs485_tx_skipped; 0x20002194 rs485_errors;
+0x200038c0 received_size (uint16); 0x200038c2 read_position (uint16);
+0x200038c4 ring_size (uint16); 0x20002f78 dispatch_errors.
+
+Limits
+This establishes observed steady-state throughput and reported error behavior
+for one master plus one slave. It does not measure CPU cycles spent inside
+communication_dispatch, interrupt jitter, or end-to-end command latency. Exact
+CPU timing would require a compatible instrumented build or hardware trace.
+No CRC or frame sequence number is present, so these counters cannot establish
+bit-perfect delivery or identify balanced loss/duplication. The result does not
+validate a six-board load or maximum achievable RS485 throughput.
+
+Artifacts
+master-live.log and slave-live.log: raw OpenOCD live reads.
+results.json: decoded samples and interval deltas.

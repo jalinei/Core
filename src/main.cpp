@@ -47,6 +47,7 @@
 /*-- Zephyr includes --*/
 #include "zephyr/console/console.h"
 #include <string.h>
+#include "rs485_profile.h"
 
 
 #define MMC_LEAD 0
@@ -85,8 +86,8 @@ constexpr float32_t overcurrent_tolerance = 8.0F; //[A] Set overcurrent toleranc
 /* -------------- BOARD IDENTIFICATION ----------------------- */
 /* --------------- To be changed by user --------------------- */
 
-constexpr uint32_t UID_MMC_LEAD_BOARD = 0x002B002A;
-constexpr uint32_t UID_MMC_SM1_BOARD = 0x0033004C;
+constexpr uint32_t UID_MMC_LEAD_BOARD = 0x002B001A;
+constexpr uint32_t UID_MMC_SM1_BOARD = 0x002B004E;
 constexpr uint32_t UID_MMC_SM2_BOARD = 0x0031001B;
 constexpr uint32_t UID_MMC_SM3_BOARD = 0x00330049;
 constexpr uint32_t UID_MMC_SM4_BOARD = 0x0033004B;
@@ -224,7 +225,7 @@ void loop_communication_task();
 
 /* --------------USER VARIABLES DECLARATIONS------------------- */
 
-/* Auto-detected module ID (uses dummy UIDs for now). */
+/* Auto-detected module ID from the STM32 UID. */
 uint8_t module_ID = detect_module_id(); // The ID of the module, can be set to MMC_LEAD or any other SMx
 
 static uint8_t module_comand; // The command the followers needs to apply
@@ -747,6 +748,7 @@ static void mmc_receive_frame(const MMC_frame_t &frame)
  */
 static void mmc_receive_dispatch()
 {
+    Rs485ProfileScope profile(RS485_PROFILE_PARSE);
     const uint32_t errors = communication.rs485.dispatchErrors();
     rs485_errors |= errors;
     constexpr uint32_t rx_errors = RS485_ERROR_RX_OVERRUN |
@@ -785,6 +787,7 @@ static void mmc_receive_dispatch()
 
 static void mmc_prepare_transmission()
 {
+    Rs485ProfileScope profile(RS485_PROFILE_PREPARE);
     /* Never change the DMA buffer while a compare or transmission is pending. */
     if (communication.rs485.transmissionBusy())
     {
@@ -812,6 +815,7 @@ static void mmc_prepare_transmission()
  */
 void setup_routine()
 {
+    rs485_profile_init();
     /* Informs the module ID in the terminal */
     const uint32_t board_uid = read_board_uid();
     printk("Board UID: 0x%08" PRIX32 "\n", board_uid);

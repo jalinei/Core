@@ -1,0 +1,5 @@
+python3 tests/test_adc_dispatch.py --reference .pio/diagnostics/adc-cpu/baseline-data_dispatch.cpp
+260 cases passed under ASan/UBSan; 200 dispatch rounds per case.
+130 non-saturating cases also matched the baseline sample streams exactly.
+Cases cover ADC1–ADC5, 0–16 enabled channels, task/interrupt modes, partial scans, DMA wraps, buffer swaps, peek retention, and full channel buffers.
+The baseline saturation overflow was reproduced with ASan; see overflow-before.log.

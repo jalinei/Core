@@ -1,0 +1,111 @@
+ADC CPU dispatch profiling — 2026-10-12 (Europe/Paris)
+
+Both targets rebuilt/flashed with STLink: master UID 002B001A, slave UID 002B004E.
+DWT cycle counter at 170 MHz; 100,000 complete ADC dispatch rounds per run.
+Control period: 200 us. Collection uses RAM reads/writes without CPU halts,
+breakpoints, logging inside the dispatch, or changes to ADC triggers.
+
+Measured full ADC dispatch CPU body time (us)
+                         Master        Slave
+Before                     37.2132       37.2259
+After                      19.4839       19.4674
+  master: 47.64% reduction, 17.7294 us saved per cycle; observed optimized range 6.7765–19.8471 us.
+  slave: 47.70% reduction, 17.7585 us saved per cycle; observed optimized range 6.7765–19.8471 us.
+ADC dispatch share of control period: approximately 18.6% before, 9.7% after.
+
+Detailed instrumented per-ADC CPU time (us; use outer-only numbers above for budgets)
+                      Before master/slave     After master/slave
+ADC1                   20.065/ 20.077         11.141/ 11.141
+ADC2                   17.284/ 17.275          6.106/  6.102
+ADC3                    1.200/  1.200          1.371/  1.381
+ADC4                    1.200/  1.200          1.371/  1.371
+ADC5                    0.053/  0.053          0.053/  0.053
+
+Equivalent acquired workload (detailed runs; DMA samples per full dispatch)
+  master, detailed: 7997984 samples / 100000 dispatches = 79.9798 samples per cycle.
+  master, optimized-detailed: 7998404 samples / 100000 dispatches = 79.9840 samples per cycle.
+  slave, detailed: 7997984 samples / 100000 dispatches = 79.9798 samples per cycle.
+  slave, optimized-detailed: 7998824 samples / 100000 dispatches = 79.9882 samples per cycle.
+About 40 samples each on ADC1 and ADC2; no acquired samples on ADC3/4/5
+in these runs. Enabled-channel counts are 3,3,1,1,0; DMA ring sizes in
+16-bit samples are 42,42,41,41,0, unchanged by the optimization.
+
+Bottleneck
+The baseline copy/deinterleave scopes consumed approximately 34 us per round,
+over 90% of the 37.2 us dispatch cost. Reading the DMA cursor averaged
+0.353 us per enabled ADC call. CPU cost came from repeated per-sample
+pointer chasing, dispatch-mode checks, modulo operations, and writes.
+
+Changes
+1. Cache the per-ADC buffer, count, and active-buffer rows outside the loop.
+2. Load/store the task-mode circular DMA cursor once per dispatch instead
+   of once per sample. Use increment-and-wrap channel/ring indices, with
+   one channel modulo operation per dispatch instead of per sample.
+3. Remove the repeated getter/increment helper work from the hot loop.
+4. Check channel-buffer capacity before writing, rather than only capping
+   its count afterwards. Retain the first 32 samples until consumption.
+
+Capacity defect and impact on these timings
+The old dispatcher wrote active_buffer[32] when its capped count was 32,
+past a 32-element allocation. ASan reproduced this heap-buffer-overflow;
+the optimized implementation passes the saturation tests. The final live
+check found one ADC1 channel and all three ADC2 channels already at 32.
+These unused/unconsumed channels previously received repeated invalid writes.
+Preventing those writes contributes to the measured speedup, especially on
+ADC2. The ~48% result therefore applies to this application and consumption
+pattern; it is not a universal result for workloads consuming every channel.
+
+Architecture preserved
+ADC triggers, DMA configuration/channel assignments, DMA circular buffers,
+per-channel double-buffer allocation/layout, sample order, buffer swapping,
+peek retention, task/interrupt dispatch selection, and public APIs remain.
+No samples are skipped while a channel has room. Once full, the first 32
+valid samples are retained, matching the previous capped-count behavior
+while preventing its out-of-bounds write. DMA cursors continue to advance.
+DMA ring sizes are multiples of enabled-channel counts; this preserves
+channel alignment across wraps in the increment-and-wrap implementation.
+
+Validation
+260 host cases, 200 dispatches per case, under AddressSanitizer and UBSan.
+Coverage: ADC1–ADC5, 0–16 enabled channels, task and interrupt modes, partial
+scans, ring wrapping, buffer swaps, peek retention, and saturation. All
+130 non-saturating cases also matched the baseline sample streams exactly.
+Baseline, detailed, optimized, and optimized-detailed live runs each completed
+100,000 full dispatch rounds per target. All captures had zero new RS485
+discards, TX errors, TX skips, and latched error bits; received-frame and
+critical-task increments agreed. The two pre-existing startup skips did not grow.
+Final code payload matches the optimized outer-only measurement payload
+byte-for-byte. Both board roles are correct; ADC and RS485 profile modes are zero.
+
+Measurement limits
+Full-dispatch timing includes its five per-ADC calls and sample copies; it
+excludes its own entry/exit prologue/epilogue and statistics bookkeeping after
+the end timestamp. The empty timestamp scope measured 1 cycle (0.00588 us).
+Detailed bookkeeping raises the total to about 43.7 us before and 24.0 us
+after, so detailed totals are not used for the CPU budget. Instrumentation
+can also change register allocation and code layout. This is live IDLE-mode
+profiling of the current sensor configuration, not a worst-case guarantee.
+Safety, ADC conversion time, user control calculations, and RS485 dispatch
+are outside the ADC scope. Host tests stub DMA production; live tests use
+the physical ADC/DMA acquisition on both STM32 modules.
+
+Reproduction
+  pio run -e STLink
+  Flash matching firmware.mcuboot.bin to secondary slot 0x08047800 using
+  the explicitly selected ST-Link serial, verify and reset run.
+  ~/.platformio/penv/bin/python owntech/scripts/measure_rs485_cpu.py --kind adc --mode 1 --label repeat
+For internal details add -DADC_PROFILE_DETAIL, rebuild/flash both boards,
+and run with --kind adc --mode 2. Remove that define for outer measurements.
+  python3 tests/test_adc_dispatch.py
+Optional reference comparison:
+  python3 tests/test_adc_dispatch.py --reference .pio/diagnostics/adc-cpu/baseline-data_dispatch.cpp
+Remove -DADC_DISPATCH_PROFILE and -DRS485_DISPATCH_PROFILE for a production
+build without timing instrumentation. Both modes are currently disabled.
+
+Artifacts
+Final debug map: .pio/build/STLink/firmware.elf
+Archived maps/images: .pio/diagnostics/adc-cpu/{baseline,detailed,optimized,optimized-detailed,final}/
+Raw logs, stats and decoded results: docs/adc-dispatch-check/cpu/
+Build identities: cpu/build-hashes.json
+Final hardware/config checks: master-final-check.log, slave-final-check.log
+Host validation: validation.txt, overflow-before.log

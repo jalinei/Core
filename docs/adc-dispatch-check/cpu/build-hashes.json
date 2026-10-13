@@ -1,0 +1,27 @@
+{
+  "baseline": {
+    "firmware.elf": "6d97557cfcb584572f84a848e12f3c65bb574efb55c4fee5a56b460d82870c55",
+    "firmware.bin": "03366e13189fb432b718b201db5e517777fd05510eb12c0c9e9a78b344076dea",
+    "firmware.mcuboot.bin": "3e5fbbdcdb7cd4ee12290eedd8b85124d97a12af19c893667ed505f96a295425"
+  },
+  "detailed": {
+    "firmware.elf": "0d929572ca99208f084f3d78bb9f4ff2f91c1c39e2a9fd632ae4e5fe81c80c22",
+    "firmware.bin": "fe28c07c8355d7cbc0e56c6f08a9f62144a1c99b3450fa2a69364b4aa2001621",
+    "firmware.mcuboot.bin": "5ec4009fb5330eb189efb703e386dc5483c40cd5559d0614d657d5d4294dd3b8"
+  },
+  "optimized": {
+    "firmware.elf": "fe0c7ab8c85b1e10cf09c947d3a123a5adf7931afd817651a1145b1b02f5f95b",
+    "firmware.bin": "39929eb064fe9f30f39665e2e8b93c4d00b9b9322b56426eb09e3ab998b7a090",
+    "firmware.mcuboot.bin": "dd01a08b393d8d3b389349de5fb1128b9be0ff857d86a4501043fd2cacf21dbe"
+  },
+  "optimized-detailed": {
+    "firmware.elf": "8e23f9fcd515b1600af2a25dcaf1a9b5152db506ac0f65cc00d5558fbd196fc5",
+    "firmware.bin": "53f0fb7abf853b1c08cc6df5941cb2678361c4886f7ea23324ed5c7e32f0b77e",
+    "firmware.mcuboot.bin": "492a55da0dab236d27ad89e020460b87a5a38258b794e46c8a1d84c2bfb2dd53"
+  },
+  "final": {
+    "firmware.elf": "fe0c7ab8c85b1e10cf09c947d3a123a5adf7931afd817651a1145b1b02f5f95b",
+    "firmware.bin": "39929eb064fe9f30f39665e2e8b93c4d00b9b9322b56426eb09e3ab998b7a090",
+    "firmware.mcuboot.bin": "f087ae24dc31889204279b6d74062709a80ea7fe33b41f0892d96b539ff4a0fc"
+  }
+}

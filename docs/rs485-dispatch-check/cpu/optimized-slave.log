@@ -1,0 +1,38 @@
+xPack Open On-Chip Debugger 0.12.0+dev-02228-ge5888bda3-dirty (2025-10-04-22:42)
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Warn : DEPRECATED: auto-selecting transport "swd (dapdirect)". Use 'transport select swd' to suppress this message.
+Info : STLINK V3J8M3B5S1 (API v3) VID:PID 0483:374F
+Info : Target voltage: 3.277932
+Info : Unable to match requested speed 2000 kHz, using 1000 kHz
+Info : Unable to match requested speed 2000 kHz, using 1000 kHz
+Info : clock speed 1000 kHz
+Info : SWD DPIDR 0x2ba01477
+Info : [stm32g4x.cpu] Cortex-M4 r0p1 processor detected
+Info : [stm32g4x.cpu] target has 6 breakpoints, 4 watchpoints
+Info : [stm32g4x.cpu] Examination succeed
+Info : [stm32g4x.cpu] gdb port disabled
+dumped 137800 bytes in 1.111239s (121.099 KiB/s)
+shutdown command invoked
+xPack Open On-Chip Debugger 0.12.0+dev-02228-ge5888bda3-dirty (2025-10-04-22:42)
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Warn : DEPRECATED: auto-selecting transport "swd (dapdirect)". Use 'transport select swd' to suppress this message.
+Info : STLINK V3J8M3B5S1 (API v3) VID:PID 0483:374F
+Info : Target voltage: 3.276342
+Info : Unable to match requested speed 2000 kHz, using 1000 kHz
+Info : Unable to match requested speed 2000 kHz, using 1000 kHz
+Info : clock speed 1000 kHz
+Info : SWD DPIDR 0x2ba01477
+Info : [stm32g4x.cpu] Cortex-M4 r0p1 processor detected
+Info : [stm32g4x.cpu] target has 6 breakpoints, 4 watchpoints
+Info : [stm32g4x.cpu] Examination succeed
+Info : [stm32g4x.cpu] gdb port disabled
+288 bytes written at address 0x20001838
+downloaded 288 bytes in 0.002460s (114.329 KiB/s)
+dumped 40 bytes in 0.000786s (49.698 KiB/s)
+dumped 288 bytes in 0.002779s (101.205 KiB/s)
+dumped 40 bytes in 0.000914s (42.738 KiB/s)
+shutdown command invoked

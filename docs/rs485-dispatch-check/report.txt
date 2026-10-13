@@ -1,0 +1,104 @@
+RS485 CPU dispatch profiling — 2026-10-12 (Europe/Paris)
+
+Both modules were rebuilt and flashed using the STLink environment.
+Master UID 002B001A (module 0), slave UID 002B004E (module 1).
+The board IDs in src/main.cpp now match those physical modules.
+
+DWT CYCCNT profiling at 170 MHz, 100,000 dispatch calls per run and target.
+Each run covers about 20 seconds at the 200 us control period.
+CPUs ran freely during collection: no breakpoints, stepping, serial printing,
+or resets inside measurement windows. Active flash was checked byte-for-byte
+against the STLink firmware payload before using ELF addresses.
+
+Outer-only build: mean CPU body time (us)
+                         Master        Slave
+Before optimization
+  DMA receive dispatch      7.9176        7.9176
+  Frame validation/apply    3.5588        3.4471
+  TX preparation            9.0824        9.0941
+After optimization
+  DMA receive dispatch      7.6000        7.6000
+  Frame validation/apply    3.5588        3.4471
+  TX preparation            9.0824        9.0950
+
+Observed dispatch timing range after optimization:
+  master: 7.6000–7.6118 us; reduction 0.3176 us (4.01%).
+  slave: 7.6000–7.6118 us; reduction 0.3176 us (4.01%).
+
+Detailed pre-optimization run: mean phase CPU time (us)
+                         Master        Slave
+First error/TX poll         4.5824        4.5824
+Redundant TX poll           0.2353        0.2353
+DMA cursor read             0.3824        0.3824
+7-byte ring copy            1.1314        1.1353
+Second error/TX poll        0.8588        0.8588
+
+The first poll includes previous-TX completion cleanup: TIM1 compare
+disarming and DMA channel/flag cleanup. This dominates receive dispatch.
+The second poll checks faults that may have arrived during the copy.
+TX preparation is a larger individual cost than receive dispatch: approximately
+9.1 us to check busy state, encode/copy the frame, and rearm DMA/TIM1.
+
+Optimization applied
+Removed the standalone serial_tx_poll() immediately after serial_poll_errors().
+serial_poll_errors() already polls TX; receive-ring dispatch is configured only
+in synchronous mode. Both error polls surrounding the copy are preserved.
+The measured before/after dispatch saving is 0.318 us (~4%) per control cycle.
+It is a small saving; the detailed probe measured that standalone call at
+0.235 us. Compiler/register-layout differences contribute to before/after
+body timings, so individual detailed phases are not exact subtraction terms.
+
+CPU budget after optimization
+  master: 20.2412 us per cycle, or 10.12% of the 200 us period.
+  slave: 20.1420 us per cycle, or 10.07% of the 200 us period.
+This is the measured communication body work, excluding ADC dispatch,
+safety checks, control calculations, scheduling, and profiler bookkeeping.
+
+Measurement overhead and scope
+The empty clock scope measured 1 cycle (0.00588 us). Outer-only timings
+compile internal phase probes out. Detailed probes add roughly 3.11 us to
+dispatch total (11.02 us versus 7.92 us baseline) through bookkeeping and
+changed code layout; use outer-only totals for the actual CPU budget.
+Timed bodies exclude their entry prologue and exit epilogue and the statistics
+updates after the final cycle read. Compiler instrumentation can affect layout.
+Profiling automatically stops after 100,000 dispatcher calls; frame parsing
+and TX preparation therefore have 99,999 samples in each outer run.
+The mode is now zero on both boards; profiling collection is disabled.
+
+Validation
+Each dispatch run copied exactly 700,000 bytes in 100,000 calls (7 bytes/call).
+All baseline, detailed, and optimized runs had zero new discarded snapshots,
+zero new TX errors/skips, and zero latched RS485 error bits on both modules.
+Received-frame and critical-task increments agreed throughout each capture.
+The two cumulative startup TX skips per target did not increase during testing.
+Measurements cover IDLE mode, one master and one slave; error recovery and
+larger multi-module snapshots were not benchmarked.
+
+Next performance candidate
+If more CPU headroom is needed, investigate the repeated TIM1/DMA disarm and
+rearm sequence shared by TX cleanup and preparation. These paths perform many
+peripheral register accesses. Preserve busy/deadline checks and verify the
+per-cycle DE window when changing that sequence. Copy optimization offers
+less benefit for the present 7-byte snapshot. Current communication body work
+uses only about 10% of the control period, so no urgent CPU bottleneck was
+observed in this two-board configuration.
+
+Reproduction and debug map
+  pio run -e STLink
+  Flash .pio/build/STLink/firmware.mcuboot.bin to 0x08047800 with the chosen
+  OpenOCD adapter serial; verify, reset run, and allow MCUboot to finish.
+  ~/.platformio/penv/bin/python owntech/scripts/measure_rs485_cpu.py --mode 1 --label repeat
+The script validates board UID, module role, and exact running code before
+writing only profiler RAM. To collect internal phases, append
+-DRS485_PROFILE_DETAIL to STLink build_flags, rebuild and flash both targets,
+then run the script with --mode 2. Remove the detailed define for body totals.
+Remove -DRS485_DISPATCH_PROFILE for a production build without profiling.
+Both targets currently run the optimized outer-only profiling firmware.
+Debug ELF: .pio/build/STLink/firmware.elf
+Archived baseline/detailed/optimized ELFs and images:
+  .pio/diagnostics/rs485-cpu/{baseline,detailed,optimized}/
+Full pre-flash backups:
+  .pio/diagnostics/rs485-cpu/{master,slave}-before.bin
+Raw CPU measurements and decoded results: docs/rs485-dispatch-check/cpu/
+Build identities: cpu/build-hashes.json; per-run JSON also records ELF SHA256.
+The earlier throughput-only report is retained in initial-throughput-report.txt.
