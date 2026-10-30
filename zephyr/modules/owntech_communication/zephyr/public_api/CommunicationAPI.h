@@ -49,11 +49,13 @@
 class CommunicationAPI
 {
     public :
+
+#ifdef CONFIG_OWNTECH_COMMUNICATION_ENABLE_ANALOG
         /**
          * @brief Contains all the functions for Analog communication
          */
         AnalogCommunication analog;
-
+#endif
         /**
          * @brief Contains all the functions for CAN communication
          */
