@@ -11,8 +11,8 @@
 
 	powershield: power-shield{
         compatible = "power-leg";
-        default-frequency = <200000>;
-        min-frequency = <200000>;
+        default-frequency = <200000>; /* Low-side DCDC legs */
+        min-frequency = <50000>;
         leg1_low: leg1-low{
             leg-name = "LEG1_LOW";
 			pwms = <&pwma 1 0>, <&pwma 2 0>;
@@ -45,6 +45,7 @@
 
         leg1_high: leg1-high{
             leg-name = "LEG1_HIGH";
+            leg-frequency = <50000>; /* High-side DCAC */
 			pwms = <&pwmd 1 0>, <&pwmd 2 0>;
             pwm-pin-num = <5 6>;
             default-adc = "ADC_1";
@@ -58,6 +59,7 @@
 
         leg2_high: leg2-high{
             leg-name = "LEG2_HIGH";
+            leg-frequency = <50000>; /* High-side DCAC */
 			pwms = <&pwme 1 0>, <&pwme 2 0>;
             pwm-pin-num = <10 11>;
             default-adc = "ADC_2";
