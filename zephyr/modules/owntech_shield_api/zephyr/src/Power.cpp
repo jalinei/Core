@@ -62,6 +62,40 @@ hrtim_tu_number_t PowerAPI::spinNumberToTu(uint16_t spin_number)
     }
 }
 
+void PowerAPI::initBurstMode(leg_t leg)
+{
+    int8_t startIndex = (leg == ALL) ? 0 : leg;
+    int8_t endIndex = (leg == ALL) ? dt_leg_count : leg + 1;
+
+    for (int8_t i = startIndex; i < endIndex; i++)
+    {
+        if (dt_burst_mode_capable[i])
+        {
+            spin.pwm.initBurstMode(spinNumberToTu(dt_pwm_pin[i]));
+        }
+    }
+}
+
+void PowerAPI::setBurstMode(int bm_cmp, int bm_per)
+{
+    spin.pwm.setBurstMode(bm_cmp, bm_per);
+}
+
+void PowerAPI::startBurstMode()
+{
+    spin.pwm.startBurstMode();
+}
+
+void PowerAPI::stopBurstMode()
+{
+    spin.pwm.stopBurstMode();
+}
+
+void PowerAPI::deInitBurstMode()
+{
+    spin.pwm.deInitBurstMode();
+}
+
 void PowerAPI::initMode(leg_t leg,
                         hrtim_switch_convention_t leg_convention,
                         hrtim_pwm_mode_t leg_mode)

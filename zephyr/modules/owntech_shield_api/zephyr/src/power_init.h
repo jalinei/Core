@@ -109,6 +109,9 @@
  */
 #define LEG_FREQUENCY(node_id)  DT_PROP_OR(node_id, leg_frequency, 0),
 
+/** Retrieve burst capability; absent properties default to false. */
+#define LEG_BURST_MODE_CAPABLE(node_id) DT_PROP_OR(node_id, burst_mode_capable, 0),
+
 /**
  * Define a macro LEG_ADC_DECIM that retrieves the adc decimator
  * property from the Device Tree node with the given `node_id`.
@@ -261,6 +264,9 @@ extern int16_t dt_phase_shift[];
  * with the ID `POWER_SHIELD_ID` (0 when the leg uses the common frequency).
  */
 extern uint32_t dt_leg_frequency[];
+
+/** Burst capability for each enabled shield leg, in device tree order. */
+extern const bool dt_burst_mode_capable[];
 
 /**
  * Define a variable `dt_leg_count` and initialize it with the count of

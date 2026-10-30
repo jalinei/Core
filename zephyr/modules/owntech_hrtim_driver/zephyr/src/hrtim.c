@@ -1359,7 +1359,8 @@ void hrtim_dt_init(hrtim_tu_number_t tu_number)
     LL_HRTIM_TIM_EnableDeadTime(HRTIM1, tu_channel[tu_number]->pwm_conf.pwm_tu);
 }
 
-void hrtim_burst_mode_init(void){
+void hrtim_burst_mode_init(hrtim_tu_number_t tu_number){
+    timer_hrtim_t *tu = tu_channel[tu_number];
 
     /* No prescaler applied */
     LL_HRTIM_BM_SetPrescaler(HRTIM1, LL_HRTIM_BM_PRESCALER_DIV1);
@@ -1369,25 +1370,18 @@ void hrtim_burst_mode_init(void){
     /* Burst mode operate continuously when software triggered */
     LL_HRTIM_BM_SetMode(HRTIM1, LL_HRTIM_BM_MODE_CONTINOUS);
 
-    for (uint8_t tu_count = 0; tu_count < HRTIM_CHANNELS; tu_count++){
-        /* Burst mode clock source is synchronized with each individual timer
-           to handle phase shift correctly */
-        LL_HRTIM_BM_SetClockSrc(HRTIM1,
-                                tu_channel[tu_count]->pwm_conf.burst_clk);
-        /* For each PWM channel, set output inactive as idle mode*/
-        LL_HRTIM_OUT_SetIdleMode(HRTIM1,
-                                 tu_channel[tu_count]->gpio_conf.OUT_H,
-                                 LL_HRTIM_OUT_IDLE_WHEN_BURST);
-        LL_HRTIM_OUT_SetIdleMode(HRTIM1,
-                                 tu_channel[tu_count]->gpio_conf.OUT_L,
-                                 LL_HRTIM_OUT_IDLE_WHEN_BURST);
+    /* The burst clock is shared by all participating channels. */
+    LL_HRTIM_BM_SetClockSrc(HRTIM1, tu->pwm_conf.burst_clk);
 
-        /* Set burst mode "polarity" e.g means if active or inactive during
-        idle times*/
-        LL_HRTIM_OUT_SetIdleLevel(HRTIM1,
-                                  tu_channel[tu_count]->pwm_conf.pwm_tu,
-                                  LL_HRTIM_OUT_IDLELEVEL_INACTIVE);
-    }
+    /* Only this channel's outputs enter idle during burst mode. */
+    LL_HRTIM_OUT_SetIdleMode(HRTIM1, tu->gpio_conf.OUT_H,
+                            LL_HRTIM_OUT_IDLE_WHEN_BURST);
+    LL_HRTIM_OUT_SetIdleMode(HRTIM1, tu->gpio_conf.OUT_L,
+                            LL_HRTIM_OUT_IDLE_WHEN_BURST);
+    LL_HRTIM_OUT_SetIdleLevel(HRTIM1, tu->gpio_conf.OUT_H,
+                             LL_HRTIM_OUT_IDLELEVEL_INACTIVE);
+    LL_HRTIM_OUT_SetIdleLevel(HRTIM1, tu->gpio_conf.OUT_L,
+                             LL_HRTIM_OUT_IDLELEVEL_INACTIVE);
 
     /* Enable Burst mode */
     LL_HRTIM_BM_Enable(HRTIM1);

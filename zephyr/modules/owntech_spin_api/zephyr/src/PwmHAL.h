@@ -572,10 +572,13 @@ public:
      uint32_t getResolutionPs(hrtim_tu_number_t pwmX);
 
      /**
-      * @brief   This function initialize burst mode.
+      * @brief   Initialize burst mode for one PWM channel.
+      *          Call before starting the channel's timer or burst mode.
+      *          Generator settings are shared; the last call selects the clock.
       *
+      * @param[in] pwmX PWM channel: `PWMA` through `PWMF`.
       */
-     void initBurstMode();
+     void initBurstMode(hrtim_tu_number_t pwmX);
 
      /**
       * @brief   This function sets burst mode parameters

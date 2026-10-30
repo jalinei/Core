@@ -77,6 +77,35 @@ public:
 				  hrtim_pwm_mode_t leg_mode);
 
 	/**
+	 * @brief Initialize burst mode for the selected capable shield legs.
+	 * Call after leg initialization, before starting the timers or burst mode.
+	 * Legs without the device tree property `burst-mode-capable` are skipped.
+	 * The generator is shared; the last initialized leg selects its clock.
+	 *
+	 * @param leg Leg to initialize, or `ALL` for all capable shield legs.
+	 */
+	void initBurstMode(leg_t leg);
+
+	/**
+	 * @brief Set the shared burst generator parameters.
+	 * Applies to every participating HRTIM channel, including channels
+	 * initialized through the SPIN API.
+	 *
+	 * @param bm_cmp Number of PWM periods off (must be positive).
+	 * @param bm_per Total number of PWM periods in the burst cycle.
+	 */
+	void setBurstMode(int bm_cmp, int bm_per);
+
+	/** @brief Start the shared burst generator for all participating channels. */
+	void startBurstMode();
+
+	/** @brief Stop the shared burst generator for all participating channels. */
+	void stopBurstMode();
+
+	/** @brief Stop and disable the shared burst generator. */
+	void deInitBurstMode();
+
+	/**
 	 * @brief Set the duty cycle for a specific leg's power control.
 	 *
 	 * This function sets the duty cycle for the power control of a specified 

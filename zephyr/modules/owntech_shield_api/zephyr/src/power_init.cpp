@@ -61,6 +61,9 @@ int16_t dt_phase_shift[] =
 uint32_t dt_leg_frequency[] =
     {DT_FOREACH_CHILD_STATUS_OKAY(POWER_SHIELD_ID, LEG_FREQUENCY)};
 
+const bool dt_burst_mode_capable[] =
+    {DT_FOREACH_CHILD_STATUS_OKAY(POWER_SHIELD_ID, LEG_BURST_MODE_CAPABLE)};
+
 uint8_t dt_leg_count =
     DT_FOREACH_CHILD_STATUS_OKAY(POWER_SHIELD_ID, LEG_COUNTER);
 

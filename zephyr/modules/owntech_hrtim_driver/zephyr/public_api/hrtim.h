@@ -396,12 +396,17 @@ int8_t hrtim_phase_shift_set(hrtim_tu_number_t tu_number, uint16_t shift);
 void hrtim_dt_init(hrtim_tu_number_t tu_number);
 
 /**
- * @brief   Initialize burst mode
+ * @brief   Initialize burst mode for one PWM channel
  *          This mode permits to skip one or multiple PWM periods by
  *          idling the output on a low state. It is used in light load
  *          conditions to minimize switching losses.
+ *          Call before enabling the channel's timer or starting burst mode.
+ *          The generator settings are shared; the last initialized channel
+ *          selects the burst clock for all participating channels.
+ *
+ * @param[in] tu_number PWM channel: `PWMA` through `PWMF`.
  */
-void hrtim_burst_mode_init(void);
+void hrtim_burst_mode_init(hrtim_tu_number_t tu_number);
 
 /**
  * @brief   Set burst mode parameters
