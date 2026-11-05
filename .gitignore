@@ -10,3 +10,4 @@ src/Data_records/*
 *AGENTS*
 # Generated test records (docs/testing/test-procedure.md §7)
 tests/out/
+__pycache__/
