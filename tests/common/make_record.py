@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""Build the test record (record.md) of a campaign from the criterion lines.
+
+Usage: make_record.py --out DIR --levels L0,L1 LOG [LOG ...]
+
+Each LOG is the captured output of one test binary or script. Lines that start
+with "@@<TAB>" are criteria (see tests/common/check.h); everything else is
+ignored here and stays available in the log file.
+
+Exit code: 1 if any criterion is FAIL, 0 otherwise. Standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import platform
+import re
+import subprocess
+import sys
+from collections import Counter, OrderedDict
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+LIBRARY = REPO / "owntech/lib/USB/single_phase_inverter"
+PROCEDURE = REPO / "docs/testing/test-procedure.md"
+ORDER = {"BLOCKED": 0, "FAIL": 1, "PASS": 2, "INFO": 2}
+
+
+def run(cmd: list[str], cwd: Path = REPO) -> str:
+    try:
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                              check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+
+
+def git_state(path: Path) -> str:
+    sha = run(["git", "rev-parse", "--short=7", "HEAD"], path) or "unknown"
+    dirty = run(["git", "status", "--porcelain", "--untracked-files=no"], path)
+    return sha + ("-dirty" if dirty else "")
+
+
+def procedure_version() -> str:
+    match = re.search(r"Procedure version \| ([^|]+)\|", PROCEDURE.read_text(encoding="utf-8"))
+    return match.group(1).strip() if match else "unknown"
+
+
+def pulsim_version() -> str:
+    for python in (REPO / ".venv/bin/python", Path(sys.executable)):
+        if python.exists():
+            out = run([str(python), "-c", "import pulsim; print(pulsim.__version__)"])
+            if out:
+                return out
+    return "not installed"
+
+
+def parse(logs: list[Path]) -> list[dict]:
+    rows = []
+    for log in logs:
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.startswith("@@\t"):
+                continue
+            parts = line.split("\t")[1:]
+            parts += [""] * (5 - len(parts))
+            rid, verdict, desc, limit, measured = parts[:5]
+            rows.append(dict(id=rid, verdict=verdict, desc=desc, limit=limit,
+                             measured=measured, log=log.name))
+    return rows
+
+
+def case_of(criterion_id: str) -> str:
+    return criterion_id.split(".")[0]
+
+
+def sort_key(row: dict) -> tuple:
+    return (ORDER.get(row["verdict"], 3), row["id"])
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--levels", default="L0,L1")
+    parser.add_argument("logs", nargs="*", type=Path)
+    args = parser.parse_args()
+
+    rows = parse(args.logs)
+    counts = Counter(r["verdict"] for r in rows)
+    # A campaign that reports nothing must not look green.
+    failed = counts["FAIL"] > 0 or not rows
+    now = dt.datetime.now().astimezone()
+    core = git_state(REPO)
+    library = git_state(LIBRARY) if LIBRARY.exists() else "not fetched"
+    gcc = run(["g++", "-dumpfullversion"]) or "unknown"
+    levels = [lvl for lvl in args.levels.split(",") if lvl]
+    plant = "none"  # set by the L1 runner once a plant model exists
+
+    cases: "OrderedDict[str, list[dict]]" = OrderedDict()
+    for row in sorted(rows, key=lambda r: r["id"]):
+        cases.setdefault(case_of(row["id"]), []).append(row)
+
+    out = []
+    out += ["---",
+            f"campaign: {args.out.name}",
+            f"date: {now.isoformat(timespec='seconds')}",
+            f"operator: {run(['git', 'config', 'user.name']) or 'unknown'}",
+            f"procedure_version: {procedure_version()}",
+            f"core_commit: {core}",
+            f"library_commit: {library}",
+            f"plant_model: {plant}",
+            "contract_version: v0",
+            f'toolchain: {{ gcc: "{gcc}", python: "{platform.python_version()}", '
+            f'pulsim: "{pulsim_version()}" }}',
+            f"levels: [{', '.join(levels)}]",
+            f"verdict: {'FAIL' if failed else 'PASS'}",
+            "counts: { " + ", ".join(f"{v}: {counts[v]}" for v in
+                                    ("PASS", "FAIL", "INFO", "BLOCKED")) + " }",
+            "---", ""]
+
+    out += [f"# Test record {args.out.name}", "",
+            f"**Campaign verdict: {'FAIL' if failed else 'PASS'}**: "
+            f"{counts['PASS']} pass, {counts['FAIL']} fail, {counts['INFO']} info, "
+            f"{counts['BLOCKED']} blocked, over {len(cases)} test cases.", ""]
+    if counts["BLOCKED"]:
+        blocked = sorted({case_of(r["id"]) for r in rows if r["verdict"] == "BLOCKED"})
+        out += [f"> **Blocked:** {', '.join(blocked)}. See the results table for the reason.", ""]
+    if not rows:
+        out += ["> **No criteria were reported.** Check the log files in this folder.", ""]
+
+    out += ["## Setup", "",
+            "| Item | Value |", "|---|---|",
+            f"| Core commit | `{core}` |",
+            f"| Library commit | `{library}` (single_phase_inverter, jalinei `main`) |",
+            f"| Plant model | {plant} |",
+            "| Contract | v0 |",
+            "| Control period | 100 µs (cold loop every 10 ticks) |",
+            f"| Toolchain | gcc {gcc}, Python {platform.python_version()}, "
+            f"Pulsim {pulsim_version()} |",
+            f"| Host | {platform.system()} {platform.release()} {platform.machine()} |",
+            f"| Levels run | {', '.join(levels)} |", ""]
+
+    if rows:
+        out += ["## Verdicts", "", "```mermaid", "pie showData title Criteria by verdict"]
+        out += [f'    "{v}" : {counts[v]}' for v in ("PASS", "FAIL", "INFO", "BLOCKED")
+                if counts[v]]
+        out += ["```", ""]
+
+        out += ["## Test cases", "",
+                "| Test case | Criteria | Verdict |", "|---|---|---|"]
+        for case, items in cases.items():
+            verdicts = {r["verdict"] for r in items}
+            worst = next((v for v in ("FAIL", "BLOCKED", "PASS", "INFO") if v in verdicts),
+                         "?")
+            out.append(f"| {case} | {len(items)} | {worst} |")
+        out.append("")
+
+        out += ["## Results", "",
+                "| Criterion | Description | Limit | Measured | Verdict |",
+                "|---|---|---|---|---|"]
+        for r in sorted(rows, key=sort_key):
+            out.append(f"| {r['id']} | {r['desc']} | {r['limit']} | {r['measured']} | "
+                       f"{r['verdict']} |")
+        out.append("")
+
+    out += ["## Raw data", "", "| File | Content |", "|---|---|"]
+    out += [f"| `{log.name}` | Full output of `{log.stem}` |" for log in args.logs]
+    out.append("")
+
+    if failed:
+        out += ["## Follow-up", "",
+                "Open one issue per failing test case on `luizvilla/Core` with the "
+                "`needs-triage` label, quoting this campaign ID and the criterion IDs "
+                "(procedure §8.4).", ""]
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    record = args.out / "record.md"
+    record.write_text("\n".join(out), encoding="utf-8")
+
+    width = max([len(r["id"]) for r in rows] + [9])
+    for r in sorted(rows, key=sort_key):
+        print(f"  {r['id']:<{width}}  {r['verdict']:<7}  {r['desc']}")
+    print(f"\n{'FAIL' if failed else 'PASS'}: {counts['PASS']} pass, {counts['FAIL']} fail, "
+          f"{counts['INFO']} info, {counts['BLOCKED']} blocked")
+    print(f"Record: {record.relative_to(REPO) if record.is_relative_to(REPO) else record}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

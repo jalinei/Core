@@ -8,3 +8,5 @@ src/Data_records/*
 *venv*
 *agents*
 *AGENTS*
+# Generated test records (docs/testing/test-procedure.md §7)
+tests/out/

@@ -197,22 +197,36 @@ These cases exercise library features the application does not use. They run the
 
 ## 7. Running a campaign
 
-> Planned. The script is delivered by commit 2 of the [commit plan](#9-commit-plan).
-
 ```bash
 tests/run_all.sh          # L0 then L1
 tests/run_all.sh --l0     # L0 only (seconds)
 tests/run_all.sh --l1     # L1 only
 ```
 
-The script writes the **test record** to `tests/out/<YYYY-MM-DD>_<sha7>/`, prints the results table, and exits non-zero if any criterion is `FAIL`. `tests/out/` is git-ignored: L0 and L1 are deterministic, so any record can be regenerated from its commit.
+The script writes the **test record** to `tests/out/<YYYY-MM-DD>_<sha7>/`, prints the results table, and exits non-zero if any criterion is `FAIL`, if a test binary dies before reporting (build error, crash, sanitizer abort), or if the campaign reports no criteria at all. The folder name ends in `-dirty` when tracked files have uncommitted changes. `tests/out/` is git-ignored: L0 and L1 are deterministic, so any record can be regenerated from its commit.
 
 | When | What to run |
 |---|---|
 | Before every commit on the test branch | `tests/run_all.sh --l0` |
 | Before a merge, or when the plant model changes | `tests/run_all.sh` |
 
-### 7.1 Environment
+### 7.1 How an L0 test reports
+
+Each L0 test is a host binary built by its `tests/l0/<object>/run.sh` through `tests/common/l0_build.sh`. It uses `tests/common/check.h`:
+
+```cpp
+{
+    tc::Criterion c("L0-BST-02.a", "Leg 1 alone up to its current limit");
+    c.near("ILow1 ref at 2 A", boost.getILow1Ref(), 2.0, 1e-5);
+    c.check("leg 2 disabled", !boost.isLeg2Enabled());
+}   // one result line per criterion, printed here
+tc::info("L0-GFL-02.b", "PLL lock time", lock_time_s, "s");
+return tc::finish();
+```
+
+A failing observation does not stop the test, so every criterion gets a verdict. Firmware sources are built with `-Wall -Wextra -Werror`; third-party library sources without `-Werror`. Undefined behaviour aborts the binary (UBSan), which the runner reports as a `FAIL`.
+
+### 7.2 Environment
 
 | Item | Requirement |
 |---|---|
