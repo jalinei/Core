@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 0.5 (draft) |
+| Procedure version | 0.6 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -170,11 +170,11 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 
 | ID | Behaviour | Source | Status |
 |---|---|---|---|
-| L0-APP-01 | A mode change stops both legs and runs the cold loop on the same tick | critical task, mode-change block | To write (seam ready) |
-| L0-APP-02 | Cold loop runs every 10th tick | `cold_loop_divider` = 10 | To write (seam ready) |
-| L0-APP-03 | VAC stale for more than 20 ms makes the measurement invalid, which trips the observer | `grid_voltage_stale_ticks` = 200 | To write (seam ready) |
-| L0-APP-04 | Bridge PWM is never enabled, in any mode or command | critical task, "Synchronization only" | To write (seam ready) |
-| L0-APP-05 | Grid quality passed to the inverter comes only from the observer's `canOperate()` | `setGridQuality(grid_observer.canOperate())` | To write (seam ready) |
+| L0-APP-01 | `controlInit` applies the app tuning; a mode change is flagged on its tick only and runs the cold loop on that tick; leg enables follow the controller | critical task, mode-change block | Implemented |
+| L0-APP-02 | Cold loop on the change tick, then every 10th tick; a new mode change restarts the phase | `cold_loop_divider` = 10 | Implemented |
+| L0-APP-03 | VAC stale for exactly 200 periods (20 ms) trips the observer with `InvalidMeasurement`; a fresh sample restarts the count | `grid_voltage_stale_ticks` = 200 | Implemented |
+| L0-APP-04 | Bridge PWM never enabled and the inverter never requests PWM or relay, in any mode, with or without a sync request | critical task, "Synchronization only" | Implemented |
+| L0-APP-05 | Synchronization only after observer qualification; an observer trip removes it on the trip tick; times to qualification and sync `INFO` | `setGridQuality(grid_observer.canOperate())` | Implemented |
 
 ### 6.5 L1-APP — application with the averaged plant model
 
@@ -363,3 +363,4 @@ flowchart LR
 | 0.3 | 2026-11-05 | L0-GFL implemented. Off-nominal frequency criteria use a 20 ms mean of the PLL estimate, because the estimate carries a 100 Hz ripple away from 50 Hz. L0-GFL-03 split into frequency tracking (.a) and re-synchronization (.b). |
 | 0.4 | 2026-11-05 | §7.3 test code documentation rules: README per test folder, Core license and Doxygen style in C/C++, `@test` tag per criterion, `##` Doxygen headers in shell and Python. Applied to all existing test code. L0-GFL-03.b failure filed as luizvilla/Core#1. |
 | 0.5 | 2026-11-05 | Control step extracted to `src/app/control_step.{h,cpp}` with `controlInit` and an explicit `ControlState` (worklog entry of the same date). |
+| 0.6 | 2026-11-05 | L0-APP implemented against `controlStep` with the application's real tuning and real-time grid delays. |
