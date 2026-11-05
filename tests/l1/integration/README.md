@@ -11,3 +11,4 @@ The nominal 50 Hz integration result does not close known finding #1 or replace 
 Known implementation constraints are documented in `../README.md`: predeclare C-Block output nodes for Pulsim 2.0 current-index stability, and keep intentional NaN observer telemetry out of diagnostic-only electrical stamps while retaining it in the actual output log.
 
 - `test_pv.py`: L1-INT-05; native single-diode source with matched passive load, unchanged Core MPPT with a freely responding PV voltage, and an initial 2 ms 50/25 ns refinement check. Short-run power ratio is INFO, not settled MPPT acceptance. The original full model and its twelve integration criteria remain in the campaign.
+- `test_pv_lambertw.py`: L1-INT-07; the Lambert W panel (explicit single-diode current, one current source updated every step) against the diode panel: equation check, then both in the switched circuit at a fixed duty of 0.45 for 10 ms, loaded through the MPP. Long PV runs rely on this check.

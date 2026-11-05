@@ -67,6 +67,31 @@ The 20 ms characterization, using 50 ns steps, completed with finite states and 
 
 A separate 2 ms refinement check compared 50 ns and 25 ns steps on the same sampled time grid. Maximum differences were approximately 0.0348 V in panel voltage and 0.00279 V in bus voltage. This supports the short integration check only; it does not establish convergence over the full 20 ms or at a settled MPP.
 
+## Lambert W panel for long runs
+
+The diode panel above puts a Shockley diode in the circuit, so the solver iterates (Newton) at every 50 ns step. That costs about 680 µs per step on Luiz's laptop, about 3 hours per simulated second. It also fails to converge under heavy load: at a fixed duty of 0.6 the run aborts at 0.114 ms (`solve_with_newton: failed to converge`).
+
+The **Lambert W panel** (`"pv_model": "lambertw"` in a scenario) solves the same single-diode equation explicitly. With W, the panel current is a closed-form function of the terminal voltage, Rs and Rsh included:
+
+I = (Rsh (IL + I0) − V) / (Rs + Rsh) − (a / Rs) · W( Rs I0 Rsh / (a (Rs + Rsh)) · exp( Rsh (Rs IL + Rs I0 + V) / (a (Rs + Rsh)) ) )
+
+In the circuit the panel is a single current source; the runner sets its value at every step from the terminal voltage of the previous step. The series resistor drops to 1 µΩ because Rs is inside the equation. The circuit stays linear, so the solver uses its fast path.
+
+| | Diode panel | Lambert W panel |
+|---|---|---|
+| Role | Reference, short checks | Long runs (light changes, turn-on to sundown) |
+| Cost per 50 ns step (laptop) | ~680 µs | ~150 µs (4.5× faster) |
+| Heavy load (duty 0.6) | Newton fails to converge | Runs |
+| Approximation | — | Panel current lags its voltage by one 50 ns step; the input capacitors make this negligible (see below) |
+| Light changes | Not supported | `"light": [[t_s, scale], …]` scales IL over time, linear between points |
+
+**Validation, L1-INT-07, run in every L1 campaign:**
+- .a: the W current equals Jean's implicit solution to 5·10⁻¹³ A from 0 to 1.05 Voc.
+- .b: both panels in the same switched circuit, open loop at a fixed duty of 0.45 for 10 ms, which pulls the panel from open circuit through its 57 W MPP. Panel voltage agrees within 1.8 mV, current within 2.7 mA, bus within 0.2 mV; tolerance 10 mV / 10 mA. The tolerances were set after a first exploratory comparison, with a 5× margin.
+- .c: the speed ratio, as INFO.
+
+A closed-loop 20 ms MPPT run gave the same agreement (0.2 mV, 0.2 mA, duties within 6·10⁻⁷), but the panel stays near open circuit there, so it is not the validation case. The diode panel's results are unchanged by the addition: a rerun of yesterday's 2 ms check is bit-identical.
+
 ## Next assessment steps
 
 1. Exercise the DCDC current loop with a known fixed current demand in a clearly labeled test harness, checking measured-current polarity, voltage headroom, duty mapping and settling. Keep that distinct from the unchanged application path.

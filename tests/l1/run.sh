@@ -25,6 +25,7 @@ rc=0
 "$py" "$repo/tests/l1/integration/test_rc.py" || rc=1
 "$py" "$repo/tests/l1/integration/test_model.py" || rc=1
 "$py" "$repo/tests/l1/integration/test_pv.py" || rc=1
+"$py" "$repo/tests/l1/integration/test_pv_lambertw.py" || rc=1
 "$py" "$repo/tests/l1/application/test_switched.py" || rc=1
 "$py" "$repo/tests/l1/blocked.py"
 exit "$rc"

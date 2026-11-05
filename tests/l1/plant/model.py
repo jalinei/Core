@@ -21,7 +21,7 @@ class Model:
         c=project.get_active_circuit();nm=build_node_map(c);aliases=build_node_alias_map(c,nm)
         from plant.pv import parameters, reference
         self.pv=parameters(c);self.pv_reference=reference(self.pv) if self.pv else None
-        self.builder=p.CircuitBuilder();b=self.builder;self.parts={};self.nodes={};self.probes={}
+        self.builder=p.CircuitBuilder();b=self.builder;self.parts={};self.nodes={};self.probes={};self.pv_lambertw=None
         for a in c.components.values():
             name=a.name;kind=a.type.name;q=a.parameters
             ns=['0' if n=='0' else aliases.get(n,'N'+n) for n in [nm[(str(a.id),i)] for i in range(len(a.pins))]]
@@ -36,6 +36,8 @@ class Model:
                 else:b.add_diode(name,*ns[:2],1/q['ron'],1/q['roff'],q['v_forward'])
             elif kind=='CURRENT_SOURCE':
                 if name!='PV_light' or q['waveform']['type']!='dc':raise ValueError('Unexpected current source '+name)
+                # Lambert W panel: value 0 here, the runner injects I(V) at every step.
+                if q.get('pv_lambertw'):self.pv_lambertw=dict(q['pv_lambertw'])
                 b.add_current_source(name,*ns[:2],q['waveform']['value'])
             elif kind=='TRANSFORMER':b.add_transformer(name,*ns[:4],q['lm'],q['lm']/q['turns_ratio']**2,q['coupling'])
             elif kind=='COUPLED_INDUCTOR':

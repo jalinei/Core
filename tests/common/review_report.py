@@ -63,6 +63,26 @@ def load_csv(path):
     return {k: [float(r[k]) for r in rows] for k in rows[0]}
 
 
+class Signals:
+    """@brief Signals of a scenario folder: control.csv columns (per control tick), else
+    waveforms.npz traces (electrical, decimated to at most 6000 points), each on its own time base."""
+    def __init__(self, folder):
+        self.csv = load_csv(folder / 'control.csv')
+        self.npz = folder / 'waveforms.npz'
+        self._wave = None
+
+    def get(self, name):
+        """@return (time list in s, values list)."""
+        if name in self.csv:
+            return self.csv['time_s'], self.csv[name]
+        if self._wave is None:
+            import numpy as np
+            self._wave = np.load(self.npz)
+        t = self._wave['time']
+        step = max(1, len(t) // 6000)
+        return list(t[::step]), list(self._wave[name][::step])
+
+
 def plot(cid, spec, row, folder):
     """@brief Draw one review figure. @return (png_base64, notes) or (None, reason)."""
     import matplotlib
@@ -70,14 +90,17 @@ def plot(cid, spec, row, folder):
     import matplotlib.pyplot as plt
     if not (folder / 'control.csv').exists():
         return None, f'no saved run in `{folder.name}/`'
-    data = load_csv(folder / 'control.csv')
+    sig = Signals(folder)
     scen_file = SCENARIOS / f'{spec["scenario"]}.json'
     scenario = json.loads(scen_file.read_text()) if scen_file.exists() else {}
     limits, limit_src = resolve(spec.get('limits'), scenario)
     window, window_src = resolve(spec.get('window'), scenario)
-    t = [1e3 * x for x in data['time_s']]
-    y = data[spec['signal']]
-    panels = spec.get('panels', [])
+    t_s, y = sig.get(spec['signal'])
+    t = [1e3 * x for x in t_s]
+    panels = list(spec.get('panels', []))
+    ref_run = folder.parent / spec['reference_run'] if spec.get('reference_run') else None
+    if ref_run and (ref_run / 'control.csv').exists():
+        panels.insert(0, {'unit': f"{spec['unit']}, this − reference", 'difference': True})
     fig, axes = plt.subplots(1 + len(panels), 1, sharex=True, figsize=(9, 3.2 + 1.5 * len(panels)),
                              gridspec_kw={'height_ratios': [2.2] + [1] * len(panels)}, facecolor=SURFACE)
     axes = list(axes) if panels else [axes]
@@ -92,10 +115,18 @@ def plot(cid, spec, row, folder):
         for ev in spec.get('events', []):
             ax.axvline(1e3 * ev['t'], color=MUTED, linewidth=1, linestyle=':')
     ax = axes[0]
-    if spec.get('reference'):
-        ax.plot(t, data[spec['reference']], color=INK2, linewidth=1, label=spec['reference'])
-    ax.plot(t, y, color=SERIES[0], linewidth=2, label=spec['signal'])
     notes = []
+    if spec.get('reference'):
+        rt, rv = sig.get(spec['reference'])
+        ax.plot([1e3 * x for x in rt], rv, color=INK2, linewidth=1, label=spec['reference'])
+    if spec.get('reference_run'):
+        # Same signal from another run of the campaign, e.g. the reference model.
+        other = folder.parent / spec['reference_run']
+        if (other / 'control.csv').exists():
+            rt, rv = Signals(other).get(spec['signal'])
+            ax.plot([1e3 * x for x in rt], rv, color=INK2, linewidth=1, linestyle='--', label=f'{spec["signal"]} ({spec["reference_run"]})')
+            notes.append(f'Dashed grey: the same signal in {spec["reference_run"]}/, for comparison.')
+    ax.plot(t, y, color=SERIES[0], linewidth=2, label=spec['signal'])
     for v in spec.get('thresholds', []):
         ax.axhline(v, color=MUTED, linewidth=1, linestyle='-.')
     if spec.get('thresholds'):
@@ -126,8 +157,18 @@ def plot(cid, spec, row, folder):
     ax.set_ylabel(spec['unit'], color=INK2, fontsize=9)
     ax.legend(loc='best', fontsize=8, frameon=False, labelcolor=INK)
     for ax, panel in zip(axes[1:], panels):
+        if panel.get('difference'):
+            rt, rv = Signals(ref_run).get(spec['signal'])
+            import numpy as np
+            dv = np.asarray(y) - np.interp(t_s, rt, rv)
+            ax.plot(t, dv, color=SERIES[0], linewidth=1.2, label=f'{spec["signal"]} difference')
+            ax.set_ylabel(panel['unit'], color=INK2, fontsize=9)
+            ax.legend(loc='best', fontsize=8, frameon=False, labelcolor=INK)
+            notes.append(f'Second panel: difference with {spec["reference_run"]}/ (max {np.max(np.abs(dv)):.3g} {spec["unit"]}).')
+            continue
         for i, name in enumerate(panel['signals']):
-            ax.plot(t, data[name], color=SERIES[i % len(SERIES)], linewidth=1.5, label=name)
+            pt, pv = sig.get(name)
+            ax.plot([1e3 * x for x in pt], pv, color=SERIES[i % len(SERIES)], linewidth=1.5, label=name)
         ax.set_ylabel(panel['unit'], color=INK2, fontsize=9)
         ax.legend(loc='best', fontsize=8, frameon=False, labelcolor=INK, ncol=min(4, len(panel['signals'])))
     axes[-1].set_xlabel('time (ms)', color=INK2, fontsize=9)

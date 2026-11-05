@@ -16,6 +16,8 @@ Every scenario starts with three documentation fields, which the review page (pr
 
 A new scenario is not complete without them.
 
+PV scenarios (`"plant_variant": "pv"`) also take `"pv_model"`: `"diode"` (default; reference, short runs) or `"lambertw"` (long runs, validated by L1-INT-07). With `lambertw`, `"light": [[t_s, scale], …]` scales the panel's light current over time, linear between points (1 = profile value).
+
 Times are simulated seconds and command events must align to the 100 us control period. A command arriving on a control tick is delivered on that tick, not a tick later. Mode values follow the existing boost enum. `v_bus_ref` is volts. `sync_request` and `vac_updated` are Boolean. Unknown/missing prerequisites are not silently replaced with another controller/profile.
 
 These are L1-INT integration fixtures, not the formal L1-APP catalogue cases. A scenario duration is a run horizon, not an invented performance requirement.

@@ -16,7 +16,7 @@ def run(scenario,project=None,progress=None,cancelled=None):
     if project is None and scenario.get('plant_variant')=='pv':
         from pulsimgui.models.project import Project
         from plant.pv import apply
-        project=apply(Project.load(HERE/'plant/full_model.pulsim'))
+        project=apply(Project.load(HERE/'plant/full_model.pulsim'),model=scenario.get('pv_model','diode'))
     if project is None and scenario.get('fixture'):
         from pulsimgui.models.project import Project
         from plant.fixtures import apply
@@ -36,8 +36,10 @@ def run(scenario,project=None,progress=None,cancelled=None):
     wires=[model.probes[SENSORS[name]] for name in ['VLow','ILow1','ILow2','VDCBus','VAC','IAC']]+[('v','cmd_'+name) for name in fields]
     block=attach(b,wires,dt);hardware=Actuators();rows=[];last_count=0;last_report=-1
     original=block.step_observer;extrema={};peak_indices=[];electrical_observations=0
+    pv_v=[0.]
     def observer(t,x):
         nonlocal last_count,last_report,electrical_observations
+        if model.pv_lambertw:pv_v[0]=float(x[pv_rows[0]]-(x[pv_rows[1]] if pv_rows[1] is not None else 0.))
         if peak_indices:electrical_observations+=1
         for name,index in peak_indices:
             value=float(x[index]);extrema[name]['min']=min(extrema[name]['min'],value);extrema[name]['max']=max(extrema[name]['max'],value)
@@ -54,6 +56,12 @@ def run(scenario,project=None,progress=None,cancelled=None):
             else:print(text,flush=True)
     block.step_observer=observer
     names=b.state_var_names();ix={name:i for i,name in enumerate(names)};x=model.initial()
+    light=scenario.get('light')  # [[t_s, scale], ...] irradiance profile, linear between points
+    if light and not model.pv_lambertw:raise ValueError('A light profile needs pv_model lambertw')
+    if model.pv_lambertw:
+        from plant.pv import current_lambertw
+        pv_rows=[None if n=='0' else ix[f'V({n})'] for n in model.nodes['PV_light'][:2]]
+        light_t=[q[0] for q in light] if light else [0.];light_s=[q[1] for q in light] if light else [1.]
     if 'DCDC_test_load' in model.parts:
         for logical in ['ILow1','ILow2']:
             probe=model.probes[SENSORS[logical]][1]
@@ -73,6 +81,12 @@ def run(scenario,project=None,progress=None,cancelled=None):
         # Deliver a tick-aligned scenario command for the interval endpoint.
         q=command(t+dt)
         for name in fields:extra[ix['Is(scenario_'+name+')']]=initial[name]-q[name]
+        if model.pv_lambertw:
+            # Panel current from the terminal voltage of the previous step (explicit Lambert W),
+            # pushed into the source's positive node: injection enters b_extra with a minus sign.
+            i=float(current_lambertw(pv_v[0],model.pv_lambertw,float(np.interp(t,light_t,light_s))))
+            if pv_rows[0] is not None:extra[pv_rows[0]]=-i
+            if pv_rows[1] is not None:extra[pv_rows[1]]=i
         return extra
     started=time.monotonic()
     try:
@@ -96,7 +110,7 @@ def run(scenario,project=None,progress=None,cancelled=None):
         vj=voltage(jpos)-voltage(jneg)
         r0=model.nodes['Rsource'][0]
         terminal=voltage(r0)-voltage(jneg)
-        source_current=(vj-voltage(r0))/model.pv['Rs_ohm']
+        source_current=(vj-voltage(r0))/model.parts['Rsource'].parameters['resistance']
         signals.update(pv_voltage=terminal,pv_current=source_current,pv_power=terminal*source_current,
                        pv_mpp_power=np.full_like(t,model.pv_reference['Pmp_W']),
                        pv_sensor_power=signals['VLow']*(signals['ILow1']+signals['ILow2']))
@@ -106,7 +120,8 @@ def run(scenario,project=None,progress=None,cancelled=None):
         'firmware':json.loads((HERE/'firmware_block/build/manifest.json').read_text()),
         'pulsim':p.__version__,'wall_s':time.monotonic()-started,'actual_cblock_calls':block.n_fires,
         'finite_states':bool(np.isfinite(states).all()),'native_cblock':True,'formal_campaign':False,
-        'averaged_model_available':False,'pv_model_available':bool(model.pv)}
+        'averaged_model_available':False,'pv_model_available':bool(model.pv),
+        'pv_model':('lambertw' if model.pv_lambertw else 'diode') if model.pv else None}
     if model.pv:
         metadata.update(pv_parameters=model.pv,pv_reference=model.pv_reference,
                         pv_profile_sha256=hashlib.sha256((HERE/'plant/pv-profile.json').read_bytes()).hexdigest(),

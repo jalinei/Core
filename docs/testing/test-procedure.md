@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 1.5 (draft) |
+| Procedure version | 1.6 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -216,6 +216,7 @@ These establish the execution/measurement boundary using the same Core source. T
 | L1-INT-03 | Refined switched model, nominal 50 Hz sync with inverter off, exact current-probe binding and tick-aligned short STARTUP at `app::startup_ramp_rate` | accepted plant, `controlStep`, `app::startup_ramp_rate` | Implemented (.a–.d) |
 | L1-INT-04 | Missing VAC delivery holds last sample and invalidates at age 200; physical grid stays present | sensor hold contract, `grid_voltage_stale_ticks` | Implemented (.a–.b) |
 | L1-INT-05 | Native PV passive MPP load; actual Core MPPT coupling; initial 2 ms step refinement; short-run power ratio INFO | synthetic single-diode variant | Implemented (.a–.c PASS checks, .d INFO) |
+| L1-INT-07 | Lambert W panel equals the diode panel: explicit current vs implicit solution; same switched circuit loaded through the MPP at a fixed duty (10 mV / 10 mA); speed ratio INFO | `plant/pv.py` `current_lambertw`, [PV guide](pv-model-run.md#lambert-w-panel-for-long-runs) | Implemented (.a–.b; .c INFO) |
 
 Contract **app-v1**, in `tests/l1/contract.json`, binds six physical probes plus VAC freshness and the three existing operator commands. Outputs include the stop/update action flags as well as duties/enables; relay and bridge request telemetry stays off. The wrapper is the actual Pulsim C-Block execution path. A native synthetic PV variant is implemented and checked separately by L1-INT-05. Switched startup, regulation and initial burst fixtures are implemented. Full-duration startup, sustained MPPT acceptance, repeated burst cycles and the library-only relay/RUN harness remain incomplete. Unrun criteria are explicitly BLOCKED; measured regulation failures remain FAIL. Nominal integration does not close the open library finding.
 
@@ -447,6 +448,7 @@ flowchart LR
 | 1.3 | 2026-11-05 | Branch `test/microinverter-validation-v2`: Jean Alinei's switched L1 work adopted as the L1 implementation (user decision); the earlier L1-FWB-01 prototype and its contract v1 are retired, superseded by L1-INT-01/-02 and contract app-v1. Archived results removed from git: records stay local and are regenerated from their commit (§7). Switched plant only, no averaged variant ([ADR 0002](../adr/0002-switched-plant-only.md)). Production `app::startup_ramp_rate` raised from 10 to 200 V/s at Jean's request (worklog); L1 limits read it from `control_step.h`; full startup is now 2 s. L1-APP-03.a FAIL filed as #3 (§11). |
 | 1.4 | 2026-11-05 | §8.5 review routine: every campaign writes `report.html` (banner, one plot per waveform criterion with limits and window drawn, changes since the previous campaign, full table), defined by `tests/l1/review_plots.json`; sign-off line in the record. §8.3 lists the files a campaign actually writes. |
 | 1.5 | 2026-11-05 | §8.5: every test result has four parts (purpose + conditions and objectives, model snapshot, results, figures); the review page is organised per test case. Scenarios carry `title`, `purpose` and `criteria`. Each scenario folder keeps the exact model it ran on, its pictures and its changes from the accepted model (§8.3). The contract profile name follows the 200 V/s change (`Core-app-default-200Vps-sync-only`). |
+| 1.6 | 2026-11-06 | Lambert W panel (`pv_model: lambertw`) for long PV runs, about 4.5× faster than the diode panel, which also fails to converge under heavy load; validated by L1-INT-07 in every campaign. Scenarios may carry a `light` profile (irradiance over time, Lambert W panel only). Review plots can read electrical traces and compare with a reference run (difference panel). |
 
 ## 11. Findings register
 

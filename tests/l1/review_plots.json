@@ -1,5 +1,5 @@
 {
-  "_doc": "Review plots for tests/common/review_report.py (procedure §8.5). One entry per criterion that has a waveform. scenario: campaign subfolder; signal: control.csv column judged; limits: [low, high] the signal must stay within (null = none), or an 'acceptance' key path in the scenario JSON; thresholds: crossing levels drawn without judging; window: [t0, t1] s judged (null = whole run); reference: thin line; events: vertical markers; panels: what drives the signal, one unit per panel. Keep the limits equal to the test's own (the report states where they come from).",
+  "_doc": "Review plots for tests/common/review_report.py (procedure §8.5). One entry per criterion that has a waveform. scenario: campaign subfolder; signal: control.csv column judged; limits: [low, high] the signal must stay within (null = none), or an 'acceptance' key path in the scenario JSON; thresholds: crossing levels drawn without judging; window: [t0, t1] s judged (null = whole run); reference: thin line; reference_run: the same signal from another run folder of the campaign, dashed; events: vertical markers; panels: what drives the signal, one unit per panel. Keep the limits equal to the test's own (the report states where they come from).",
   "L1-APP-01.b": {
     "scenario": "idle_healthy", "signal": "grid_qualified", "unit": "flag (0/1)", "limits": null,
     "events": [{"t": 1.0, "label": "t = 1 s"}],
@@ -28,5 +28,10 @@
   "L1-APP-04.c": {
     "scenario": "dcdc_burst", "signal": "VDCBus", "unit": "V", "limits": null, "thresholds": [395, 405],
     "panels": [{"unit": "flag (0/1)", "signals": ["burst_paused", "en_leg1"]}, {"unit": "duty", "signals": ["duty_leg1", "duty_leg2"]}]
+  },
+  "L1-INT-07.b": {
+    "scenario": "pv-lambertw-fixed-duty", "signal": "pv_voltage", "unit": "V", "limits": null,
+    "reference_run": "pv-diode-fixed-duty",
+    "panels": [{"unit": "A", "signals": ["pv_current"]}, {"unit": "W", "signals": ["pv_power", "pv_mpp_power"]}]
   }
 }
