@@ -39,13 +39,25 @@ Limits come from the library's own documentation and constants: synchronization 
 | L0-GFL-05 | .a – .c | Bad quality blocks sync and restarts the dwell; bad quality trips CONNECT, CONNECTED, RUN at once; `clearFault` conditions |
 | L0-GFL-06 | .a – .d | Non-finite measurement; non-positive bus; invalid current or frequency reference; first cause kept and requests ignored while latched |
 | L0-GFL-07 | .a, .b | Duty exactly 0.5 in OFF and SYNC; duty formula at 400, 300 and 100 V, exceeding 1 when unclamped |
+| L0-GFL-08 | .a – .e; INFO .f, .g | Cold-start synchronization at 47.6, 49, 50, 51 and 52.4 Hz from four grid angles, settled estimate within ±5 %; worst lock time and transient |
 
 ## Known findings
 
 | Criterion | Status | Issue |
 |---|---|---|
 | L0-GFL-03.b | `FAIL`: synchronization only within about 50 ± 0.03 Hz; at 51 Hz the Vq ripple is 3.3 V against a 0.1 V tolerance. Cause is in the library (SOGI evaluated at the fixed ω_ref). | [luizvilla/Core#1](https://github.com/luizvilla/Core/issues/1) |
+| L0-GFL-08.a, .b, .d, .e | `FAIL`: no cold-start synchronization away from 50 Hz, same cause. Added because a first fix attempt (SOGI at the PLL estimate) passed 03.b but diverged at 49 Hz from a cold start. | [luizvilla/Core#1](https://github.com/luizvilla/Core/issues/1) |
+
+Known findings are listed in the procedure's [findings register](../../../docs/testing/test-procedure.md#11-findings-register); test records mark these failures as *known*.
+
+## Testing a library fix before merge
+
+```bash
+SINGLE_PHASE_INVERTER_DIR=~/code/single_phase_inverter tests/run_all.sh --l0
+```
+
+Builds L0-GFL and L0-APP against that checkout instead of the PlatformIO copy; the record stamps its commit and lists any finding whose criteria now all pass.
 
 ## History
 
-Added in commit `bec6342`.
+Added in commit `bec6342`. L0-GFL-08 added after #1 was filed.

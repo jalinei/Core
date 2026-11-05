@@ -10,18 +10,19 @@
 ## control_library sources build without -Werror.
 ## @return 1 if the library was never fetched, otherwise the test binary's exit
 ## code: 0 when every criterion passes.
+## Set SINGLE_PHASE_INVERTER_DIR to test another library checkout.
 ## @see README.md in this folder
 ##
 ## @par Usage
 ##   bash tests/l0/inverter_following/run.sh
 source "$(dirname "$0")/../../common/l0_build.sh"
-INV="$LIB_ROOT/single_phase_inverter/src"
+INV="$INV_LIB_DIR/src"
 CTL="$LIB_ROOT/control_library/src"
 if [ ! -f "$INV/singlePhaseInverterFollowing.cpp" ]; then
     echo "single_phase_inverter not fetched: run a PlatformIO build first" >&2
     exit 1
 fi
-printf 'library commit: %s\n' "$(git -C "$INV" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+printf 'library: %s @ %s\n' "$INV_LIB_DIR" "$(git -C "$INV" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 l0_build test_inverter_following \
     --strict "$REPO_ROOT/tests/l0/inverter_following/test_inverter_following.cpp" \
     --lib    "$INV/singlePhaseInverterFollowing.cpp" "$INV/sogi.cpp" \

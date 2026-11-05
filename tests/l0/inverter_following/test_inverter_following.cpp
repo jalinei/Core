@@ -557,5 +557,56 @@ int main() {
         }
     }
 
+    // ---------------------------------------------------------------- L0-GFL-08
+    // Cold start (fresh init, PLL at w_ref) on a grid anywhere inside both the
+    // observer window (47.5–52.5 Hz) and the library's ±5 % window, from four
+    // initial grid angles. 47.6 and 52.4 Hz stay strictly inside both windows.
+    {
+        const double freqs[] = {47.6, 49.0, 50.0, 51.0, 52.4};
+        const char *letters08[] = {"a", "b", "c", "d", "e"};
+        const double phases[] = {0.0, 1.0, 2.5, 4.0};
+        double worst_lock_s = 0.0;
+        double worst_transient_hz = 0.0;
+        for (int k = 0; k < 5; ++k) {
+            /** @test L0-GFL-08.a–e: cold-start synchronization at 47.6, 49, 50, 51 and 52.4 Hz from four grid angles (5 s horizon); settled frequency estimate (last 1 s) within the library's ±5 % */
+            tc::Criterion c(std::string("L0-GFL-08.") + letters08[k],
+                            "Cold-start synchronization at " + tc::num(freqs[k]) +
+                                " Hz from four grid angles (5 s horizon); settled estimate within ±5 %");
+            for (double phase0 : phases) {
+                singlePhaseInverterFollowing inv;
+                Grid grid;
+                grid.hz = freqs[k];
+                grid.phase = phase0;
+                initDefault(inv);
+                inv.requestSync();
+                constexpr int window = 200;
+                double ring[window] = {};
+                double sum = 0.0;
+                double settled_dev = 0.0;
+                int lock_tick = -1;
+                for (int n = 1; n <= 5 * ticks_per_s; ++n) {
+                    step(inv, grid);
+                    const double f = inv.getw() / two_pi;
+                    sum += f - ring[n % window];
+                    ring[n % window] = f;
+                    if (n >= window) {
+                        const double dev = std::fabs(sum / window - freqs[k]);
+                        worst_transient_hz = std::fmax(worst_transient_hz, dev);
+                        if (n > 4 * ticks_per_s) settled_dev = std::fmax(settled_dev, dev);
+                    }
+                    if (lock_tick < 0 && inv.getSync()) lock_tick = n;
+                }
+                c.check("getSync() within 5 s", lock_tick > 0);
+                c.check("still synchronized at 5 s", inv.getSync());
+                c.range("settled 20 ms mean estimate error over the last 1 s (Hz)", settled_dev, 0.0, 0.05 * 50.0);
+                if (lock_tick > 0) worst_lock_s = std::fmax(worst_lock_s, lock_tick * Ts);
+            }
+        }
+        /** @test L0-GFL-08.f: worst cold-start time to synchronization across L0-GFL-08.a–e (INFO) */
+        tc::info("L0-GFL-08.f", "Worst cold-start time to synchronization over the cases that locked", worst_lock_s, "s");
+        /** @test L0-GFL-08.g: worst transient deviation of the 20 ms mean frequency estimate during cold start (INFO) */
+        tc::info("L0-GFL-08.g", "Worst transient error of the 20 ms mean frequency estimate during cold start", worst_transient_hz, "Hz");
+    }
+
     return tc::finish();
 }
