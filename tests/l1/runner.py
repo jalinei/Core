@@ -16,11 +16,29 @@ def run(scenario,project=None,progress=None,cancelled=None):
     if project is None and scenario.get('plant_variant')=='pv':
         from pulsimgui.models.project import Project
         from plant.pv import apply
-        project=apply(Project.load(HERE/'plant/full_model.pulsim'),model=scenario.get('pv_model','diode'))
+        project=apply(Project.load(HERE/'plant/full_model.pulsim'),model=scenario.get('pv_model','diode'),
+                      initial_bus_V=scenario.get('pv_initial_bus_V'))
     if project is None and scenario.get('fixture'):
         from pulsimgui.models.project import Project
         from plant.fixtures import apply
         project=apply(Project.load(HERE/'plant/full_model.pulsim'),scenario['fixture'])
+    grid=scenario.get('grid')  # [{"t_s", "v_rms", "f_hz"}, ...]: grid steps, phase-continuous
+    if grid:
+        from pulsimgui.models.project import Project
+        if project is None:
+            meta=json.loads((HERE/'plant/params.yaml').read_text())
+            if hashlib.sha256((HERE/'plant/full_model.pulsim').read_bytes()).hexdigest()!=meta['model_sha256']:
+                raise ValueError('Accepted model hash no longer matches params.yaml')
+            project=Project.load(HERE/'plant/full_model.pulsim')
+        vg=next(a for a in project.get_active_circuit().components.values() if a.name=='Vgrid')
+        vg.parameters['grid_profile']=grid;vg.parameters['waveform']={'type':'dc','value':0.0}
+        grid=sorted(grid,key=lambda g:g['t_s'])
+        if grid[0]['t_s']!=0:raise ValueError('A grid profile starts at t = 0')
+        phase=[0.]
+        for g0,g1 in zip(grid,grid[1:]):phase.append(phase[-1]+2*np.pi*g0['f_hz']*(g1['t_s']-g0['t_s']))
+        def grid_v(t):
+            k=max(i for i,g in enumerate(grid) if g['t_s']<=t+1e-12)
+            return np.sqrt(2)*grid[k]['v_rms']*np.sin(phase[k]+2*np.pi*grid[k]['f_hz']*(t-grid[k]['t_s']))
     model=Model(project);b=model.builder
     commands=sorted(scenario['commands'],key=lambda x:x['time_s'])
     if not commands or commands[0]['time_s']!=0:raise ValueError('Scenario must specify commands at t=0')
@@ -34,7 +52,16 @@ def run(scenario,project=None,progress=None,cancelled=None):
     fields=['vac_updated','mode','sync_request','v_bus_ref'];initial=commands[0]
     for name in fields:b.add_voltage_source('scenario_'+name,'cmd_'+name,'0',initial[name])
     wires=[model.probes[SENSORS[name]] for name in ['VLow','ILow1','ILow2','VDCBus','VAC','IAC']]+[('v','cmd_'+name) for name in fields]
-    block=attach(b,wires,dt);hardware=Actuators();rows=[];last_count=0;last_report=-1
+    block=attach(b,wires,dt);rows=[];last_count=0;last_report=-1
+    duty=scenario.get('open_loop_duty')  # exploratory: both legs held at this duty, firmware not obeyed
+    if duty is not None and dt>50e-9:raise ValueError('Open-loop switching runs require dt <= 50 ns')
+    if duty is None:hardware=Actuators()
+    else:
+        class Fixed(Actuators):
+            def __init__(self):super().__init__();self.enabled=[True,True];self.duties=[float(duty)]*2
+            def apply(self,out):
+                if out[INDEX['block_error']]:raise RuntimeError('Native C-Block contract/timing failure')
+        hardware=Fixed()
     original=block.step_observer;extrema={};peak_indices=[];electrical_observations=0
     pv_v=[0.]
     def observer(t,x):
@@ -81,6 +108,7 @@ def run(scenario,project=None,progress=None,cancelled=None):
         # Deliver a tick-aligned scenario command for the interval endpoint.
         q=command(t+dt)
         for name in fields:extra[ix['Is(scenario_'+name+')']]=initial[name]-q[name]
+        if grid:extra[ix['Is(Vgrid)']]=-grid_v(t+dt)  # source value = static (0) - extra
         if model.pv_lambertw:
             # Panel current from the terminal voltage of the previous step (explicit Lambert W),
             # pushed into the source's positive node: injection enters b_extra with a minus sign.
@@ -104,6 +132,13 @@ def run(scenario,project=None,progress=None,cancelled=None):
         kind,ref=model.probes[probe]
         col=ix[('V' if kind=='v' else 'Is')+f'({ref})']
         signals[('VP' if kind=='v' else 'IP')+f'({probe})']=states[:,col]
+    def mpp_power(times):
+        """Available MPP power at each stored time, following the light profile when there is one."""
+        if not light:return np.full_like(times,model.pv_reference['Pmp_W'])
+        from plant.pv import reference
+        scale=np.round(np.interp(times,light_t,light_s),3);cache={}
+        for s in np.unique(scale):cache[s]=reference({**model.pv,'IL_A':model.pv['IL_A']*s})['Pmp_W'] if s>0 else 0.
+        return np.array([cache[s] for s in scale])
     if model.pv:
         def voltage(node):return np.zeros_like(t) if node=='0' else states[:,ix[f'V({node})']]
         jpos,jneg=model.nodes['PV_light'][:2]
@@ -112,7 +147,7 @@ def run(scenario,project=None,progress=None,cancelled=None):
         terminal=voltage(r0)-voltage(jneg)
         source_current=(vj-voltage(r0))/model.parts['Rsource'].parameters['resistance']
         signals.update(pv_voltage=terminal,pv_current=source_current,pv_power=terminal*source_current,
-                       pv_mpp_power=np.full_like(t,model.pv_reference['Pmp_W']),
+                       pv_mpp_power=mpp_power(t),
                        pv_sensor_power=signals['VLow']*(signals['ILow1']+signals['ILow2']))
     metadata={'scenario':scenario,'contract':CONTRACT['version'],'profile':CONTRACT['application_profile'],
         'model_kind':'switched','model_sha256':hashlib.sha256((HERE/'plant/full_model.pulsim').read_bytes()).hexdigest(),
@@ -121,7 +156,8 @@ def run(scenario,project=None,progress=None,cancelled=None):
         'pulsim':p.__version__,'wall_s':time.monotonic()-started,'actual_cblock_calls':block.n_fires,
         'finite_states':bool(np.isfinite(states).all()),'native_cblock':True,'formal_campaign':False,
         'averaged_model_available':False,'pv_model_available':bool(model.pv),
-        'pv_model':('lambertw' if model.pv_lambertw else 'diode') if model.pv else None}
+        'pv_model':('lambertw' if model.pv_lambertw else 'diode') if model.pv else None,
+        'open_loop_duty':duty,'grid_profile':grid or None}
     if model.pv:
         metadata.update(pv_parameters=model.pv,pv_reference=model.pv_reference,
                         pv_profile_sha256=hashlib.sha256((HERE/'plant/pv-profile.json').read_bytes()).hexdigest(),

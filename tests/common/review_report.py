@@ -91,12 +91,15 @@ def plot(cid, spec, row, folder):
     if not (folder / 'control.csv').exists():
         return None, f'no saved run in `{folder.name}/`'
     sig = Signals(folder)
-    scen_file = SCENARIOS / f'{spec["scenario"]}.json'
-    scenario = json.loads(scen_file.read_text()) if scen_file.exists() else {}
+    # Limits/windows named 'acceptance:…' come from the scenario as it actually ran (manifest).
+    man = folder / 'manifest.json'
+    scenario = json.loads(man.read_text()).get('scenario', {}) if man.exists() else {}
     limits, limit_src = resolve(spec.get('limits'), scenario)
     window, window_src = resolve(spec.get('window'), scenario)
     t_s, y = sig.get(spec['signal'])
-    t = [1e3 * x for x in t_s]
+    k = 1.0 if (t_s[-1] if len(t_s) else 0) > 2.0 else 1e3   # seconds for long runs, else ms
+    unit_t = 's' if k == 1.0 else 'ms'
+    t = [k * x for x in t_s]
     panels = list(spec.get('panels', []))
     ref_run = folder.parent / spec['reference_run'] if spec.get('reference_run') else None
     if ref_run and (ref_run / 'control.csv').exists():
@@ -111,20 +114,20 @@ def plot(cid, spec, row, folder):
             s.set_visible(False)
         ax.tick_params(colors=INK2, labelsize=8)
         if window:
-            ax.axvspan(1e3 * window[0], 1e3 * window[1], color=WINDOW_FILL, zorder=0)
+            ax.axvspan(k * window[0], k * window[1], color=WINDOW_FILL, zorder=0)
         for ev in spec.get('events', []):
-            ax.axvline(1e3 * ev['t'], color=MUTED, linewidth=1, linestyle=':')
+            ax.axvline(k * ev['t'], color=MUTED, linewidth=1, linestyle=':')
     ax = axes[0]
     notes = []
     if spec.get('reference'):
         rt, rv = sig.get(spec['reference'])
-        ax.plot([1e3 * x for x in rt], rv, color=INK2, linewidth=1, label=spec['reference'])
+        ax.plot([k * x for x in rt], rv, color=INK2, linewidth=1, label=spec['reference'])
     if spec.get('reference_run'):
         # Same signal from another run of the campaign, e.g. the reference model.
         other = folder.parent / spec['reference_run']
         if (other / 'control.csv').exists():
             rt, rv = Signals(other).get(spec['signal'])
-            ax.plot([1e3 * x for x in rt], rv, color=INK2, linewidth=1, linestyle='--', label=f'{spec["signal"]} ({spec["reference_run"]})')
+            ax.plot([k * x for x in rt], rv, color=INK2, linewidth=1, linestyle='--', label=f'{spec["signal"]} ({spec["reference_run"]})')
             notes.append(f'Dashed grey: the same signal in {spec["reference_run"]}/, for comparison.')
     ax.plot(t, y, color=SERIES[0], linewidth=2, label=spec['signal'])
     for v in spec.get('thresholds', []):
@@ -137,7 +140,7 @@ def plot(cid, spec, row, folder):
         for v in (lo, hi):
             if v is not None:
                 ax.axhline(v, color=INK2, linewidth=1, linestyle='--')
-        inside = [(window is None or 1e3 * window[0] <= ti <= 1e3 * window[1]) for ti in t]
+        inside = [(window is None or k * window[0] <= ti <= k * window[1]) for ti in t]
         bad = [(ti, yi) for ti, yi, w in zip(t, y, inside)
                if w and ((lo is not None and yi < lo) or (hi is not None and yi > hi))]
         if bad:
@@ -145,10 +148,10 @@ def plot(cid, spec, row, folder):
         notes.append(f'Limit {lo if lo is not None else "−∞"} … {hi if hi is not None else "+∞"} '
                      f'{spec["unit"]} (dashed), from {limit_src}.')
     if window:
-        notes.append(f'Judged window {1e3*window[0]:g}–{1e3*window[1]:g} ms (shaded), from {window_src}.')
-    for ev in spec.get('events', []):
-        ax.annotate(ev['label'], (1e3 * ev['t'], 1), xycoords=('data', 'axes fraction'),
-                    xytext=(3, -12), textcoords='offset points', fontsize=8, color=INK2)
+        notes.append(f'Judged window {k*window[0]:g}–{k*window[1]:g} {unit_t} (shaded), from {window_src}.')
+    for i, ev in enumerate(spec.get('events', [])):
+        ax.annotate(ev['label'], (k * ev['t'], 1), xycoords=('data', 'axes fraction'),
+                    xytext=(3, -12 - 11 * (i % 2)), textcoords='offset points', fontsize=8, color=INK2)
     if spec.get('peak_from_manifest') and (folder / 'manifest.json').exists():
         ext = json.loads((folder / 'manifest.json').read_text()).get('electrical_step_extrema', {})
         peak = ext.get(spec['peak_from_manifest'], {}).get('max')
@@ -168,10 +171,12 @@ def plot(cid, spec, row, folder):
             continue
         for i, name in enumerate(panel['signals']):
             pt, pv = sig.get(name)
-            ax.plot([1e3 * x for x in pt], pv, color=SERIES[i % len(SERIES)], linewidth=1.5, label=name)
+            ax.plot([k * x for x in pt], pv, color=SERIES[i % len(SERIES)], linewidth=1.5, label=name)
         ax.set_ylabel(panel['unit'], color=INK2, fontsize=9)
         ax.legend(loc='best', fontsize=8, frameon=False, labelcolor=INK, ncol=min(4, len(panel['signals'])))
-    axes[-1].set_xlabel('time (ms)', color=INK2, fontsize=9)
+    axes[-1].set_xlabel(f'time ({unit_t})', color=INK2, fontsize=9)
+    for ax in axes:
+        ax.ticklabel_format(axis='y', useOffset=False)
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=110, facecolor=SURFACE)
@@ -245,7 +250,8 @@ def conditions(folder, meta, scen):
     src, rs = model_parameter(model, 'Vsource'), model_parameter(model, 'Rsource')
     if meta.get('pv_model_available'):
         ref = meta.get('pv_reference', {})
-        rows.append(('Input source', e(f'synthetic PV panel, MPP {ref.get("Pmp_W", "?"):.3g} W at {ref.get("Vmp_V", "?"):.3g} V')
+        kind = 'Lambert W panel' if meta.get('pv_model') == 'lambertw' else 'diode panel'
+        rows.append(('Input source', e(f'synthetic PV panel ({kind}), MPP {ref.get("Pmp_W", "?"):.3g} W at {ref.get("Vmp_V", "?"):.3g} V')
                      if ref else 'synthetic PV panel'))
     elif src:
         rows.append(('Input source', e(f'{src["waveform"].get("value")} V ideal DC') + (e(f' + {si(rs["resistance"], "Ω")}') if rs else '')))
@@ -256,7 +262,7 @@ def conditions(folder, meta, scen):
         rows.append(('DC bus at t = 0', f'{state}, {e(si(cbus["capacitance"], "F"))}'))
     other = [c for c in ch['changed'] if c['component'] != 'Cbus']
     if other:
-        rows.append(('Other initial states', e(', '.join(f'{c["component"]} {c["parameter"]} = {c["this_run"]:.4g}' for c in other))))
+        rows.append(('Other model changes', e(', '.join(f'{c["component"]} {c["parameter"]} = {c["this_run"]:.4g}' for c in other))))
     loads = []
     bleed = model_parameter(model, 'Rbus_bleed')
     if bleed:
@@ -316,8 +322,153 @@ def verdict_badge(r):
     return f'<span class="badge {cls}{" new" if tag == " NEW" else ""}">{icon} {v}{html.escape(tag)}</span>'
 
 
+
+def page_head(title):
+    """@brief Shared <head> and styles of the review pages."""
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>
+:root{{color-scheme:light;--bg:{SURFACE};--ink:{INK};--ink2:{INK2};--line:{GRID};--bad:{CRITICAL};--good:{GOOD}}}
+body{{background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif;margin:0;padding:24px 16px;}}
+main{{max-width:1000px;margin:auto}} h1{{font-size:22px;margin:0 0 4px}} h2{{font-size:19px;margin:40px 0 4px;border-bottom:2px solid var(--line);padding-bottom:4px}}
+h3{{font-size:15px;margin:20px 0 6px;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}}
+.sub{{color:var(--ink2);font-size:13px}} .banner{{border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:16px 0}}
+.banner.bad{{border-color:var(--bad)}} .counts span{{margin-right:18px;font-weight:600}} .purpose{{margin:6px 0 4px}}
+.badge{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;border:1px solid var(--line);white-space:nowrap}}
+.badge.pass{{color:var(--good)}} .badge.fail{{color:var(--bad)}} .badge.new{{background:var(--bad);color:#fff;border-color:var(--bad)}}
+.badge.info,.badge.blocked{{color:var(--ink2)}} figure{{margin:12px 0 24px}} figure img{{max-width:100%;border:1px solid var(--line);border-radius:6px;background:#fff}}
+figcaption{{font-size:13px;color:var(--ink2)}} table{{border-collapse:collapse;width:100%;font-size:13px;margin:4px 0}}
+td,th{{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}} th{{color:var(--ink2);font-weight:600}}
+table.kv td:first-child{{width:170px;color:var(--ink2)}} .check li{{margin:4px 0}} code{{font-size:12px}}
+details summary{{cursor:pointer;color:var(--ink2)}} .wrap{{overflow-x:auto}} nav a{{margin-right:12px;font-size:13px}}
+</style></head><body><main>
+'''
+
+
+def snapshot_html(f, error, changes):
+    """@brief Model snapshot part: pictures, the exact project, and the changes from the accepted model."""
+    e = html.escape
+    p = []
+    if (f / 'model_power.png').exists():
+        p.append(f'<figure><a href="{e(f.name)}/model_power.png"><img alt="Power stage of the model this test ran on" src="{e(f.name)}/model_power.png"></a>'
+                 f'<figcaption>Power stage as run (click for full size). Everything, including the firmware block: '
+                 f'<a href="{e(f.name)}/model_full.png">model_full.png</a>. Open it in PulsimGUI: '
+                 f'<code>tests/l1/open_gui.sh --results {e(str(f.relative_to(REPO)) if f.is_relative_to(REPO) else str(f))}</code> '
+                 f'(the exact project is <code>{e(f.name)}/model.pulsim</code>).</figcaption></figure>')
+    else:
+        p.append(f'<p class="sub">No snapshot: {e(error or "not generated")}</p>')
+    if changes:
+        p.append('<table><tr><th>Changed from the accepted model</th><th>Accepted</th><th>This test</th></tr>')
+        for ch in changes:
+            p.append(f'<tr><td>{e(ch[0])}</td><td>{e(num(ch[1]))}</td><td><b>{e(num(ch[2]))}</b></td></tr>')
+        p.append('</table>')
+    return '\n'.join(p)
+
+
+def key_numbers(folder):
+    """@brief Headline values of an exploratory run, from its control log and traces. @return list of (label, text)."""
+    import numpy as np
+    sig = Signals(folder)
+    c = sig.csv
+    t = np.asarray(c['time_s'])
+    out = []
+    vb = np.asarray(c['VDCBus'])
+    out.append(('DC bus (sensed)', f'start {vb[0]:.1f} V, min {vb.min():.1f} V, max {vb.max():.1f} V, end {vb[-1]:.1f} V'))
+    def first(name):
+        v = np.asarray(c[name]); i = np.flatnonzero(v > 0.5)
+        return f'{t[i[0]]:.3f} s' if len(i) else 'never'
+    out.append(('Grid', f'qualified at {first("grid_qualified")}, synchronized at {first("synchronized")}, '
+                        f'observer trip at {first("observer_trip")}'))
+    modes = [MODES.get(int(m), m) for m in c['boost_mode']]
+    seq = [m for i, m in enumerate(modes) if i == 0 or m != modes[i - 1]]
+    out.append(('Boost modes', ' → '.join(seq)))
+    if sig.npz.exists():
+        w = np.load(sig.npz)
+        if 'pv_power' in w.files:
+            tt = w['time']; last = tt >= tt[-1] - 0.1 * (tt[-1] - tt[0])
+            out.append(('PV power, last 10 % of the run', f'{np.mean(w["pv_power"][last]):.1f} W of {np.mean(w["pv_mpp_power"][last]):.1f} W available'))
+    return out
+
+
+def study_page(out):
+    """@brief Review page of a study (tests/l1/study.py): summary of every case, then the four parts of each finished one."""
+    e = html.escape
+    st = json.loads((out / 'status.json').read_text())
+    study = st['study']
+    p = [page_head('Study review'),
+         f'<h1>{e(study.get("title", study["name"]))}</h1><div class="sub">{e(out.name)} · started {e(st["started"])} · '
+         f'{st["jobs"]} parallel jobs{" · finished " + e(st["finished"]) if st.get("finished") else " · still running"}</div>',
+         f'<p class="purpose">{e(study.get("purpose", ""))}</p>',
+         '<p class="sub">Exploratory runs: no PASS/FAIL. What deserves a verdict becomes a catalogue criterion later, with its limits decided then.</p>',
+         '<h3>Summary</h3><div class="wrap"><table><tr><th>Case</th><th>State</th><th>Simulated</th><th>Computing</th><th>Headline</th></tr>']
+    sections = []
+    for case in st['cases']:
+        f = out / case['folder']
+        state = case['state']
+        cost = (f'{case["wall_s"] / 60:.0f} min' if 'wall_s' in case else f'~{case["estimate_s"] / 60:.0f} min estimated'
+                + (f', since {case["started"][11:16]}' if state == 'running' else ''))
+        head = ''
+        if state == 'done' and (f / 'manifest.json').exists():
+            try:
+                nums = key_numbers(f)
+                head = e(nums[0][1])
+            except Exception as ex:
+                nums, head = [], e(f'no headline: {ex}')
+        elif state == 'failed':
+            head = e(case.get('error', ''))
+        badge = {'done': 'pass', 'failed': 'fail'}.get(state, 'info')
+        p.append(f'<tr><td><a href="#{e(case["folder"])}">{e(case["title"])}</a></td><td><span class="badge {badge}">{e(state)}</span></td>'
+                 f'<td>{case["simulated_s"]:g} s</td><td>{e(cost)}</td><td>{head}</td></tr>')
+        sc = json.loads((f / 'scenario.json').read_text())
+        sec = [f'<h2 id="{e(case["folder"])}">{e(case["title"])} <span class="sub">({e(case["folder"])}/ · {e(state)})</span></h2>',
+               f'<p class="purpose">{e(sc.get("purpose", ""))}</p>']
+        if state != 'done':
+            sec.append(f'<p class="sub">{"Running" if state == "running" else "Not run yet" if state == "queued" else "Failed: " + e(case.get("error", ""))}. '
+                       f'Log: <code>{e(case["folder"])}/run.log</code>.</p>')
+            sections.append(sec)
+            continue
+        meta = json.loads((f / 'manifest.json').read_text())
+        err = ensure_snapshot(f)
+        cond, changes = conditions(f, meta, {**sc, **meta.get('scenario', {})})
+        if sc.get('grid'):
+            cond.insert(4, ('Grid profile', '<br>'.join(e(f'from {g["t_s"]:g} s: {g["v_rms"]:g} V rms, {g["f_hz"]:g} Hz') for g in sc['grid'])))
+        if sc.get('light'):
+            cond.insert(2, ('Light profile', e(', '.join(f'{100 * s:g} % at {t:g} s' for t, s in sc['light']))))
+        if sc.get('open_loop_duty') is not None:
+            cond.insert(1, ('Open loop', f'<b>both legs held at duty {sc["open_loop_duty"]:g}</b>; the firmware runs but is not obeyed'))
+        sec.append('<h3>1 · Test conditions and objectives</h3><div class="wrap"><table class="kv">')
+        sec += [f'<tr><td>{e(k)}</td><td>{v}</td></tr>' for k, v in cond]
+        sec.append('<tr><td>Objective</td><td>Exploratory: observe, no verdict</td></tr></table></div>')
+        sec.append('<h3>2 · Model snapshot</h3>')
+        sec.append(snapshot_html(f, err, changes))
+        sec.append('<h3>3 · Results</h3><table class="kv">')
+        sec += [f'<tr><td>{e(k)}</td><td>{e(v)}</td></tr>' for k, v in nums]
+        sec.append('</table><h3>4 · Figures</h3>')
+        specs = json.loads((f / 'figures.json').read_text()) if (f / 'figures.json').exists() else []
+        if not specs:
+            sec.append('<p class="sub">No figure declared for this case in the study file.</p>')
+        for i, spec in enumerate(specs):
+            try:
+                png, notes = plot(f'{case["folder"]}-{i}', spec, {}, f)
+            except Exception as ex:
+                png, notes = None, f'plot failed: {ex}'
+            sec.append(f'<figure><div><b>{e(spec.get("title", spec["signal"]))}</b></div>')
+            sec.append(f'<img alt="{e(spec.get("title", spec["signal"]))}" src="data:image/png;base64,{png}"><figcaption>{" ".join(e(n) for n in notes)}</figcaption>'
+                       if png else f'<figcaption>No plot: {e(str(notes))}</figcaption>')
+            sec.append('</figure>')
+        sections.append(sec)
+    p.append('</table></div>')
+    for sec in sections:
+        p += sec
+    p.append('</main></body></html>')
+    (out / 'report.html').write_text('\n'.join(p), encoding='utf-8')
+    print(f'Review: {out / "report.html"}')
+    return 0
+
+
 def main(out):
     out = Path(out)
+    if (out / 'status.json').exists():
+        return study_page(out)
     rows = parse(sorted(out.glob('*.log')))
     findings = findings_register()
     for r in rows:
@@ -365,23 +516,7 @@ def main(out):
     cases.sort(key=lambda c: (not any(r['verdict'] == 'FAIL' for r in c['rows']), c['order']))
 
     p = []
-    p.append(f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Campaign review</title><style>
-:root{{color-scheme:light;--bg:{SURFACE};--ink:{INK};--ink2:{INK2};--line:{GRID};--bad:{CRITICAL};--good:{GOOD}}}
-body{{background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif;margin:0;padding:24px 16px;}}
-main{{max-width:1000px;margin:auto}} h1{{font-size:22px;margin:0 0 4px}} h2{{font-size:19px;margin:40px 0 4px;border-bottom:2px solid var(--line);padding-bottom:4px}}
-h3{{font-size:15px;margin:20px 0 6px;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}}
-.sub{{color:var(--ink2);font-size:13px}} .banner{{border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:16px 0}}
-.banner.bad{{border-color:var(--bad)}} .counts span{{margin-right:18px;font-weight:600}} .purpose{{margin:6px 0 4px}}
-.badge{{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;border:1px solid var(--line);white-space:nowrap}}
-.badge.pass{{color:var(--good)}} .badge.fail{{color:var(--bad)}} .badge.new{{background:var(--bad);color:#fff;border-color:var(--bad)}}
-.badge.info,.badge.blocked{{color:var(--ink2)}} figure{{margin:12px 0 24px}} figure img{{max-width:100%;border:1px solid var(--line);border-radius:6px;background:#fff}}
-figcaption{{font-size:13px;color:var(--ink2)}} table{{border-collapse:collapse;width:100%;font-size:13px;margin:4px 0}}
-td,th{{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}} th{{color:var(--ink2);font-weight:600}}
-table.kv td:first-child{{width:170px;color:var(--ink2)}} .check li{{margin:4px 0}} code{{font-size:12px}}
-details summary{{cursor:pointer;color:var(--ink2)}} .wrap{{overflow-x:auto}} nav a{{margin-right:12px;font-size:13px}}
-</style></head><body><main>
-<h1>Campaign review</h1><div class="sub">{e(out.name)}{f" · compared with {e(prev.name)}" if prev else " · no earlier campaign to compare"}</div>''')
+    p.append(page_head('Campaign review') + f'''<h1>Campaign review</h1><div class="sub">{e(out.name)}{f" · compared with {e(prev.name)}" if prev else " · no earlier campaign to compare"}</div>''')
     bad = bool(new) or not rows
     p.append(f'<div class="banner{" bad" if bad else ""}"><div class="counts">'
              f'<span>{count["PASS"]} PASS</span><span>{count["FAIL"]} FAIL</span><span>{count["INFO"]} INFO</span><span>{count["BLOCKED"]} BLOCKED</span></div>')
@@ -415,19 +550,7 @@ details summary{{cursor:pointer;color:var(--ink2)}} .wrap{{overflow-x:auto}} nav
                 p.append(f'<tr><td>{e(r["id"])}</td><td>{e(r["desc"])}</td><td>{e(r["limit"])}</td></tr>')
             p.append('</table>')
         p.append('<h3>2 · Model snapshot</h3>')
-        if (f / 'model_power.png').exists():
-            p.append(f'<figure><a href="{e(f.name)}/model_power.png"><img alt="Power stage of the model this test ran on" src="{e(f.name)}/model_power.png"></a>'
-                     f'<figcaption>Power stage as run (click for full size). Everything, including the firmware block: '
-                     f'<a href="{e(f.name)}/model_full.png">model_full.png</a>. Open it in PulsimGUI: '
-                     f'<code>tests/l1/open_gui.sh --results {e(str(f.relative_to(REPO)) if f.is_relative_to(REPO) else str(f))}</code> '
-                     f'(the exact project is <code>{e(f.name)}/model.pulsim</code>).</figcaption></figure>')
-        else:
-            p.append(f'<p class="sub">No snapshot: {e(c["snapshot_error"] or "not generated")}</p>')
-        if c['changes']:
-            p.append('<table><tr><th>Changed from the accepted model</th><th>Accepted</th><th>This test</th></tr>')
-            for ch in c['changes']:
-                p.append(f'<tr><td>{e(ch[0])}</td><td>{e(num(ch[1]))}</td><td><b>{e(num(ch[2]))}</b></td></tr>')
-            p.append('</table>')
+        p.append(snapshot_html(f, c['snapshot_error'], c['changes']))
         p.append('<h3>3 · Results</h3><table><tr><th>Criterion</th><th>Verdict</th><th>Measured</th></tr>')
         for r in sorted(c['rows'], key=sort_key):
             p.append(f'<tr><td>{e(r["id"])}</td><td>{verdict_badge(r)}</td><td>{e(r["measured"])}</td></tr>')

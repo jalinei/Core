@@ -1,0 +1,1112 @@
+{
+ "name": "night-2026-11-06",
+ "title": "Night study, 2026-11-06",
+ "purpose": "Exploratory overnight runs: a compressed PV day on the Lambert W panel; the finding #3 dead zone on real sequences, longer windows and a fine open-loop sweep; synchronization on off-nominal steady grids and through grid faults.",
+ "cases": [
+  {
+   "folder": "pv-day",
+   "base": "pv_mppt.json",
+   "set": {
+    "title": "PV day: turn-on, MPPT, cloud, sundown, turn-off",
+    "purpose": "Lambert W panel (57 W), bus DISCHARGED at t = 0, 2.8 kΩ bus load as the only power sink (nothing injects into the grid). Operator sequence: IDLE (grid sync) → STARTUP at 0.5 s → BUSREG at 2.7 s → MPPT at 3.2 s → IDLE at 9.2 s. Light: 100 %, cloud step to 30 % at 4.2 s, ramp back to 100 % over 5.2–6.2 s, sundown ramp to 0 over 6.7–8.7 s. Time is compressed to seconds: this shows controller behaviour, not real weather timing.",
+    "pv_model": "lambertw",
+    "pv_initial_bus_V": 0,
+    "duration_s": 9.5,
+    "dt_s": 5e-08,
+    "store_period_s": 0.0001,
+    "light": [
+     [
+      0,
+      1
+     ],
+     [
+      4.2,
+      1
+     ],
+     [
+      4.2001,
+      0.3
+     ],
+     [
+      5.2,
+      0.3
+     ],
+     [
+      6.2,
+      1
+     ],
+     [
+      6.7,
+      1
+     ],
+     [
+      8.7,
+      0
+     ],
+     [
+      9.5,
+      0
+     ]
+    ],
+    "commands": [
+     {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     },
+     {
+      "time_s": 0.5,
+      "mode": 1,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     },
+     {
+      "time_s": 2.7,
+      "mode": 2,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     },
+     {
+      "time_s": 3.2,
+      "mode": 3,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     },
+     {
+      "time_s": 9.2,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "DC bus through the day",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "reference": "v_bus_ref",
+     "events": [
+      {
+       "t": 0.5,
+       "label": "STARTUP"
+      },
+      {
+       "t": 2.7,
+       "label": "BUSREG"
+      },
+      {
+       "t": 3.2,
+       "label": "MPPT"
+      },
+      {
+       "t": 4.2,
+       "label": "cloud"
+      },
+      {
+       "t": 6.7,
+       "label": "sundown"
+      },
+      {
+       "t": 9.2,
+       "label": "IDLE"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "i_ref1",
+        "i_ref2",
+        "ILow1",
+        "ILow2"
+       ]
+      },
+      {
+       "unit": "duty",
+       "signals": [
+        "duty_leg1",
+        "duty_leg2"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "PV power against the power available",
+     "signal": "pv_power",
+     "unit": "W",
+     "limits": null,
+     "reference": "pv_mpp_power",
+     "events": [
+      {
+       "t": 0.5,
+       "label": "STARTUP"
+      },
+      {
+       "t": 2.7,
+       "label": "BUSREG"
+      },
+      {
+       "t": 3.2,
+       "label": "MPPT"
+      },
+      {
+       "t": 4.2,
+       "label": "cloud"
+      },
+      {
+       "t": 6.7,
+       "label": "sundown"
+      },
+      {
+       "t": 9.2,
+       "label": "IDLE"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "V",
+       "signals": [
+        "pv_voltage"
+       ]
+      },
+      {
+       "unit": "mode",
+       "signals": [
+        "boost_mode"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Grid synchronization meanwhile",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [
+      {
+       "t": 0.5,
+       "label": "STARTUP"
+      },
+      {
+       "t": 2.7,
+       "label": "BUSREG"
+      },
+      {
+       "t": 3.2,
+       "label": "MPPT"
+      },
+      {
+       "t": 4.2,
+       "label": "cloud"
+      },
+      {
+       "t": 6.7,
+       "label": "sundown"
+      },
+      {
+       "t": 9.2,
+       "label": "IDLE"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-startup-full",
+   "base": "dcdc_startup_full.json",
+   "set": {},
+   "figures": [
+    {
+     "title": "Bus against the startup reference",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "reference": "startup_ref",
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "i_ref1",
+        "ILow1"
+       ]
+      },
+      {
+       "unit": "duty",
+       "signals": [
+        "duty_leg1",
+        "duty_leg2"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-startup-then-busreg",
+   "base": "dcdc_startup_full.json",
+   "set": {
+    "title": "STARTUP to 400 V, then BUSREG (finding #3 on a real sequence)",
+    "purpose": "Bus discharged, 20 kΩ load. STARTUP from t = 0 (2 s ramp at 200 V/s), BUSREG at 2.2 s as an operator would. The mode change resets the current loops to duty 0.05: does the bus sag as in the precharged BUSREG test?",
+    "duration_s": 2.6,
+    "commands": [
+     {
+      "time_s": 0,
+      "mode": 1,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     },
+     {
+      "time_s": 2.2,
+      "mode": 2,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Bus through STARTUP and the switch to BUSREG",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "reference": "v_bus_ref",
+     "events": [
+      {
+       "t": 2.2,
+       "label": "BUSREG"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "i_ref1",
+        "i_ref2",
+        "ILow1",
+        "ILow2"
+       ]
+      },
+      {
+       "unit": "duty",
+       "signals": [
+        "duty_leg1",
+        "duty_leg2"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-busreg-no-load",
+   "base": "dcdc_busreg.json",
+   "set": {
+    "title": "BUSREG on a precharged bus with no load",
+    "purpose": "Bus PRECHARGED to 400 V, no load except the 200 kΩ bleed, BUSREG from t = 0, 300 ms. Shows the dead zone directly: the bus should stay near 400 V until the duty passes about 0.4, then rise.",
+    "duration_s": 0.3,
+    "store_period_s": 1e-05,
+    "fixture": {
+     "initial_bus_V": 400,
+     "load_ohm": 1000000000000.0
+    },
+    "criteria": []
+   },
+   "figures": [
+    {
+     "title": "Bus with no load",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "reference": "v_bus_ref",
+     "events": [],
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "i_ref1",
+        "i_ref2",
+        "ILow1",
+        "ILow2"
+       ]
+      },
+      {
+       "unit": "duty",
+       "signals": [
+        "duty_leg1",
+        "duty_leg2"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-busreg-300ms",
+   "base": "dcdc_busreg.json",
+   "set": {
+    "title": "BUSREG with the load step, 300 ms",
+    "criteria": [],
+    "purpose": "Same as the L1-APP-03 test (bus PRECHARGED to 400 V, 20 kΩ, plus 10 kΩ at 50 ms) but 300 ms long: does the bus recover once the duty passes about 0.4, and how far does it overshoot?",
+    "duration_s": 0.3,
+    "store_period_s": 1e-05
+   },
+   "figures": [
+    {
+     "title": "Bus over 300 ms",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "reference": "v_bus_ref",
+     "events": [
+      {
+       "t": 0.05,
+       "label": "load step"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "i_ref1",
+        "i_ref2",
+        "ILow1",
+        "ILow2"
+       ]
+      },
+      {
+       "unit": "duty",
+       "signals": [
+        "duty_leg1",
+        "duty_leg2"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-burst-1s",
+   "base": "dcdc_burst.json",
+   "set": {
+    "title": "Burst over 1 s",
+    "criteria": [],
+    "purpose": "Bus PRECHARGED to 406 V, 10 kΩ load, BUSREG from t = 0, 1 s: repeated pause (405 V) and release (395 V) cycles, if the converter gets the bus back up.",
+    "duration_s": 1.0,
+    "store_period_s": 1e-05
+   },
+   "figures": [
+    {
+     "title": "Bus between the burst thresholds",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "thresholds": [
+      395,
+      405
+     ],
+     "panels": [
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "burst_paused",
+        "en_leg1",
+        "en_leg2"
+       ]
+      },
+      {
+       "unit": "duty",
+       "signals": [
+        "duty_leg1",
+        "duty_leg2"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-open-loop-0.36",
+   "base": "dcdc_busreg.json",
+   "set": {
+    "title": "Open loop at duty 0.36",
+    "criteria": [],
+    "purpose": "Both legs held at duty 0.36, bus PRECHARGED to 400 V, BUSREG load after the step (20 kΩ ∥ 10 kΩ from t = 0), 40 ms. Fine sweep around the 0.4 threshold found by the H3 sweep of finding #3.",
+    "duration_s": 0.04,
+    "store_period_s": 1e-05,
+    "open_loop_duty": 0.36,
+    "fixture": {
+     "initial_bus_V": 400,
+     "load_ohm": 6666.666666666667
+    },
+    "commands": [
+     {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Bus at a fixed duty",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "IP(DC1_Iin)",
+        "IP(DC2_Iin)"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-open-loop-0.38",
+   "base": "dcdc_busreg.json",
+   "set": {
+    "title": "Open loop at duty 0.38",
+    "criteria": [],
+    "purpose": "Both legs held at duty 0.38, bus PRECHARGED to 400 V, BUSREG load after the step (20 kΩ ∥ 10 kΩ from t = 0), 40 ms. Fine sweep around the 0.4 threshold found by the H3 sweep of finding #3.",
+    "duration_s": 0.04,
+    "store_period_s": 1e-05,
+    "open_loop_duty": 0.38,
+    "fixture": {
+     "initial_bus_V": 400,
+     "load_ohm": 6666.666666666667
+    },
+    "commands": [
+     {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Bus at a fixed duty",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "IP(DC1_Iin)",
+        "IP(DC2_Iin)"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-open-loop-0.40",
+   "base": "dcdc_busreg.json",
+   "set": {
+    "title": "Open loop at duty 0.40",
+    "criteria": [],
+    "purpose": "Both legs held at duty 0.40, bus PRECHARGED to 400 V, BUSREG load after the step (20 kΩ ∥ 10 kΩ from t = 0), 40 ms. Fine sweep around the 0.4 threshold found by the H3 sweep of finding #3.",
+    "duration_s": 0.04,
+    "store_period_s": 1e-05,
+    "open_loop_duty": 0.4,
+    "fixture": {
+     "initial_bus_V": 400,
+     "load_ohm": 6666.666666666667
+    },
+    "commands": [
+     {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Bus at a fixed duty",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "IP(DC1_Iin)",
+        "IP(DC2_Iin)"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-open-loop-0.42",
+   "base": "dcdc_busreg.json",
+   "set": {
+    "title": "Open loop at duty 0.42",
+    "criteria": [],
+    "purpose": "Both legs held at duty 0.42, bus PRECHARGED to 400 V, BUSREG load after the step (20 kΩ ∥ 10 kΩ from t = 0), 40 ms. Fine sweep around the 0.4 threshold found by the H3 sweep of finding #3.",
+    "duration_s": 0.04,
+    "store_period_s": 1e-05,
+    "open_loop_duty": 0.42,
+    "fixture": {
+     "initial_bus_V": 400,
+     "load_ohm": 6666.666666666667
+    },
+    "commands": [
+     {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Bus at a fixed duty",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "IP(DC1_Iin)",
+        "IP(DC2_Iin)"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-open-loop-0.44",
+   "base": "dcdc_busreg.json",
+   "set": {
+    "title": "Open loop at duty 0.44",
+    "criteria": [],
+    "purpose": "Both legs held at duty 0.44, bus PRECHARGED to 400 V, BUSREG load after the step (20 kΩ ∥ 10 kΩ from t = 0), 40 ms. Fine sweep around the 0.4 threshold found by the H3 sweep of finding #3.",
+    "duration_s": 0.04,
+    "store_period_s": 1e-05,
+    "open_loop_duty": 0.44,
+    "fixture": {
+     "initial_bus_V": 400,
+     "load_ohm": 6666.666666666667
+    },
+    "commands": [
+     {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Bus at a fixed duty",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "IP(DC1_Iin)",
+        "IP(DC2_Iin)"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "dcdc-open-loop-0.46",
+   "base": "dcdc_busreg.json",
+   "set": {
+    "title": "Open loop at duty 0.46",
+    "criteria": [],
+    "purpose": "Both legs held at duty 0.46, bus PRECHARGED to 400 V, BUSREG load after the step (20 kΩ ∥ 10 kΩ from t = 0), 40 ms. Fine sweep around the 0.4 threshold found by the H3 sweep of finding #3.",
+    "duration_s": 0.04,
+    "store_period_s": 1e-05,
+    "open_loop_duty": 0.46,
+    "fixture": {
+     "initial_bus_V": 400,
+     "load_ohm": 6666.666666666667
+    },
+    "commands": [
+     {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Bus at a fixed duty",
+     "signal": "VDCBus",
+     "unit": "V",
+     "limits": null,
+     "panels": [
+      {
+       "unit": "A",
+       "signals": [
+        "IP(DC1_Iin)",
+        "IP(DC2_Iin)"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "grid-steady-49hz",
+   "base": "idle_healthy.json",
+   "set": {
+    "title": "Steady grid at 230 V, 49 Hz",
+    "criteria": [],
+    "purpose": "Boost IDLE, grid at 230 V rms and 49 Hz from t = 0 (inside the observer window 207–253 V, 47.5–52.5 Hz), 2 s. Does the observer qualify and the PLL synchronize away from nominal? Tests the library fix for #1 in closed loop.",
+    "duration_s": 2.0,
+    "grid": [
+     {
+      "t_s": 0,
+      "v_rms": 230,
+      "f_hz": 49
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Observer frequency and state",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [],
+     "panels": [
+      {
+       "unit": "V rms",
+       "signals": [
+        "observer_rms"
+       ]
+      },
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "grid-steady-51hz",
+   "base": "idle_healthy.json",
+   "set": {
+    "title": "Steady grid at 230 V, 51 Hz",
+    "criteria": [],
+    "purpose": "Boost IDLE, grid at 230 V rms and 51 Hz from t = 0 (inside the observer window 207–253 V, 47.5–52.5 Hz), 2 s. Does the observer qualify and the PLL synchronize away from nominal? Tests the library fix for #1 in closed loop.",
+    "duration_s": 2.0,
+    "grid": [
+     {
+      "t_s": 0,
+      "v_rms": 230,
+      "f_hz": 51
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Observer frequency and state",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [],
+     "panels": [
+      {
+       "unit": "V rms",
+       "signals": [
+        "observer_rms"
+       ]
+      },
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "grid-steady-210v",
+   "base": "idle_healthy.json",
+   "set": {
+    "title": "Steady grid at 210 V, 50 Hz",
+    "criteria": [],
+    "purpose": "Boost IDLE, grid at 210 V rms and 50 Hz from t = 0 (inside the observer window 207–253 V, 47.5–52.5 Hz), 2 s. Does the observer qualify and the PLL synchronize away from nominal? Tests the library fix for #1 in closed loop.",
+    "duration_s": 2.0,
+    "grid": [
+     {
+      "t_s": 0,
+      "v_rms": 210,
+      "f_hz": 50
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Observer frequency and state",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [],
+     "panels": [
+      {
+       "unit": "V rms",
+       "signals": [
+        "observer_rms"
+       ]
+      },
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "grid-steady-250v",
+   "base": "idle_healthy.json",
+   "set": {
+    "title": "Steady grid at 250 V, 50 Hz",
+    "criteria": [],
+    "purpose": "Boost IDLE, grid at 250 V rms and 50 Hz from t = 0 (inside the observer window 207–253 V, 47.5–52.5 Hz), 2 s. Does the observer qualify and the PLL synchronize away from nominal? Tests the library fix for #1 in closed loop.",
+    "duration_s": 2.0,
+    "grid": [
+     {
+      "t_s": 0,
+      "v_rms": 250,
+      "f_hz": 50
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Observer frequency and state",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [],
+     "panels": [
+      {
+       "unit": "V rms",
+       "signals": [
+        "observer_rms"
+       ]
+      },
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "grid-fault-uv-195v",
+   "base": "idle_healthy.json",
+   "set": {
+    "title": "Grid fault: 195 V, 50 Hz for 0.5 s",
+    "criteria": [],
+    "purpose": "Boost IDLE. Healthy 230 V / 50 Hz until 1.5 s (qualify, synchronize), then 195 V / 50 Hz (outside the window) until 2.0 s, then healthy again until 4.0 s. Expected: trip within 0.1 s and loss of synchronization. Recovery after the fault is to be observed: the application never calls clearTrip() (see #2).",
+    "duration_s": 4.0,
+    "grid": [
+     {
+      "t_s": 0,
+      "v_rms": 230,
+      "f_hz": 50
+     },
+     {
+      "t_s": 1.5,
+      "v_rms": 195,
+      "f_hz": 50
+     },
+     {
+      "t_s": 2.0,
+      "v_rms": 230,
+      "f_hz": 50
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Observer frequency and state",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [
+      {
+       "t": 1.5,
+       "label": "fault"
+      },
+      {
+       "t": 2.0,
+       "label": "healthy"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "V rms",
+       "signals": [
+        "observer_rms"
+       ]
+      },
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "grid-fault-ov-265v",
+   "base": "idle_healthy.json",
+   "set": {
+    "title": "Grid fault: 265 V, 50 Hz for 0.5 s",
+    "criteria": [],
+    "purpose": "Boost IDLE. Healthy 230 V / 50 Hz until 1.5 s (qualify, synchronize), then 265 V / 50 Hz (outside the window) until 2.0 s, then healthy again until 4.0 s. Expected: trip within 0.1 s and loss of synchronization. Recovery after the fault is to be observed: the application never calls clearTrip() (see #2).",
+    "duration_s": 4.0,
+    "grid": [
+     {
+      "t_s": 0,
+      "v_rms": 230,
+      "f_hz": 50
+     },
+     {
+      "t_s": 1.5,
+      "v_rms": 265,
+      "f_hz": 50
+     },
+     {
+      "t_s": 2.0,
+      "v_rms": 230,
+      "f_hz": 50
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Observer frequency and state",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [
+      {
+       "t": 1.5,
+       "label": "fault"
+      },
+      {
+       "t": 2.0,
+       "label": "healthy"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "V rms",
+       "signals": [
+        "observer_rms"
+       ]
+      },
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "grid-fault-uf-47hz",
+   "base": "idle_healthy.json",
+   "set": {
+    "title": "Grid fault: 230 V, 47 Hz for 0.5 s",
+    "criteria": [],
+    "purpose": "Boost IDLE. Healthy 230 V / 50 Hz until 1.5 s (qualify, synchronize), then 230 V / 47 Hz (outside the window) until 2.0 s, then healthy again until 4.0 s. Expected: trip within 0.1 s and loss of synchronization. Recovery after the fault is to be observed: the application never calls clearTrip() (see #2).",
+    "duration_s": 4.0,
+    "grid": [
+     {
+      "t_s": 0,
+      "v_rms": 230,
+      "f_hz": 50
+     },
+     {
+      "t_s": 1.5,
+      "v_rms": 230,
+      "f_hz": 47
+     },
+     {
+      "t_s": 2.0,
+      "v_rms": 230,
+      "f_hz": 50
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Observer frequency and state",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [
+      {
+       "t": 1.5,
+       "label": "fault"
+      },
+      {
+       "t": 2.0,
+       "label": "healthy"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "V rms",
+       "signals": [
+        "observer_rms"
+       ]
+      },
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "folder": "grid-fault-of-53hz",
+   "base": "idle_healthy.json",
+   "set": {
+    "title": "Grid fault: 230 V, 53 Hz for 0.5 s",
+    "criteria": [],
+    "purpose": "Boost IDLE. Healthy 230 V / 50 Hz until 1.5 s (qualify, synchronize), then 230 V / 53 Hz (outside the window) until 2.0 s, then healthy again until 4.0 s. Expected: trip within 0.1 s and loss of synchronization. Recovery after the fault is to be observed: the application never calls clearTrip() (see #2).",
+    "duration_s": 4.0,
+    "grid": [
+     {
+      "t_s": 0,
+      "v_rms": 230,
+      "f_hz": 50
+     },
+     {
+      "t_s": 1.5,
+      "v_rms": 230,
+      "f_hz": 53
+     },
+     {
+      "t_s": 2.0,
+      "v_rms": 230,
+      "f_hz": 50
+     }
+    ]
+   },
+   "figures": [
+    {
+     "title": "Observer frequency and state",
+     "signal": "observer_hz",
+     "unit": "Hz",
+     "limits": null,
+     "events": [
+      {
+       "t": 1.5,
+       "label": "fault"
+      },
+      {
+       "t": 2.0,
+       "label": "healthy"
+      }
+     ],
+     "panels": [
+      {
+       "unit": "V rms",
+       "signals": [
+        "observer_rms"
+       ]
+      },
+      {
+       "unit": "flag (0/1)",
+       "signals": [
+        "grid_qualified",
+        "synchronized",
+        "observer_trip"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

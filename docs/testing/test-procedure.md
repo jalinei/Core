@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 1.6 (draft) |
+| Procedure version | 1.7 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -260,6 +260,12 @@ A failing observation does not stop the test, so every criterion gets a verdict.
 | Pulsim | `pulsim==2.0.0`, GUI `pulsimgui==1.1.1`, from `tests/l1/plant/requirements.txt`; `tests/l1/setup.sh` creates the environment |
 | Inverter library | Core dependency under `owntech/lib/USB/single_phase_inverter`, fetched by PlatformIO from the `lib_deps` entry in `src/app.ini` (jalinei `main`; temporarily the #1 fix branch, see worklog). L1 setup resolves `dependencies.lock.json`, or the existing explicit library override. Actual commit/source hashes are stamped. Production unpinned dependency declaration is unchanged. |
 
+### 7.4 Studies
+
+A **study** (`tests/l1/study.py`, files in `tests/l1/studies/`) runs many exploratory scenarios in parallel, typically overnight, and writes one review page that is updated as runs finish. Studies answer questions; they give **no PASS/FAIL**. A behaviour that deserves a verdict becomes a catalogue criterion afterwards, with limits decided in daylight, and runs in the campaign.
+
+Study runs may use settings the campaign does not: open-loop duties, grid steps, light profiles on the Lambert W panel, a discharged PV bus. Each case states them in its `purpose` and the review page shows them in the conditions table. Launch with `tests/l1/study.sh <study>` (detached, keeps the machine awake); see [tests/l1/studies/README.md](../../tests/l1/studies/README.md) for the file format, the follow/stop commands and the cost per simulated second.
+
 ### 7.3 Test code documentation
 
 Every test must be readable without its author. The rules below apply to all test code, current and future, and are checked in review.
@@ -449,6 +455,7 @@ flowchart LR
 | 1.4 | 2026-11-05 | §8.5 review routine: every campaign writes `report.html` (banner, one plot per waveform criterion with limits and window drawn, changes since the previous campaign, full table), defined by `tests/l1/review_plots.json`; sign-off line in the record. §8.3 lists the files a campaign actually writes. |
 | 1.5 | 2026-11-05 | §8.5: every test result has four parts (purpose + conditions and objectives, model snapshot, results, figures); the review page is organised per test case. Scenarios carry `title`, `purpose` and `criteria`. Each scenario folder keeps the exact model it ran on, its pictures and its changes from the accepted model (§8.3). The contract profile name follows the 200 V/s change (`Core-app-default-200Vps-sync-only`). |
 | 1.6 | 2026-11-06 | Lambert W panel (`pv_model: lambertw`) for long PV runs, about 4.5× faster than the diode panel, which also fails to converge under heavy load; validated by L1-INT-07 in every campaign. Scenarios may carry a `light` profile (irradiance over time, Lambert W panel only). Review plots can read electrical traces and compare with a reference run (difference panel). |
+| 1.7 | 2026-11-06 | §7.4 studies: exploratory parallel runs with no verdicts, launched detached overnight, one review page updated as runs finish (summary of every case, then the four parts). Runner options for studies: grid steps, open-loop duty, discharged PV bus. |
 
 ## 11. Findings register
 

@@ -19,7 +19,8 @@ def create(pv=False,scenario=None,dest=None):
     project=Project.load(HERE/'plant/full_model.pulsim')
     if pv:
         from plant.pv import apply
-        apply(project)
+        sc=scenario or {}
+        apply(project,model=sc.get('pv_model','diode'),initial_bus_V=sc.get('pv_initial_bus_V'))
     if scenario and scenario.get('fixture'):
         if pv:raise ValueError('DCDC ideal-source fixture and PV variant are separate')
         from plant.fixtures import apply

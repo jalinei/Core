@@ -57,14 +57,16 @@ def parameters(circuit):
                 Rsh_ohm=parts['PV_shunt'].parameters['resistance'])
 
 
-def apply(project, model='diode'):
+def apply(project, model='diode', initial_bus_V=None):
     """Replace the ideal source, retain explicit wires and add a bus load.
     @param model 'diode': light current source, Shockley diode and shunt in the circuit, solved by
     Newton at every step (reference). 'lambertw': one current source whose value the runner sets at
     every step from the terminal voltage, with the explicit Lambert W equation (Rs and Rsh included,
-    so the series resistor is reduced to 1 µΩ); faster, lags the terminal voltage by one step."""
+    so the series resistor is reduced to 1 µΩ); faster, lags the terminal voltage by one step.
+    @param initial_bus_V Bus voltage at t = 0 (default: the profile's initial_bus_V); 0 = discharged."""
     if model not in ('diode','lambertw'):raise ValueError('PV model must be diode or lambertw')
     cfg=json.loads(PROFILE.read_text());q=cfg['parameters'];c=project.get_active_circuit()
+    if initial_bus_V is not None:cfg['initial_bus_V']=float(initial_bus_V)
     parts={a.name:a for a in c.components.values()};old=parts['Vsource']
     # Same electrical pins/UUID preserve every existing supply wire.
     light=Component(id=old.id,type=T.CURRENT_SOURCE,name='PV_light',x=old.x,y=old.y,

@@ -49,6 +49,7 @@ At the reviewed dependency revision, the L0 baseline has 80 PASS, five known FAI
 - `plant/`: imported, hash-checked switched model, parameter/provenance manifest, native translation, derived GUI view; `snapshot.py` saves the exact model each scenario ran on (model.pulsim, pictures, changes from the accepted model) for the review page.
 - `review_plots.json`: the review-page figure of each waveform criterion (procedure §8.5).
 - `diagnostics/`: scripts that explain a failing criterion; INFO only.
+- `study.py`, `study.sh`, `studies/`: exploratory runs in parallel (overnight), one review page; no verdicts.
 - `scenarios/`: operator command/sample-delivery timelines only.
 - `runner.py`: plant time stepping, source delivery, raw data and provenance.
 - `integration/`: direct-reference, RC and switched-model integration checks.
