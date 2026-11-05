@@ -1,0 +1,57 @@
+Built real Core controlStep C-Block: 0f22378202650301287b08001fc121e37b7b9b17
+@@	L1-INT-01.a	PASS	Native ABI matches direct controlStep, including mode changes and held VAC	abs error ≤ 0	2/2 ok, max abs error 0
+@@	L1-INT-01.b	PASS	Independent C-Block contexts start fresh	all observations hold	1/1 ok
+@@	L1-INT-01.c	PASS	Invalid ABI and skipped ticks report block_error	all observations hold	2/2 ok
+@@	L1-INT-02.a	PASS	Pulsim schedules real native controlStep once per 100 us	all observations hold	31
+@@	L1-INT-02.b	PASS	Native C-Block drives RC and reads its changing bus voltage	all observations hold	0.03597534618136537
+@@	L1-INT-02.c	PASS	Repeated new model/block starts identically	all observations hold	31
+0.000 s: real Core calls=1, synchronized=0
+0.200 s: real Core calls=2002, synchronized=0
+0.400 s: real Core calls=4002, synchronized=0
+0.600 s: real Core calls=6001, synchronized=0
+0.800 s: real Core calls=8002, synchronized=0
+1.000 s: real Core calls=10001, synchronized=0
+1.200 s: real Core calls=12001, synchronized=1
+0.000 s: real Core calls=1, synchronized=0
+0.000 s: real Core calls=1, synchronized=0
+@@	L1-INT-03.a	PASS	Refined switched model runs actual Core C-Block at the declared period	all observations hold	13001
+@@	L1-INT-03.b	PASS	Nominal 50 Hz integration qualifies and synchronizes with bridge and relay off	all observations hold	1.1309
+@@	L1-INT-03.c	PASS	Physical current probe inputs retain native current offsets	all observations hold	3.9549828676817036e-10
+@@	L1-INT-03.d	PASS	Tick-aligned STARTUP uses unchanged 10 V/s Core profile	all observations hold	[(0.001, 0.009999999776482582)]
+@@	L1-INT-04.a	PASS	VAC delivery dropout triggers Core stale detection after exactly 200 periods	all observations hold	0.0299
+@@	L1-INT-04.b	PASS	Sample-loss fixture does not switch off the physical grid	all observations hold	650.5382386916237
+@@	L1-INT-05.a	PASS	Native PV source and passive load match independent MPP	observations hold	38.463592501705186
+0.000 s: real Core calls=1, synchronized=0
+0.000 s: real Core calls=1, synchronized=0
+@@	L1-INT-05.b	PASS	PV switched model executes actual Core MPPT, with bridge and relay off	observations hold	21
+@@	L1-INT-05.c	PASS	50/25 ns PV integration agrees within 0.1 V over the initial 2 ms	observations hold	{'pv_voltage': 0.034792436123673554, 'VDCBus': 0.0027836787240289596}
+@@	L1-INT-05.d	INFO	Short PV run mean delivered power / available MPP (not settled acceptance)	observations hold	0.013056343170403618
+@@	L1-APP-01.a	PASS	IDLE on a healthy switched grid keeps boost legs disabled	both off	13001
+@@	L1-APP-01.b	PASS	Observer qualifies after continuous healthy estimated grid	1 s +/- 100 us	1.0001
+@@	L1-APP-01.c	INFO	Time from electrical start to PLL synchronization	informational	1.1309
+@@	L1-APP-08.a	PASS	Lost VAC samples trigger InvalidMeasurement	200 control periods	0.0299
+Formal switched scenario: dcdc_startup
+0.000 s: real Core calls=1, synchronized=0
+@@	L1-APP-02.a	PASS	STARTUP reference ramp over first 50 ms	10 V/s, 1e-4 V numerical tolerance	2.086162567138672e-07
+@@	L1-APP-02.b	PASS	STARTUP physical leg-1 current over first 50 ms	<= 1 A at every 50 ns step	0.6047010979912011
+@@	L1-APP-02.c	PASS	STARTUP keeps converter 2 disabled	always off	0.0
+@@	L1-APP-02.d	BLOCKED	Full zero-to-400 V startup trajectory	complete 40 s switched run	Only first 50 ms executed; no full-ramp claim
+Formal switched scenario: dcdc_busreg
+0.000 s: real Core calls=1, synchronized=0
+@@	L1-APP-03.a	FAIL	BUSREG after 50 ms load step, assessed over 80-100 ms	395-405 V	(367.67322422947393, 376.94479291709206)
+@@	L1-APP-03.b	INFO	Maximum bus overshoot above 400 V	informational	0.0
+@@	L1-APP-03.c	INFO	Physical current extrema including initial conditions	informational	{'ILow1': {'min': -13.768654350837176, 'max': 17.918261208763578}, 'ILow2': {'min': -13.792139690784094, 'max': 17.95722455995066}}
+Formal switched scenario: dcdc_burst
+0.000 s: real Core calls=1, synchronized=0
+@@	L1-APP-04.a	PASS	Burst fixture starts paused above upper threshold	pause for Vbus >= 405 V	406.0
+@@	L1-APP-04.b	PASS	Both boost legs remain disabled while burst-paused	both off	317
+@@	L1-APP-04.c	PASS	Burst releases when electrical bus reaches lower threshold	Vbus <= 395 V	[(0.0317, 394.9835720837511)]
+@@	L1-APP-04.d	BLOCKED	Subsequent rising upper-threshold crossing	pause at >= 405 V	No subsequent 405 V crossing in 150 ms; repeated burst cycle not established
+@@	L1-APP-04.e	INFO	Minimum bus during burst fixture	informational	358.48153286779785
+@@	L1-APP-05	BLOCKED	Formal catalogue prerequisite	—	native PV variant implemented; sustained MPPT fixture and declared settling/acceptance window pending; short-run extraction remains far below available MPP
+@@	L1-APP-06	BLOCKED	Formal catalogue prerequisite	—	procedure verdict gate: open finding #1; nominal integration runs regardless
+@@	L1-APP-07	BLOCKED	Formal catalogue prerequisite	—	procedure verdict gate: open finding #1; switched phase-continuous fault scenarios pending
+@@	L1-APP-09	BLOCKED	Formal catalogue prerequisite	—	formal switched mode-transition fixture pending
+@@	L1-GFL-01	BLOCKED	Formal catalogue prerequisite	—	library-only connection harness and validated relay fixture pending; application remains synchronization-only
+@@	L1-GFL-02	BLOCKED	Formal catalogue prerequisite	—	library-only RUN/fault harness pending
+@@	L1-GFL-03	BLOCKED	Formal catalogue prerequisite	—	library-only relay timeout harness pending

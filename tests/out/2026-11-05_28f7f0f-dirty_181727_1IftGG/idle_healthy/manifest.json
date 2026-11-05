@@ -1,0 +1,80 @@
+{
+  "scenario": {
+    "name": "integration-idle-healthy",
+    "duration_s": 1.3,
+    "dt_s": 1e-06,
+    "store_period_s": 0.0001,
+    "commands": [
+      {
+        "time_s": 0,
+        "mode": 0,
+        "sync_request": 1,
+        "v_bus_ref": 400,
+        "vac_updated": 1
+      }
+    ]
+  },
+  "contract": "app-v1",
+  "profile": "Core-app-default-10Vps-sync-only",
+  "model_kind": "switched",
+  "model_sha256": "58839236cbd50d8564e36793e33aaa6ee3ab58935eed73dbf724a069da5529de",
+  "model_payload_sha256": null,
+  "firmware": {
+    "core_commit": "28f7f0f5dae0764d06cee04942d9341ffae1fd4d",
+    "core_dirty": true,
+    "inverter_commit": "0f22378202650301287b08001fc121e37b7b9b17",
+    "inverter_dirty": false,
+    "inverter_path": "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter",
+    "control_library_commit": "1ef80979d3181035c7dcc7a4f1c6218f297db7ca",
+    "contract": "app-v1",
+    "profile": "Core-app-default-10Vps-sync-only",
+    "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "dependency_tracking": "compiler -MMD transitive headers",
+    "flags": [
+      "-std=c++17",
+      "-O1",
+      "-g",
+      "-fPIC",
+      "-fsanitize=undefined",
+      "-fno-sanitize-recover=undefined"
+    ],
+    "sources": {
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/controller.h": "8f5837a2ef565cf71a3fe2cdc485576f4724da9e9dc8a0b3328e00fb6d0166f0",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/filters.h": "cb2bb06db363add1197e3f3355a5d4361cddfa50ad1432e4f96b27c5560f15ef",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/fir.h": "7386c2f672cdcb44131564ce8606113436e85b4706a735468bc97f13c3f20ea9",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/pid.cpp": "6f5505d75e09689c604073b9f3f60b5bef097c3ddd06bf66e6c66c67fe724e36",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/pid.h": "942509d5b25b68f15122f8c4cb8a681c1a088a45ebe5de1735ab3d3862e85869",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/transform.cpp": "fb09996b87bedbe57e445c4624443f82b55f9a2cf348ee16d38bf51a2ec3f69c",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/transform.h": "4a5c34088cf4c78dcb1664d1e44d6ce05fde6b0d093ef293ad687dffe1bda2a5",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/trigo.cpp": "a8eed68ed4bbd997fc3d704bce6453313cbe6207f023dd9d65649afa43f26be1",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/control_library/src/trigo.h": "70c76386af383064652bfeee7f1f3f3cd589b7b26071d016b0b77bc19a8de6ab",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter/src/inverterTypes.h": "f39d4af07a1ff8d9cb3657bc09e4d484f1f93098367de8b7adf2d1ce5d9351f9",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter/src/inverterValidation.h": "46875130b4f341b59a0c62493504cb5f70de31e4ea556ec3aa08dac0c09cefa8",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter/src/singlePhaseInverterFollowing.cpp": "5a0526a79402e18cf285eab4e30121cde127c6a52670114303f4d9284ea99a7b",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter/src/singlePhaseInverterFollowing.h": "9f3a1568f05d5b44e7bbcd158dbb972bac0b7a75e58bb75d8b36d260cdecd856",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter/src/sogi.cpp": "b84eaf326f3a1643d41fae6c7c4dbdbf4024028d0a18b25c813db14e8c4ba032",
+      "/home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter/src/sogi.h": "914859d20d84b964639ffe8cf088e3fdc2c8a8c08907eecb03a339387775cdc8",
+      "/home/jal/Documents/xyce_test/Core/src/app/control_step.cpp": "e4f764c5b435cd8523a290066e57b5643ee18414941c957bf5a45e0a0de4a11b",
+      "/home/jal/Documents/xyce_test/Core/src/app/control_step.h": "4d2373acf5bb2eaf8e2d5f4de76b8a54472a1c21a9e949378c9f2b481dea2ea3",
+      "/home/jal/Documents/xyce_test/Core/src/boost_converter/boost.cpp": "4f96804093e67a3ba79e0c310639a9f348e3f282956857e3fce7c9cd196d0192",
+      "/home/jal/Documents/xyce_test/Core/src/boost_converter/boost.h": "623619728dcdf49f9bc075f4de1d17fc142064132bcdf419aaf75e35dfe1fdf5",
+      "/home/jal/Documents/xyce_test/Core/src/grid_observer/gridObserver.cpp": "41263850bb200605eb5a4ba8f493550e024c070b3d0a8fc7029f8e64c23ad781",
+      "/home/jal/Documents/xyce_test/Core/src/grid_observer/gridObserver.h": "0ec461a5dd4dafc67a8f664352311be49505e4c8b3fd86ea7cc3e9a64d6b4566",
+      "/home/jal/Documents/xyce_test/Core/tests/common/shim/arm_math.h": "62ddc6bea6ffe999079d954084957f7992d1cc44c031df928abc09bcd916c23e",
+      "/home/jal/Documents/xyce_test/Core/tests/common/shim/arm_math_types.h": "ba7a142fd2ac0d5857c6c387a1822899eddf61c40f8e04ddb2214d5da0f01b1a",
+      "/home/jal/Documents/xyce_test/Core/tests/common/shim/my_types.h": "7c12cb8147b6b91db76f7c8d2ffd41ba6f6deb19a35df395196642a99f7291f6",
+      "/home/jal/Documents/xyce_test/Core/tests/common/shim/zephyr/logging/log.h": "dd452ad6dd3ff5e81e59207d768f4beea565bf46d19d596a8404dac95d31c436",
+      "/home/jal/Documents/xyce_test/Core/tests/l1/firmware_block/contract.h": "19ffa2e047e0c9127ab2728915f687d76bd88decd08d2246c63c227232b581d5",
+      "/home/jal/Documents/xyce_test/Core/tests/l1/firmware_block/wrapper.cpp": "7c06726ccc10563c3bcd26e7875d86a7f95f0e74c693a04555408a653dbe76e3"
+    },
+    "library_sha256": "ee064df35df0e9850e049a301387ca3f3c33272e67b0ecf44cc8fb03a06dea2a"
+  },
+  "pulsim": "2.0.0",
+  "wall_s": 50.061431834998075,
+  "actual_cblock_calls": 13001,
+  "finite_states": true,
+  "native_cblock": true,
+  "formal_campaign": false,
+  "averaged_model_available": false,
+  "pv_model_available": false
+}

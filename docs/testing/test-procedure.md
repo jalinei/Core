@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 0.7 (draft) |
+| Procedure version | 1.0 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -51,12 +51,11 @@ L0 answers *"does each object do what its code claims for chosen inputs?"*. L1 a
 
 ### 2.1 Plant model
 
-The plant model is provided by a colleague working in Pulsim and is imported into `tests/l1/plant/`. Two variants share one parameter file:
+The plant model is provided by a colleague working in Pulsim and is imported into `tests/l1/plant/`. The user-selected plant remains switching throughout; no averaged plant is planned. Derived fixtures retain the reviewed power circuit and declare their loads and initial conditions:
 
 | Variant | Use | Status |
 |---|---|---|
-| **Averaged plant model** | Long test cases: startup ramp (~40 s), MPPT, observer timing, PLL | Expected first |
-| **Switched plant model** | Short windows: current-loop ripple, burst pause/resume, a few grid cycles | Later |
+| **Switched plant model** | Short windows: current-loop ripple, burst pause/resume, a few grid cycles | Switched import and integration checks implemented; formal cases still gated |
 
 Every parameter in the model cites its source (schematic, datasheet or measurement). Missing parameters are marked `TBD`, and test cases that depend on them report `BLOCKED`.
 
@@ -75,9 +74,9 @@ ControlOutputs controlStep(ControlState&, const Measurements&, const OperatorCom
 
 `main.cpp` keeps reading sensors and writing PWM through the shield API. On the host, L0 calls `controlStep` directly. For L1, `controlStep` and the controller sources are compiled into a shared library that exports the Pulsim C-Block ABI (`pulsim_cblock_step`) and runs every 100 µs. Pulsim holds the outputs (zero-order hold) between steps.
 
-## 3. Model ↔ firmware block contract (v0)
+## 3. Model ↔ firmware block contract (app-v1)
 
-> **v0, to be revised when the plant model arrives.** Any change is recorded in the [changelog](#10-changelog) and the version number goes up.
+> **app-v1 implemented for integration bring-up.** `tests/l1/contract.json` is the machine-readable index/actuator contract. It supersedes the initial v0 sketch for the application path. Relay lifecycle inputs belong to a future separate library-only harness; the current application has no relay command. Changes are recorded in the [changelog](#10-changelog).
 
 All values are physical units, sampled every 100 µs (control-task period).
 
@@ -89,16 +88,17 @@ All values are physical units, sampled every 100 µs (control-task period).
 | Model → block | `VDCBus` | V | Shared DC bus |
 | Model → block | `VAC` | V | Instantaneous grid voltage |
 | Model → block | `IAC` | A | Instantaneous bridge current |
-| Model → block | `relay_closed` | 0/1 | Optional; relay feedback |
-| Model → block | `vac_valid` | 0/1 | 0 simulates a missing VAC sample (stale-sample detection) |
+| Fixture → block | `vac_updated` | 0/1 | Maps to `Measurements::v_ac_updated`; wrapper holds last delivered VAC when false |
 | Scenario → block | `mode` | 0–3 | IDLE, STARTUP, BUSREG, MPPT |
 | Scenario → block | `sync_request` | 0/1 | Serial command `c` |
 | Scenario → block | `v_bus_ref` | V | Serial commands `u` / `d` |
 | Block → model | `duty_leg1`, `duty_leg2` | 0–1 | Boost leg duties |
 | Block → model | `en_leg1`, `en_leg2` | 0/1 | Boost leg PWM enables |
 | Block → model | `duty_bridge` | 0–1 | Inverter leg duty |
-| Block → model | `en_bridge` | 0/1 | Inverter bridge PWM enable |
-| Block → model | `relay_request` | 0/1 | Optional; relay close request |
+| Block → model | `en_bridge` | 0/1 | Always false in this application |
+| Block → model | `boost_mode_changed` | 0/1 | Stop both boost legs on that tick before applying updates |
+| Block → model | `boost_pwm_update` | 0/1 | Apply new duties/enables only when true; otherwise hold applied state |
+| Block → log | `relay_requested` | 0/1 | Library diagnostic only; remains false in application tests |
 | Block → log | `theta`, `w`, observer RMS, observer frequency, trip reason, inverter mode, burst paused | — | Logged, not fed back |
 
 ## 4. Test case identification
@@ -111,6 +111,7 @@ Format: `<level>-<object>-<nn>`. A criterion inside a case adds a letter: `L1-AP
 | `GOB` | Grid observer |
 | `GFL` | Grid-following inverter controller (library) |
 | `APP` | Application control step |
+| `INT` | Native C-Block/model integration, separate from formal application/library criteria |
 
 When the same criterion runs once per mode, the mode is appended: `L0-BST-07.a-startup`, `L0-BST-07.a-busreg`.
 
@@ -177,19 +178,21 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 | L0-APP-04 | Bridge PWM never enabled and the inverter never requests PWM or relay, in any mode, with or without a sync request | critical task, "Synchronization only" | Implemented |
 | L0-APP-05 | Synchronization only after observer qualification; an observer trip removes it on the trip tick; times to qualification and sync `INFO` | `setGridQuality(grid_observer.canOperate())` | Implemented |
 
-### 6.5 L1-APP — application with the averaged plant model
+### 6.5 L1-APP — application with the switching plant model
 
 | ID | Scenario | Criteria | Model | Status |
 |---|---|---|---|---|
-| L1-APP-01 | IDLE on a healthy grid | legs off; observer qualifies at 1 s ± 1 tick; PLL lock time `INFO` | averaged | BLOCKED (model) |
-| L1-APP-02 | STARTUP from 0 V | bus reference follows 10 V/s; ILow1 ≤ 1 A; leg 2 never enabled | averaged | BLOCKED (model) |
-| L1-APP-03 | BUSREG at 400 V | VDCBus within 395–405 V; overshoot `INFO` | averaged | BLOCKED (model) |
-| L1-APP-04 | Burst cycling at light load | pause at 405 V, resume at 395 V; bus dip `INFO` | switched | BLOCKED (model) |
-| L1-APP-05 | MPPT on the PV curve | settles near the maximum power point; tracking efficiency `INFO` | averaged | BLOCKED (model) |
-| L1-APP-06 | Synchronization only | inverter synchronized; bridge PWM never enabled | averaged | BLOCKED (model) |
-| L1-APP-07 | Grid steps out of window (UV, OV, UF, OF) | trip within 0.1 s + 1 tick; synchronization revoked | averaged | BLOCKED (model) |
-| L1-APP-08 | VAC samples lost for more than 20 ms | trip with reason `InvalidMeasurement` | averaged | BLOCKED (model) |
-| L1-APP-09 | Every mode → every other mode | legs stopped on the switching tick; peak current `INFO` | averaged | BLOCKED (model) |
+| L1-APP-01 | IDLE on a healthy grid | legs off; observer qualifies after 1 s ± 1 tick of continuously eligible estimates; PLL lock time `INFO` | switched | Implemented (.a–.b; .c INFO) |
+| L1-APP-02 | STARTUP from 0 V | bus reference follows 10 V/s; physical ILow1 ≤ 1 A at electrical steps; leg 2 never enabled | switched | Implemented first 50 ms (.a–.c); full 40 s trajectory .d pending |
+| L1-APP-03 | BUSREG at 400 V | VDCBus within 395–405 V during 80–100 ms after load step at 50 ms; overshoot/current extrema `INFO` | switched | Implemented; preserve FAIL if outside band |
+| L1-APP-04 | Burst cycling at light load | start paused above 405 V, legs off, resume at 395 V; subsequent rising crossing and bus dip reported separately | switched | Initial pause/release implemented; repeated cycling pending if no later upper crossing |
+| L1-APP-05 | MPPT on the PV curve | settles near the maximum power point; tracking efficiency `INFO` | switched | BLOCKED (sustained MPPT fixture) |
+| L1-APP-06 | Synchronization only | inverter synchronized; bridge PWM never enabled | switched | Nominal integration runs; formal verdict gated by finding #1 |
+| L1-APP-07 | Grid steps out of window (UV, OV, UF, OF) | trip within 0.1 s + 1 tick; synchronization revoked | switched | Fault scenarios pending; finding #1 verdict gate |
+| L1-APP-08 | VAC samples lost for more than 20 ms | trip with reason `InvalidMeasurement` after age 200 | switched | Implemented (.a) |
+| L1-APP-09 | Every mode → every other mode | legs stopped on the switching tick; peak current `INFO` | switched | Switched transition scenarios pending |
+
+The [switched DCDC results](switched-dcdc-results.md) preserve the current regulation failure, numerical refinement and remaining coverage.
 
 ### 6.6 L1-GFL — library only, through a test harness
 
@@ -201,6 +204,21 @@ These cases exercise library features the application does not use. They run the
 | L1-GFL-02 | Grid fault during RUN: fault latched, PWM dropped immediately | BLOCKED (relay) |
 | L1-GFL-03 | Relay never confirms closing: fault after the 1 s timeout | BLOCKED (relay) |
 
+### 6.7 L1-INT — native firmware-block integration
+
+These establish the execution/measurement boundary using the same Core source. They do not unblock formal L1-APP/GFL cases, override finding #1 or claim regulation performance. [Implementation and prerequisites](../../tests/l1/README.md).
+
+| ID | Behaviour | Source | Status |
+|---|---|---|---|
+| L1-INT-00 | Build/runner failure before a reported criterion must fail the campaign | campaign runner | Infrastructure fallback |
+| L1-INT-01 | Wrapper matches direct controlStep; independent state; invalid ABI/timing rejected | `controlStep`, app-v1 contract | Implemented (.a–.c) |
+| L1-INT-02 | Pulsim actually loads native C-Block, executes once per 100 us, closes an RC loop and resets independently | `pulsim.add_c_block`, application period | Implemented (.a–.c) |
+| L1-INT-03 | Refined switched model, nominal 50 Hz sync with inverter off, exact current-probe binding and tick-aligned short STARTUP at 10 V/s | accepted plant, `controlStep`, `app::startup_ramp_rate` | Implemented (.a–.d) |
+| L1-INT-04 | Missing VAC delivery holds last sample and invalidates at age 200; physical grid stays present | sensor hold contract, `grid_voltage_stale_ticks` | Implemented (.a–.b) |
+| L1-INT-05 | Native PV passive MPP load; actual Core MPPT coupling; initial 2 ms step refinement; short-run power ratio INFO | synthetic single-diode variant | Implemented (.a–.c PASS checks, .d INFO) |
+
+Contract **app-v1**, in `tests/l1/contract.json`, binds six physical probes plus VAC freshness and the three existing operator commands. Outputs include the stop/update action flags as well as duties/enables; relay and bridge request telemetry stays off. The wrapper is the actual Pulsim C-Block execution path. A native synthetic PV variant is implemented and checked separately by L1-INT-05. Switched startup, regulation and initial burst fixtures are implemented. Full-duration startup, sustained MPPT acceptance, repeated burst cycles and the library-only relay/RUN harness remain incomplete. Unrun criteria are explicitly BLOCKED; measured regulation failures remain FAIL. Nominal integration does not close the open library finding.
+
 ## 7. Running a campaign
 
 ```bash
@@ -209,7 +227,7 @@ tests/run_all.sh --l0     # L0 only (seconds)
 tests/run_all.sh --l1     # L1 only
 ```
 
-The script writes the **test record** to `tests/out/<YYYY-MM-DD>_<sha7>/`, prints the results table, and exits non-zero if any criterion is `FAIL`, if a test binary dies before reporting (build error, crash, sanitizer abort), or if the campaign reports no criteria at all. The folder name ends in `-dirty` when tracked files have uncommitted changes. `tests/out/` is git-ignored: L0 and L1 are deterministic, so any record can be regenerated from its commit.
+The script writes the **test record** to `tests/out/<YYYY-MM-DD>_<sha7>_<time>_<unique>/`, prints the results table, and exits non-zero if any criterion is `FAIL`, if a test binary dies before reporting (build error, crash, sanitizer abort), or if the campaign reports no criteria at all. The revision component includes `-dirty` when tracked or untracked source changes exist. Repeated campaigns get separate folders; earlier records are not deleted. `tests/out/` is git-ignored: L0 and L1 are deterministic, so any record can be regenerated from its commit.
 
 | When | What to run |
 |---|---|
@@ -238,8 +256,8 @@ A failing observation does not stop the test, so every criterion gets a verdict.
 |---|---|
 | C++ compiler | `g++` with C++17 and UBSan (`-fsanitize=undefined`) |
 | Python | ≥ 3.10, in a `.venv` at the repo root |
-| Pulsim | `pulsim==2.0.0`, from `tests/l1/plant/requirements.txt` |
-| Inverter library | Fetched by PlatformIO into `owntech/lib/USB/single_phase_inverter` (jalinei `main`); its commit is stamped in each record |
+| Pulsim | `pulsim==2.0.0`, GUI `pulsimgui==1.1.1`, from `tests/l1/plant/requirements.txt`; `tests/l1/setup.sh` creates the environment |
+| Inverter library | Core dependency under `owntech/lib/USB/single_phase_inverter`; L1 setup resolves `dependencies.lock.json`, or the existing explicit library override. Actual commit/source hashes are stamped. Production unpinned dependency declaration is unchanged. |
 
 ### 7.3 Test code documentation
 
@@ -269,7 +287,7 @@ date: 2026-11-05T14:02:11+01:00
 operator: <git user.name>
 core_commit: 4c33fb0          # + "-dirty" if the tree has uncommitted changes
 library_commit: 0f22378       # single_phase_inverter
-plant_model: averaged@<sha7>  # or "none"
+plant_model: switched@<sha7>  # or "none"
 contract_version: v0
 toolchain: { gcc: "13.2.0", python: "3.12.3", pulsim: "2.0.0" }
 levels: [L0, L1]
@@ -288,7 +306,7 @@ counts: { PASS: 41, FAIL: 6, INFO: 6, BLOCKED: 12 }
 |---|---|
 | Core commit | `4c33fb0` |
 | Library commit | `0f22378` (jalinei/single_phase_inverter `main`) |
-| Plant model | averaged, parameters `params.yaml@<sha7>` |
+| Plant model | switched, parameters `params.yaml@<sha7>` |
 | Contract | v0 |
 | Control period | 100 µs (cold loop every 10 ticks) |
 | Toolchain | gcc 13.2.0, Python 3.12.3, Pulsim 2.0.0 |
@@ -350,12 +368,12 @@ On branch `test/microinverter-validation` (from `dts_uverter`), pushed to `luizv
 | 4 | `test(l0)` | L0-GFL cases | No |
 | 5 | `refactor(app)` | Extract `controlStep` into `src/app/`; worklog entry | **Yes** |
 | 6 | `test(l0)` | L0-APP cases | No |
-| 7 | `test(l1)` | Firmware block `.so` build, pinned Pulsim environment, connection check against a stand-in RC circuit | No |
-| 8 | `test(l1)` | Scenario runner and all L1 case scripts (`BLOCKED`) | No |
-| 9 | `test(l1)` | Import the averaged plant model (authored by the colleague); contract revised | No |
+| 7 | `test(l1)` | Implemented: native firmware block build, pinned environment, direct-reference and RC checks | No |
+| 8 | `test(l1)` | Implemented integration runner and explicit formal-case BLOCKED reporting | No |
+| 9 | `test(l1)` | Switched model and app-v1 boundary implemented; switching-only fixtures selected by user | No |
 | gate | — | Finding [#1](https://github.com/luizvilla/Core/issues/1) closed (fix merged in the library, L0-GFL-03.b and L0-GFL-08 pass); otherwise L1-APP-06 and -07 cannot be judged | No (library) |
-| 10 | `test(l1)` | Unblock L1-APP; first full campaign | No |
-| later | `test(l1)` | Switched model + L1-APP-04; relay + L1-GFL-* | No |
+| 10 | `test(l1)` | Implement switched L1-APP criteria and preserve measured failures; full-duration cases remain explicit | No |
+| later | `test(l1)` | Complete long startup, repeated L1-APP-04 cycles and remaining scenarios; relay + L1-GFL-* | No |
 
 ```mermaid
 flowchart LR
@@ -377,6 +395,9 @@ flowchart LR
 | 0.5 | 2026-11-05 | Control step extracted to `src/app/control_step.{h,cpp}` with `controlInit` and an explicit `ControlState` (worklog entry of the same date). |
 | 0.6 | 2026-11-05 | L0-APP implemented against `controlStep` with the application's real tuning and real-time grid delays. |
 | 0.7 | 2026-11-05 | L0-GFL-08 added (cold-start synchronization across the frequency window), after an experimental fix for #1 synchronized on a 51 Hz step but diverged on a 49 Hz cold start, which L0-GFL-03 does not cover. §11 findings register; records mark known and new failures and findings ready to close. Gate on #1 before commit 10. `SINGLE_PHASE_INVERTER_DIR` tests a library branch before merge. |
+| 0.8 | 2026-11-05 | Implement native `controlStep` C-Block/RC/switched-model integration (L1-INT-01–04), app-v1 manifest, GUI view and explicit unmet-prerequisite reporting. Import the refined switched model; averaged/PV and library-only connection fixtures remain pending. Keep the default 10 V/s Core profile and finding #1 gate. Source identity wording clarified in ADR 0001. Repeated campaigns retain independent records. No production controller/application code changed. |
+| 0.9 | 2026-11-05 | Implement synthetic native single-diode PV variant, wired bus test load, precharged fixture, independent MPP reference, PV diagnostics, GUI saved-result loading and L1-INT-05. Formal L1-APP-05 remains pending sustained tracking acceptance; short-run extraction is below available MPP. No controller tuning changed. |
+| 1.0 | 2026-11-05 | User selects switching model only; remove averaged-model prerequisite. Implement formal nominal-grid, lost-VAC, first-50-ms startup, precharged bus regulation/load step and initial burst release criteria. Specify observation windows and partial-run limits; preserve measured failures. Keep production firmware unchanged and expose scenario fixtures/results through the GUI. |
 
 ## 11. Findings register
 

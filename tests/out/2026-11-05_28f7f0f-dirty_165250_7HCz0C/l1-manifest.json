@@ -1,0 +1,15 @@
+{
+  "plant_model": "switched full_model.pulsim@58839236cbd5 (integration bring-up)",
+  "model_sha256": "58839236cbd50d8564e36793e33aaa6ee3ab58935eed73dbf724a069da5529de",
+  "contract": "app-v1",
+  "profile": "Core-app-default-10Vps-sync-only",
+  "integration_only": true,
+  "pulsim": "2.0.0",
+  "capabilities": {
+    "switched": true,
+    "averaged": false,
+    "pv_curve": false,
+    "physical_device_calibration": false
+  },
+  "contract_sha256": "90c40166ab6796aa3981d25ebebb1cbf09d4d25cdce5746cf979ba91fcddf4ac"
+}

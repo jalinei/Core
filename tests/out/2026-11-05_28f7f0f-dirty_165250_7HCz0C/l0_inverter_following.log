@@ -1,0 +1,37 @@
+library: /home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter @ 0f22378
+@@	L0-GFL-01.a	PASS	Valid init starts in OFF with no fault, no PWM and no relay request	abs error ≤ 0.001	6/6 ok, max abs error 0
+@@	L0-GFL-01.b	PASS	Invalid init parameters return -EINVAL and latch INVALID_CONFIGURATION	all observations hold	40/40 ok
+@@	L0-GFL-01.c	PASS	A successful init after an invalid one clears the fault	all observations hold	4/4 ok
+@@	L0-GFL-01.d	PASS	calculateDuty before init latches INVALID_CONFIGURATION with neutral duty	all observations hold	3/3 ok
+@@	L0-GFL-02.a	PASS	PLL synchronizes on a clean 230 V / 50 Hz grid (5 s horizon)	abs error ≤ 2.5	5/5 ok, max abs error 0.00255872
+@@	L0-GFL-02.b	PASS	Synchronization only never requests PWM or relay closure	all observations hold	2/2 ok
+@@	L0-GFL-02.c	INFO	Time to getSync() true from a 1 rad phase offset (includes 1000-call dwell)	—	0.1882 s
+@@	L0-GFL-02.d	INFO	Steady-state phase error after 5 s	—	1.80246 deg
+@@	L0-GFL-02.e	INFO	Steady-state frequency error after 5 s	—	-0.00255872 Hz
+@@	L0-GFL-03.a	PASS	PLL frequency estimate follows a 50 → 51 Hz step (3 s horizon)	abs error ≤ 2.5	1/1 ok, max abs error 0.00626831
+@@	L0-GFL-03.b	FAIL	Synchronized again at 51 Hz, inside the library's ±5 % frequency window (3 s horizon)	all observations hold	2/2 failed; first: getSync() true at end
+@@	L0-GFL-03.c	INFO	Time until the 20 ms mean estimate stays within 51 ± 0.05 Hz	—	0.0439 s
+@@	L0-GFL-03.d	INFO	Time not synchronized after the step (of 3 s)	—	2.9999 s
+@@	L0-GFL-03.e	INFO	Steady-state error of the 20 ms mean estimate at 51 Hz	—	0.00626831 Hz
+@@	L0-GFL-03.f	INFO	Peak  Vq  ripple at 51 Hz (sync tolerance 0.1 V)	—	3.26793 V
+@@	L0-GFL-04.a	PASS	Lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → CONNECTED → STOPPING → DISCONNECT → OFF	all observations hold	16/16 ok
+@@	L0-GFL-04.b	PASS	Relay never confirms closing: CONNECTION_TIMEOUT after 1 s	abs error ≤ 0.0002	5/5 ok, max abs error 0
+@@	L0-GFL-04.c	PASS	Relay never confirms opening: DISCONNECTION_TIMEOUT 1 s after the disconnect request	abs error ≤ 0.0002	4/4 ok, max abs error 0
+@@	L0-GFL-04.d	PASS	Relay feedback lost in RUN: GRID_CONNECTION_LOST, PWM dropped	all observations hold	6/6 ok
+@@	L0-GFL-04.e	PASS	Grid phase jump while awaiting the relay: SYNC_LOST	all observations hold	4/4 ok
+@@	L0-GFL-05.a	PASS	Bad grid quality blocks synchronization; good quality restarts the 1000-call dwell	all observations hold	6/6 ok
+@@	L0-GFL-05.b	PASS	Bad grid quality in CONNECT, CONNECTED or RUN trips BAD_GRID_QUALITY at once	all observations hold	19/19 ok
+@@	L0-GFL-05.c	PASS	clearFault needs good grid quality and an open relay, then returns to OFF	all observations hold	8/8 ok
+@@	L0-GFL-06.a	PASS	Non-finite measurements latch INVALID_MEASUREMENT with neutral duty and no PWM	all observations hold	14/14 ok
+@@	L0-GFL-06.b	PASS	Non-positive bus voltage latches INVALID_BUS_VOLTAGE	all observations hold	7/7 ok
+@@	L0-GFL-06.c	PASS	Non-finite current reference or invalid frequency reference latches INVALID_REFERENCE	all observations hold	12/12 ok
+@@	L0-GFL-06.d	PASS	A latched fault keeps its first cause and ignores requests until cleared	all observations hold	8/8 ok
+@@	L0-GFL-07.a	PASS	Duty is exactly 0.5 in OFF and VOLTAGE_SYNC	all observations hold	5101/5101 ok
+@@	L0-GFL-07.b	PASS	Duty = alpha_output / (2 V_bus) + 0.5 every sample, unclamped	abs error ≤ 1e-06	603/603 ok, max abs error 0
+@@	L0-GFL-08.a	FAIL	Cold-start synchronization at 47.6 Hz from four grid angles (5 s horizon); settled estimate within ±5 %	all observations hold	8/12 failed; first: getSync() within 5 s
+@@	L0-GFL-08.b	FAIL	Cold-start synchronization at 49 Hz from four grid angles (5 s horizon); settled estimate within ±5 %	all observations hold	8/12 failed; first: getSync() within 5 s
+@@	L0-GFL-08.c	PASS	Cold-start synchronization at 50 Hz from four grid angles (5 s horizon); settled estimate within ±5 %	all observations hold	12/12 ok
+@@	L0-GFL-08.d	FAIL	Cold-start synchronization at 51 Hz from four grid angles (5 s horizon); settled estimate within ±5 %	all observations hold	8/12 failed; first: getSync() within 5 s
+@@	L0-GFL-08.e	FAIL	Cold-start synchronization at 52.4 Hz from four grid angles (5 s horizon); settled estimate within ±5 %	all observations hold	8/12 failed; first: getSync() within 5 s
+@@	L0-GFL-08.f	INFO	Worst cold-start time to synchronization over the cases that locked	—	0.1964 s
+@@	L0-GFL-08.g	INFO	Worst transient error of the 20 ms mean frequency estimate during cold start	—	24.6549 Hz

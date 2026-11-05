@@ -1,0 +1,20 @@
+@@	L0-GOB-01.a	PASS	Not operable before init	all observations hold	4/4 ok
+@@	L0-GOB-02.a	PASS	Missing grid at startup blocks operation without a nuisance trip	all observations hold	101/101 ok
+@@	L0-GOB-02.b	PASS	Qualification dwell restarts on a dropout	all observations hold	14/14 ok
+@@	L0-GOB-03.a	PASS	RMS voltage and frequency estimates on a clean 230 V / 50 Hz grid	abs error ≤ 0.001	300/300 ok, max abs error 3.05176e-05
+@@	L0-GOB-04.a	PASS	UV (200 V) trips after its delay; a shorter event does not	all observations hold	17/17 ok
+@@	L0-GOB-05.a	PASS	UV (200 V) trip latches; clearing needs a healthy interval and open relay	all observations hold	12/12 ok
+@@	L0-GOB-04.b	PASS	OV (260 V) trips after its delay; a shorter event does not	all observations hold	17/17 ok
+@@	L0-GOB-05.b	PASS	OV (260 V) trip latches; clearing needs a healthy interval and open relay	all observations hold	12/12 ok
+@@	L0-GOB-04.c	PASS	UF (45 Hz) trips after its delay; a shorter event does not	all observations hold	19/19 ok
+@@	L0-GOB-05.c	PASS	UF (45 Hz) trip latches; clearing needs a healthy interval and open relay	all observations hold	12/12 ok
+@@	L0-GOB-04.d	PASS	OF (55 Hz) trips after its delay; a shorter event does not	all observations hold	19/19 ok
+@@	L0-GOB-05.d	PASS	OF (55 Hz) trip latches; clearing needs a healthy interval and open relay	all observations hold	12/12 ok
+@@	L0-GOB-04.e	PASS	Opposite voltage excursions do not accumulate into one timer	all observations hold	20/20 ok
+@@	L0-GOB-06.a	PASS	Invalid measurement (NaN alpha) trips at once; recovery qualification restarts on a dropout	all observations hold	22/22 ok
+@@	L0-GOB-06.b	PASS	Invalid measurement (infinite beta) trips at once; recovery qualification restarts on a dropout	all observations hold	22/22 ok
+@@	L0-GOB-06.c	PASS	Invalid measurement (NaN frequency) trips at once; recovery qualification restarts on a dropout	all observations hold	22/22 ok
+@@	L0-GOB-06.d	PASS	Invalid measurement (validity flag false) trips at once; recovery qualification restarts on a dropout	all observations hold	22/22 ok
+@@	L0-GOB-04.f	PASS	Negative frequency trips as under-frequency; the first cause is kept	all observations hold	11/11 ok
+@@	L0-GOB-04.g	PASS	Zero qualification time and zero delay act on the first sample	all observations hold	3/3 ok
+@@	L0-GOB-01.b	PASS	Invalid configurations are rejected and leave the observer inoperable	all observations hold	18/18 ok

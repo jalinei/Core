@@ -1,0 +1,69 @@
+{
+  "plant_model": "switched full_model.pulsim@58839236cbd5 (integration bring-up)",
+  "model_sha256": "58839236cbd50d8564e36793e33aaa6ee3ab58935eed73dbf724a069da5529de",
+  "contract": "app-v1",
+  "profile": "Core-app-default-10Vps-sync-only",
+  "integration_only": true,
+  "pulsim": "2.0.0",
+  "packages": {
+    "pulsim": "2.0.0",
+    "pulsimgui": "1.1.1",
+    "numpy": "2.5.4",
+    "PySide6": "6.12.0",
+    "scipy": "1.18.1"
+  },
+  "integration_sources": {
+    "setup.sh": "ad16c50aa08b74fe2f21902c42a608658f64e313c26ae609128d22220baa0df8",
+    "dependencies.lock.json": "66ed4956a47f8b78a8a1cb5cd2367671b6368720232996b42a90736d4b563bc3",
+    "setup_dependencies.py": "a421b69c222f9412181eadd8e3c9f7595388c63e353ab4af3014deb6f5efb2ae",
+    "campaign_manifest.py": "0085019807525c01e9759bb7adaa93dfafbd0b36c32a4350dbfe3d9268349fbd",
+    "run.sh": "9795fcf41ce90f812db30665b1c0ad94a72c4090d8139a685756f08256c0e059",
+    "blocked.py": "cfd8e1a07ec24d432a21d3d6edee4bd47e83fdcbeaaa51a6f9c24a76ec84fd8b",
+    "runner.py": "de6f5f6b14c6c1aecb203c122c8722ae4a11042f9558a11cd30e495f16b69c2d",
+    "open_gui.sh": "d82f2dacbabeee59476ec7943394022883e7a6ea868df116b2ecc70584dd9a3d",
+    "gui.py": "ad2064fef401e5475b2e90011f94212e057642e378e6ac28505080f724e3f861",
+    "contract.json": "90c40166ab6796aa3981d25ebebb1cbf09d4d25cdce5746cf979ba91fcddf4ac",
+    "runtime.py": "e7f2d4d29338aa85e0760f235ee2dfbddbb3e33d3c992b4375e1ea86182706fb",
+    "integration/test_rc.py": "8e9acbca9ae402a0f91ba2d8bf0a11ab8f99035aaabbe0f8605380fccdf214e2",
+    "integration/test_model.py": "fe46cdd9589ff7c55b105815bd1c4e06770703309cffbd0a201f4a05d8975c1d",
+    "integration/test_pv.py": "1a296072e03eeb23d85f6eaae75e270323abfabc624790feb55e6950c02d294a",
+    "integration/test_wrapper.cpp": "2baab107187e8f3d4a6bebf99dffff38464f5e7f8e00b02997233b18dd5df900",
+    "plant/pv.py": "c0b3b16dc2a5e3e6b4f066eeba7d1964a0f430c2a85b12ba0781ba2e790adb52",
+    "plant/assess_pv_source.py": "fce12321339c1751e6c699b40b1271cbfd78d35d85e4178ab0b86073a4e0b312",
+    "plant/pv-profile.json": "8d2ff9873533cc8226ed3f0a2ae5aa6f103a7b0a6320f88f7d0647709188819b",
+    "plant/create_gui.py": "8b676e514bef6ec3f105befc22aec0df8d4067bd7686d1422a51514c79ad6b3e",
+    "plant/import_model.py": "7426d4c9a43ed05def920d36a9de77bf72fbc425542126de2906200475160cdd",
+    "plant/model.py": "ec2acb9341406ea4ab6934f637497c22c099fdcb6c9895200dd7c9276f837430",
+    "firmware_block/wrapper.cpp": "7c06726ccc10563c3bcd26e7875d86a7f95f0e74c693a04555408a653dbe76e3",
+    "firmware_block/build.sh": "f4720c834a723971ed5656afb140500e39e784aeb1b82a2275f26e8f2ee4edc9",
+    "firmware_block/contract.h": "19ffa2e047e0c9127ab2728915f687d76bd88decd08d2246c63c227232b581d5",
+    "firmware_block/manifest.py": "241e760b66d825c7716e6246aad2b27bca96ebbb18e114a91dd98b922d9c3810",
+    "scenarios/pv_mppt.json": "10664a75888b91606f1d1d4cf286ba6b219bc09d7854ffd37795cddc2de82fac",
+    "scenarios/startup_short.json": "f23a5959871046861334d3508bf0fedc9cf5d11c4ea105015c5d590eda7bc2e6",
+    "scenarios/vac_dropout.json": "cd70fac1a7e39a8ce9eb3c057efc5fd27a40bade936197e5eb09953e377ae3b8",
+    "scenarios/idle_healthy.json": "dea7cc907ad59b0ea68a55cacf774e0d5b94c8497b0003b48f0310a1a23863f9"
+  },
+  "capabilities": {
+    "switched": true,
+    "averaged": false,
+    "pv_curve": false,
+    "physical_device_calibration": false
+  },
+  "pv_variant_available": true,
+  "pv_profile": {
+    "name": "synthetic-57W-single-diode-v1",
+    "synthetic": true,
+    "description": "Software fixture, not calibrated to a commercial panel. Rsource becomes module Rs; original ideal-source 0.1 ohm is replaced.",
+    "parameters": {
+      "IL_A": 1.6,
+      "I0_A": 2.7070366766422116e-10,
+      "a_V": 2.0,
+      "Rs_ohm": 0.3,
+      "Rsh_ohm": 1000.0
+    },
+    "thermal_voltage_V": 0.02569257912108585,
+    "bus_load_ohm": 2800.0,
+    "initial_bus_V": 380.0
+  },
+  "contract_sha256": "90c40166ab6796aa3981d25ebebb1cbf09d4d25cdce5746cf979ba91fcddf4ac"
+}

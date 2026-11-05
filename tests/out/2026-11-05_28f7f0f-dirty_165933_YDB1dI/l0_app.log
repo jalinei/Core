@@ -1,0 +1,13 @@
+library: /home/jal/Documents/xyce_test/Core/owntech/lib/USB/single_phase_inverter @ 0f22378
+@@	L0-APP-01.a	PASS	controlInit applies the application's tuning	abs error ≤ 1e-06	9/9 ok, max abs error 0
+@@	L0-APP-01.b	PASS	A mode change is flagged on its tick only and runs the cold loop on that tick	all observations hold	125/125 ok
+@@	L0-APP-01.c	PASS	Leg enables follow the boost controller; IDLE leaves the legs untouched	all observations hold	251/251 ok
+@@	L0-APP-02.a	PASS	The cold loop runs on the mode-change tick, then every 10th tick	all observations hold	202/202 ok
+@@	L0-APP-02.b	PASS	A new mode change restarts the cold-loop phase	all observations hold	11/11 ok
+@@	L0-APP-03.a	PASS	VAC stale for 200 periods (20 ms) trips the observer with InvalidMeasurement	all observations hold	5/5 ok
+@@	L0-APP-03.b	PASS	One fresh VAC sample restarts the 20 ms staleness count	all observations hold	3/3 ok
+@@	L0-APP-04.a	PASS	The inverter bridge is never enabled, in any mode, with or without a sync request	all observations hold	10/10 ok
+@@	L0-APP-05.a	PASS	Synchronization waits for the observer's qualification, not only for PLL alignment	all observations hold	4/4 ok
+@@	L0-APP-05.b	INFO	Time from start to observer qualification	—	1.0199 s
+@@	L0-APP-05.c	INFO	Time from start to inverter synchronization	—	1.1199 s
+@@	L0-APP-05.d	PASS	An observer trip (200 V under-voltage) removes synchronization on the trip tick	all observations hold	4/4 ok

@@ -1,0 +1,8 @@
+{
+  "name": "switched-burst-release",
+  "duration_s": 0.15,
+  "dt_s": 5e-8,
+  "store_period_s": 1e-6,
+  "fixture": {"initial_bus_V": 406, "load_ohm": 10000},
+  "commands": [{"time_s": 0, "mode": 2, "sync_request": 1, "v_bus_ref": 400, "vac_updated": 1}]
+}

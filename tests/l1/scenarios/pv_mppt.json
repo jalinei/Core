@@ -1,0 +1,10 @@
+{
+  "name": "synthetic-pv-mppt-short",
+  "plant_variant": "pv",
+  "duration_s": 0.02,
+  "dt_s": 5e-8,
+  "store_period_s": 1e-5,
+  "commands": [
+    {"time_s": 0, "mode": 3, "sync_request": 1, "v_bus_ref": 400, "vac_updated": 1}
+  ]
+}

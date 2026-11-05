@@ -1,0 +1,9 @@
+{
+  "name": "switched-busreg-load-step",
+  "duration_s": 0.1,
+  "dt_s": 5e-8,
+  "store_period_s": 1e-6,
+  "fixture": {"initial_bus_V": 400, "load_ohm": 20000, "load_step_s": 0.05, "step_load_ohm": 10000},
+  "acceptance": {"settled_window_s": [0.08, 0.1], "bus_min_V": 395, "bus_max_V": 405},
+  "commands": [{"time_s": 0, "mode": 2, "sync_request": 1, "v_bus_ref": 400, "vac_updated": 1}]
+}

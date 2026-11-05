@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+## SPDX-License-Identifier: LGPL-2.1
+## @file runner.py
+## @brief Drive scenario commands and record a native Core C-Block against the switched plant.
+"""Integration bring-up only; does not change the formal L1 catalogue prerequisites."""
+from pathlib import Path
+import argparse,csv,hashlib,json,time
+import numpy as np
+import pulsim as p
+from plant.model import Model,SENSORS
+from runtime import HERE,LIB,CONTRACT,NAMES,INDEX,attach,Actuators
+
+def run(scenario,project=None,progress=None,cancelled=None):
+    """Run one isolated model/block instance, returning waveforms and a manifest."""
+    dt=scenario['dt_s'];duration=scenario['duration_s']
+    if project is None and scenario.get('plant_variant')=='pv':
+        from pulsimgui.models.project import Project
+        from plant.pv import apply
+        project=apply(Project.load(HERE/'plant/full_model.pulsim'))
+    if project is None and scenario.get('fixture'):
+        from pulsimgui.models.project import Project
+        from plant.fixtures import apply
+        project=apply(Project.load(HERE/'plant/full_model.pulsim'),scenario['fixture'])
+    model=Model(project);b=model.builder
+    commands=sorted(scenario['commands'],key=lambda x:x['time_s'])
+    if not commands or commands[0]['time_s']!=0:raise ValueError('Scenario must specify commands at t=0')
+    if dt>1e-6 or dt<=0:raise ValueError('Integration step must be positive and no greater than 1 us')
+    if any(q['mode']!=0 for q in commands) and dt>50e-9:raise ValueError('Switched boost runs require dt <= 50 ns')
+    period=CONTRACT['control_period_s']
+    for q in commands:
+        if abs(q['time_s']/period-round(q['time_s']/period))>1e-7:raise ValueError('Commands must land on control ticks')
+    def command(t):
+        return next(q for q in reversed(commands) if q['time_s']<=t+1e-12)
+    fields=['vac_updated','mode','sync_request','v_bus_ref'];initial=commands[0]
+    for name in fields:b.add_voltage_source('scenario_'+name,'cmd_'+name,'0',initial[name])
+    wires=[model.probes[SENSORS[name]] for name in ['VLow','ILow1','ILow2','VDCBus','VAC','IAC']]+[('v','cmd_'+name) for name in fields]
+    block=attach(b,wires,dt);hardware=Actuators();rows=[];last_count=0;last_report=-1
+    original=block.step_observer;extrema={};peak_indices=[];electrical_observations=0
+    def observer(t,x):
+        nonlocal last_count,last_report,electrical_observations
+        if peak_indices:electrical_observations+=1
+        for name,index in peak_indices:
+            value=float(x[index]);extrema[name]['min']=min(extrema[name]['min'],value);extrema[name]['max']=max(extrema[name]['max'],value)
+        original(t,x)
+        if block.n_fires==last_count:return
+        if cancelled and cancelled():raise RuntimeError('Cancelled')
+        hardware.apply(block.outputs);last_count=block.n_fires
+        row={'time_s':float(t),**dict(zip(CONTRACT['inputs'],map(float,block.inputs))),**dict(zip(NAMES,map(float,block.outputs)))}
+        rows.append(row)
+        if int(t*5)!=last_report:
+            last_report=int(t*5)
+            text=f'{t:.3f} s: real Core calls={int(row["invocations"])}, synchronized={int(row["synchronized"])}'
+            if progress:progress(100*t/duration,text)
+            else:print(text,flush=True)
+    block.step_observer=observer
+    names=b.state_var_names();ix={name:i for i,name in enumerate(names)};x=model.initial()
+    if 'DCDC_test_load' in model.parts:
+        for logical in ['ILow1','ILow2']:
+            probe=model.probes[SENSORS[logical]][1]
+            peak_indices.append((logical,ix[f'Is({probe})']))
+            extrema[logical]={'min':float('inf'),'max':float('-inf')}
+    for name in fields:x[ix['V(cmd_'+name+')']]=initial[name]
+    observer(0.,x)
+    mask=p.SwitchStateMask(b.graph.num_switches);switches={name:b.switch_index_of(name) for name in hardware.gates(0)}
+    def switch(t):
+        for name,value in hardware.gates(t).items():mask.set(switches[name],bool(value))
+        if 'DCDC_load_step' in model.parts:
+            mask.set(b.switch_index_of('DCDC_load_step'),t+1e-14>=model.parts['DCDC_load_step'].parameters['fixture_step_time_s'])
+        return mask
+    extra=[0.]*len(names)
+    def source_commands(t):
+        # The fixed-step kernel evaluates source RHS at the interval start.
+        # Deliver a tick-aligned scenario command for the interval endpoint.
+        q=command(t+dt)
+        for name in fields:extra[ix['Is(scenario_'+name+')']]=initial[name]-q[name]
+        return extra
+    started=time.monotonic()
+    try:
+        result=p.simulate(b,t_end=duration,dt=dt,engine='pwl',initial_state=x,switch_fn=switch,
+            b_extra_fn=source_commands,store_every=max(1,round(scenario['store_period_s']/dt)),
+            auto_regularize=False,max_event_iterations=32)
+    finally:
+        if block.teardown:block.teardown()
+    t=np.asarray(result.times);states=np.asarray(result.states)
+    signals={name:states[:,i] for i,name in enumerate(names) if not name.startswith(('V(core_','Is(Core_out'))}
+    sample_t=np.array([row['time_s'] for row in rows]);index=np.maximum(0,np.searchsorted(sample_t,t,side='right')-1)
+    for name in rows[0]:
+        if name!='time_s':signals[name]=np.array([row[name] for row in rows])[index]
+    for logical,probe in SENSORS.items():
+        kind,ref=model.probes[probe]
+        col=ix[('V' if kind=='v' else 'Is')+f'({ref})']
+        signals[('VP' if kind=='v' else 'IP')+f'({probe})']=states[:,col]
+    if model.pv:
+        def voltage(node):return np.zeros_like(t) if node=='0' else states[:,ix[f'V({node})']]
+        jpos,jneg=model.nodes['PV_light'][:2]
+        vj=voltage(jpos)-voltage(jneg)
+        r0=model.nodes['Rsource'][0]
+        terminal=voltage(r0)-voltage(jneg)
+        source_current=(vj-voltage(r0))/model.pv['Rs_ohm']
+        signals.update(pv_voltage=terminal,pv_current=source_current,pv_power=terminal*source_current,
+                       pv_mpp_power=np.full_like(t,model.pv_reference['Pmp_W']),
+                       pv_sensor_power=signals['VLow']*(signals['ILow1']+signals['ILow2']))
+    metadata={'scenario':scenario,'contract':CONTRACT['version'],'profile':CONTRACT['application_profile'],
+        'model_kind':'switched','model_sha256':hashlib.sha256((HERE/'plant/full_model.pulsim').read_bytes()).hexdigest(),
+        'model_payload_sha256':hashlib.sha256(json.dumps(project.to_dict(),sort_keys=True).encode()).hexdigest() if project else None,
+        'firmware':json.loads((HERE/'firmware_block/build/manifest.json').read_text()),
+        'pulsim':p.__version__,'wall_s':time.monotonic()-started,'actual_cblock_calls':block.n_fires,
+        'finite_states':bool(np.isfinite(states).all()),'native_cblock':True,'formal_campaign':False,
+        'averaged_model_available':False,'pv_model_available':bool(model.pv)}
+    if model.pv:
+        metadata.update(pv_parameters=model.pv,pv_reference=model.pv_reference,
+                        pv_profile_sha256=hashlib.sha256((HERE/'plant/pv-profile.json').read_bytes()).hexdigest(),
+                        pv_bus_load_ohm=model.parts['PV_bus_test_load'].parameters['resistance'],
+                        pv_scope='switched integration; not formal tracking-efficiency acceptance')
+    if 'DCDC_test_load' in model.parts:
+        metadata['fixture']=model.parts['Cbus'].parameters['dcdc_fixture']
+        metadata['electrical_step_extrema']=extrema
+        metadata['electrical_observations']=electrical_observations
+        metadata['initial_transformer_voltage_mismatch_V']=max(abs(
+            (x[ix['V('+model.nodes[p+'_T1'][0]+')']]-x[ix['V('+model.nodes[p+'_T1'][1]+')']])-
+            model.parts[p+'_T1'].parameters['turns_ratio']*(
+                x[ix['V('+model.nodes[p+'_T1'][2]+')']]-x[ix['V('+model.nodes[p+'_T1'][3]+')']])) for p in ['DC1','DC2'])
+        metadata['initial_capacitor_voltage_error_V']=max(abs(
+            (0 if model.nodes[n][0]=='0' else x[ix['V('+model.nodes[n][0]+')']])-
+            (0 if model.nodes[n][1]=='0' else x[ix['V('+model.nodes[n][1]+')']])-
+            a.parameters.get('initial_voltage',0))
+            for n,a in model.parts.items() if a.type.name=='CAPACITOR' and n.startswith(('DC1_C','DC2_C','Cbus')))
+    return t,signals,rows,metadata
+
+def save(data,out):
+    """Write raw CSV, GUI-readable traces and exact source/model provenance."""
+    t,signals,rows,meta=data;out=Path(out);out.mkdir(parents=True,exist_ok=True)
+    np.savez_compressed(out/'waveforms.npz',time=t,**signals)
+    with (out/'control.csv').open('w') as f:
+        writer=csv.DictWriter(f,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+    (out/'manifest.json').write_text(json.dumps(meta,indent=2)+'\n')
+
+def main():
+    """Run an explicit scenario; no automatic application transitions are inserted."""
+    a=argparse.ArgumentParser();a.add_argument('--scenario',type=Path,default=HERE/'scenarios/idle_healthy.json');a.add_argument('--out',type=Path,required=True)
+    args=a.parse_args();data=run(json.loads(args.scenario.read_text()));save(data,args.out)
+    if not data[3]['finite_states']:raise SystemExit('Non-finite electrical states')
+if __name__=='__main__':main()

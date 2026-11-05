@@ -1,0 +1,2 @@
+# Preserve archived measurements byte-for-byte, including CSV CRLF endings.
+tests/out/**/*.csv -text whitespace=cr-at-eol

@@ -1,0 +1,1 @@
+{"name":"integration-startup-short","duration_s":0.01,"dt_s":5e-8,"store_period_s":0.00001,"commands":[{"time_s":0,"mode":0,"sync_request":1,"v_bus_ref":400,"vac_updated":1},{"time_s":0.001,"mode":1,"sync_request":1,"v_bus_ref":400,"vac_updated":1}]}

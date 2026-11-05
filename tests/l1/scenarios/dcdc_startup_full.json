@@ -1,0 +1,19 @@
+{
+  "name": "switched-startup-full-40s",
+  "duration_s": 40.0,
+  "dt_s": 5e-08,
+  "store_period_s": 0.0001,
+  "fixture": {
+    "initial_bus_V": 0,
+    "load_ohm": 20000
+  },
+  "commands": [
+    {
+      "time_s": 0,
+      "mode": 1,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+    }
+  ]
+}

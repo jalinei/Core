@@ -35,10 +35,11 @@ done
 [ ${#levels[@]} -eq 0 ] && levels=(L0 L1)
 
 sha=$(git -C "$repo" rev-parse --short=7 HEAD)
-git -C "$repo" diff --quiet HEAD -- 2>/dev/null || sha="$sha-dirty"
-out="$repo/tests/out/$(date +%F)_$sha"
-rm -rf "$out"
-mkdir -p "$out"
+[ -z "$(git -C "$repo" status --porcelain)" ] || sha="$sha-dirty"
+mkdir -p "$repo/tests/out"
+# Keep repeated campaigns/profiles instead of deleting earlier evidence.
+out=$(mktemp -d "$repo/tests/out/$(date +%F)_${sha}_$(date +%H%M%S)_XXXXXX")
+export CORE_TEST_OUT="$out"
 
 # Object code used when a test binary dies before reporting its own failures.
 object_code() {
@@ -47,6 +48,7 @@ object_code() {
         grid_observer) echo GOB ;;
         inverter_following) echo GFL ;;
         app) echo APP ;;
+        l1) echo INT-00 ;;
         *) echo "$1" | tr '[:lower:]' '[:upper:]' ;;
     esac
 }
