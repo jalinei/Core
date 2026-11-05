@@ -19,6 +19,7 @@ Exit code: 1 if any criterion is FAIL, 0 otherwise. Standard library only.
 from __future__ import annotations
 
 import argparse
+import os
 import datetime as dt
 import platform
 import re
@@ -28,7 +29,10 @@ from collections import Counter, OrderedDict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-LIBRARY = REPO / "owntech/lib/USB/single_phase_inverter"
+# Same override as tests/common/l0_build.sh, so the record stamps the checkout under test.
+LIBRARY = Path(os.environ.get("SINGLE_PHASE_INVERTER_DIR",
+                              REPO / "owntech/lib/USB/single_phase_inverter")).resolve()
+LIBRARY_OVERRIDDEN = "SINGLE_PHASE_INVERTER_DIR" in os.environ
 PROCEDURE = REPO / "docs/testing/test-procedure.md"
 ORDER = {"BLOCKED": 0, "FAIL": 1, "PASS": 2, "INFO": 2}
 
@@ -75,6 +79,48 @@ def parse(logs: list[Path]) -> list[dict]:
     return rows
 
 
+def findings_register() -> list[dict]:
+    """Findings from the procedure's findings register (§11).
+
+    Each row of the register table whose first cell links an issue (#N)
+    becomes {issue, url, criteria, status, open}. "criteria" holds the IDs of
+    the second cell; a case ID (L0-GFL-08) covers all its criteria
+    (L0-GFL-08.a, ...). Rows whose status starts with "Closed" are not open: a
+    FAIL on their criteria is a regression and is reported as new.
+    """
+    text = PROCEDURE.read_text(encoding="utf-8")
+    start = text.find("## 11. Findings register")
+    if start < 0:
+        return []
+    end = text.find("\n## ", start + 1)
+    findings = []
+    for line in text[start:end if end > 0 else None].splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 5:
+            continue
+        issue = re.search(r"#(\d+)", cells[0])
+        if not issue:
+            continue
+        url = re.search(r"\((https?://[^)]+)\)", cells[0])
+        findings.append(dict(
+            issue=f"#{issue.group(1)}",
+            url=url.group(1) if url else "",
+            criteria=[c.strip(" `") for c in cells[1].split(",") if c.strip(" `")],
+            status=cells[4],
+            open=not cells[4].lower().startswith("closed")))
+    return findings
+
+
+def covers(finding: dict, criterion_id: str) -> bool:
+    """Whether a finding lists a criterion, directly or through its test case."""
+    return any(criterion_id == c or criterion_id.startswith(c + ".") for c in finding["criteria"])
+
+
+def finding_for(criterion_id: str, findings: list[dict]):
+    """Open finding that covers a criterion, or None."""
+    return next((f for f in findings if f["open"] and covers(f, criterion_id)), None)
+
+
 def case_of(criterion_id: str) -> str:
     return criterion_id.split(".")[0]
 
@@ -91,7 +137,18 @@ def main() -> int:
     args = parser.parse_args()
 
     rows = parse(args.logs)
+    findings = findings_register()
+    for r in rows:
+        r["finding"] = finding_for(r["id"], findings) if r["verdict"] == "FAIL" else None
     counts = Counter(r["verdict"] for r in rows)
+    known = [r for r in rows if r["finding"]]
+    new = [r for r in rows if r["verdict"] == "FAIL" and not r["finding"]]
+    # Open findings whose criteria all ran without FAIL or BLOCKED: ready to close.
+    fixed = []
+    for f in findings:
+        covered = [r for r in rows if covers(f, r["id"])]
+        if f["open"] and covered and not any(r["verdict"] in ("FAIL", "BLOCKED") for r in covered):
+            fixed.append(f)
     # A campaign that reports nothing must not look green.
     failed = counts["FAIL"] > 0 or not rows
     now = dt.datetime.now().astimezone()
@@ -119,6 +176,10 @@ def main() -> int:
             f'pulsim: "{pulsim_version()}" }}',
             f"levels: [{', '.join(levels)}]",
             f"verdict: {'FAIL' if failed else 'PASS'}",
+            f"new_failures: {len(new)}",
+            f"known_failures: {len(known)}",
+            "known_findings: [" + ", ".join(sorted({r['finding']['issue'] for r in known})) + "]",
+            "findings_to_close: [" + ", ".join(f["issue"] for f in fixed) + "]",
             "counts: { " + ", ".join(f"{v}: {counts[v]}" for v in
                                     ("PASS", "FAIL", "INFO", "BLOCKED")) + " }",
             "---", ""]
@@ -127,6 +188,14 @@ def main() -> int:
             f"**Campaign verdict: {'FAIL' if failed else 'PASS'}**: "
             f"{counts['PASS']} pass, {counts['FAIL']} fail, {counts['INFO']} info, "
             f"{counts['BLOCKED']} blocked, over {len(cases)} test cases.", ""]
+    if counts["FAIL"]:
+        out += [f"> **Failures:** {len(new)} new, {len(known)} known "
+                f"(open findings, procedure §11). Only new failures need an issue.", ""]
+    if fixed:
+        out += ["> **Findings ready to close:** " +
+                ", ".join(f"[{f['issue']}]({f['url']})" if f["url"] else f["issue"] for f in fixed) +
+                ": all their criteria pass in this campaign. Close the issue quoting this "
+                "campaign ID and mark the finding Closed in §11.", ""]
     if counts["BLOCKED"]:
         blocked = sorted({case_of(r["id"]) for r in rows if r["verdict"] == "BLOCKED"})
         out += [f"> **Blocked:** {', '.join(blocked)}. See the results table for the reason.", ""]
@@ -136,7 +205,8 @@ def main() -> int:
     out += ["## Setup", "",
             "| Item | Value |", "|---|---|",
             f"| Core commit | `{core}` |",
-            f"| Library commit | `{library}` (single_phase_inverter, jalinei `main`) |",
+            f"| Library commit | `{library}` (single_phase_inverter, "
+            + (f"override `{LIBRARY}`" if LIBRARY_OVERRIDDEN else "jalinei `main`") + ") |",
             f"| Plant model | {plant} |",
             "| Contract | v0 |",
             "| Control period | 100 µs (cold loop every 10 ticks) |",
@@ -164,19 +234,27 @@ def main() -> int:
                 "| Criterion | Description | Limit | Measured | Verdict |",
                 "|---|---|---|---|---|"]
         for r in sorted(rows, key=sort_key):
-            out.append(f"| {r['id']} | {r['desc']} | {r['limit']} | {r['measured']} | "
-                       f"{r['verdict']} |")
+            verdict = r["verdict"]
+            if r["finding"]:
+                f = r["finding"]
+                link = f"[{f['issue']}]({f['url']})" if f["url"] else f["issue"]
+                verdict = f"FAIL (known {link})"
+            elif verdict == "FAIL":
+                verdict = "FAIL (**new**)"
+            out.append(f"| {r['id']} | {r['desc']} | {r['limit']} | {r['measured']} | {verdict} |")
         out.append("")
 
     out += ["## Raw data", "", "| File | Content |", "|---|---|"]
     out += [f"| `{log.name}` | Full output of `{log.stem}` |" for log in args.logs]
     out.append("")
 
-    if failed:
+    if new:
         out += ["## Follow-up", "",
+                "New failures: " + ", ".join(r["id"] for r in new) + ".", "",
                 "Open one issue per failing test case on `luizvilla/Core` with the "
-                "`needs-triage` label, quoting this campaign ID and the criterion IDs "
-                "(procedure §8.4).", ""]
+                "`needs-triage` label, quoting this campaign ID and the criterion IDs, "
+                "then add it to the findings register (procedure §8.4, §11). Known "
+                "failures already have an issue: comment there only if the behaviour changed.", ""]
 
     args.out.mkdir(parents=True, exist_ok=True)
     record = args.out / "record.md"
@@ -184,9 +262,14 @@ def main() -> int:
 
     width = max([len(r["id"]) for r in rows] + [9])
     for r in sorted(rows, key=sort_key):
-        print(f"  {r['id']:<{width}}  {r['verdict']:<7}  {r['desc']}")
-    print(f"\n{'FAIL' if failed else 'PASS'}: {counts['PASS']} pass, {counts['FAIL']} fail, "
-          f"{counts['INFO']} info, {counts['BLOCKED']} blocked")
+        tag = (f" (known {r['finding']['issue']})" if r["finding"]
+               else " (NEW)" if r["verdict"] == "FAIL" else "")
+        print(f"  {r['id']:<{width}}  {r['verdict']:<7}  {r['desc']}{tag}")
+    print(f"\n{'FAIL' if failed else 'PASS'}: {counts['PASS']} pass, {counts['FAIL']} fail "
+          f"({len(new)} new, {len(known)} known), {counts['INFO']} info, "
+          f"{counts['BLOCKED']} blocked")
+    for f in fixed:
+        print(f"Finding {f['issue']}: all its criteria pass. Ready to close.")
     print(f"Record: {record.relative_to(REPO) if record.is_relative_to(REPO) else record}")
     return 1 if failed else 0
 

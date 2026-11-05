@@ -21,6 +21,12 @@ flowchart LR
   M --> D[record.md]
 ```
 
+Failures already tracked in the procedure's [findings register](../docs/testing/test-procedure.md#11-findings-register) are marked *known* in the record; only **new** failures need an issue. To test a library fix before it is merged:
+
+```bash
+SINGLE_PHASE_INVERTER_DIR=~/code/single_phase_inverter tests/run_all.sh --l0
+```
+
 ## Requirements
 
 | Item | Needed for |

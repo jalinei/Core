@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 0.6 (draft) |
+| Procedure version | 0.7 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -165,6 +165,7 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 | L0-GFL-05 | Bad grid quality blocks SYNC and trips CONNECT/CONNECTED/RUN; `clearFault` needs good quality and an open relay | `setGridQuality`, `clearFault` | PASS/FAIL | Implemented |
 | L0-GFL-06 | Non-finite measurement, non-positive bus, invalid references latch a fault with 0.5 duty and PWM off; first cause kept; requests ignored until cleared | library README (faults) | PASS/FAIL | Implemented |
 | L0-GFL-07 | Duty exactly 0.5 in OFF and SYNC; duty = α / (2 · V_bus) + 0.5 otherwise, unclamped | library README (`calculateDuty`) | PASS/FAIL | Implemented |
+| L0-GFL-08 | Cold-start synchronization at 47.6, 49, 50, 51 and 52.4 Hz from four grid angles (5 s horizon); settled frequency estimate within ±5 % | library README (±5 % frequency window), observer window 47.5–52.5 Hz | PASS/FAIL; worst lock time and transient `INFO` | Implemented; .a, .b, .d, .e FAIL, [#1](https://github.com/luizvilla/Core/issues/1) |
 
 ### 6.4 L0-APP — application control step (no model)
 
@@ -273,7 +274,11 @@ contract_version: v0
 toolchain: { gcc: "13.2.0", python: "3.12.3", pulsim: "2.0.0" }
 levels: [L0, L1]
 verdict: FAIL                 # PASS | FAIL
-counts: { PASS: 41, FAIL: 1, INFO: 6, BLOCKED: 12 }
+new_failures: 1               # FAIL not covered by an open finding (§11)
+known_failures: 5             # FAIL covered by an open finding
+known_findings: [#1]
+findings_to_close: []         # open findings whose criteria all pass
+counts: { PASS: 41, FAIL: 6, INFO: 6, BLOCKED: 12 }
 ---
 ```
 
@@ -293,11 +298,12 @@ counts: { PASS: 41, FAIL: 1, INFO: 6, BLOCKED: 12 }
 | Criterion | Description | Limit | Measured | Verdict |
 |---|---|---|---|---|
 | L0-GOB-04.a | UV trips after delay | 0.1 s ± 1 tick | 0.1001 s | PASS |
-| L1-APP-02.b | ILow1 during STARTUP | ≤ 1 A | 1.07 A | FAIL → #12 |
+| L1-APP-02.b | ILow1 during STARTUP | ≤ 1 A | 1.07 A | FAIL (**new**) |
+| L0-GFL-03.b | Synchronized again at 51 Hz | all observations hold | 2/2 failed | FAIL (known #1) |
 | L1-APP-03.c | VDCBus overshoot | — | 2.3 V | INFO |
 | L1-GFL-01 | Connection lifecycle | — | — | BLOCKED (relay) |
 
-`BLOCKED` rows are listed first, then `FAIL`, then everything else in ID order.
+`BLOCKED` rows are listed first, then `FAIL`, then everything else in ID order. A `FAIL` on a criterion listed in an open finding of the [findings register](#11-findings-register) is marked *known* with its issue; any other `FAIL` is marked **new**. The campaign verdict still counts every `FAIL` (§5); the distinction only says which failures need a new issue.
 
 ### 8.3 Raw data and plots
 
@@ -311,7 +317,9 @@ counts: { PASS: 41, FAIL: 1, INFO: 6, BLOCKED: 12 }
 
 ```mermaid
 flowchart TD
-  F[criterion FAIL in record] --> I["open issue on luizvilla/Core<br/>label needs-triage<br/>link the record + criterion ID"]
+  F[criterion FAIL in record] --> K{"known?<br/>(open finding in §11)"}
+  K -- "yes: FAIL (known #N)" --> KC["no new issue<br/>comment on #N only if the behaviour changed"]
+  K -- "no: FAIL (new)" --> I["open issue on luizvilla/Core<br/>label needs-triage<br/>link the record + criterion ID<br/>add a row to §11"]
   I --> T{triage}
   T -- "bug in firmware" --> X["fix in its own commit<br/>message references the issue"]
   T -- "bug upstream in library" --> U[issue notes upstream cause]
@@ -319,7 +327,7 @@ flowchart TD
   X --> R[rerun campaign → new record]
   U --> R
   C --> R
-  R -- PASS --> Z[close issue with link to new record]
+  R -- "all its criteria PASS<br/>(record lists it under findings_to_close)" --> Z["close issue with the campaign ID<br/>mark Closed in §11"]
 ```
 
 Rules:
@@ -327,6 +335,8 @@ Rules:
 - A failing test is never weakened to make it pass. A limit changes only through a changelog entry citing its new source.
 - Fixes never go into test commits.
 - The issue records the campaign ID and criterion ID so the failure can be reproduced from its commit.
+- Every issue opened from a test failure gets a row in the [findings register](#11-findings-register), so later campaigns recognise it. A closed finding stays in the register with status `Closed`: if its criteria fail again, the record reports a **new** failure (a regression).
+- A fix in a library is tested before merge by pointing L0 at the fix branch: `SINGLE_PHASE_INVERTER_DIR=/path/to/checkout tests/run_all.sh --l0`. The record stamps that checkout's commit.
 
 ## 9. Commit plan
 
@@ -343,6 +353,7 @@ On branch `test/microinverter-validation` (from `dts_uverter`), pushed to `luizv
 | 7 | `test(l1)` | Firmware block `.so` build, pinned Pulsim environment, connection check against a stand-in RC circuit | No |
 | 8 | `test(l1)` | Scenario runner and all L1 case scripts (`BLOCKED`) | No |
 | 9 | `test(l1)` | Import the averaged plant model (authored by the colleague); contract revised | No |
+| gate | — | Finding [#1](https://github.com/luizvilla/Core/issues/1) closed (fix merged in the library, L0-GFL-03.b and L0-GFL-08 pass); otherwise L1-APP-06 and -07 cannot be judged | No (library) |
 | 10 | `test(l1)` | Unblock L1-APP; first full campaign | No |
 | later | `test(l1)` | Switched model + L1-APP-04; relay + L1-GFL-* | No |
 
@@ -352,6 +363,7 @@ flowchart LR
   C4 --> C5[5 seam] --> C6[6 L0-APP] --> C7[7 firmware block]
   C7 --> C8[8 L1 runner] --> C9[9 model import] --> C10[10 first L1 campaign]
   M([colleague's model]) -.-> C9
+  F1(["#1 closed<br/>(library fix)"]) -.-> C10
 ```
 
 ## 10. Changelog
@@ -364,3 +376,12 @@ flowchart LR
 | 0.4 | 2026-11-05 | §7.3 test code documentation rules: README per test folder, Core license and Doxygen style in C/C++, `@test` tag per criterion, `##` Doxygen headers in shell and Python. Applied to all existing test code. L0-GFL-03.b failure filed as luizvilla/Core#1. |
 | 0.5 | 2026-11-05 | Control step extracted to `src/app/control_step.{h,cpp}` with `controlInit` and an explicit `ControlState` (worklog entry of the same date). |
 | 0.6 | 2026-11-05 | L0-APP implemented against `controlStep` with the application's real tuning and real-time grid delays. |
+| 0.7 | 2026-11-05 | L0-GFL-08 added (cold-start synchronization across the frequency window), after an experimental fix for #1 synchronized on a 51 Hz step but diverged on a 49 Hz cold start, which L0-GFL-03 does not cover. §11 findings register; records mark known and new failures and findings ready to close. Gate on #1 before commit 10. `SINGLE_PHASE_INVERTER_DIR` tests a library branch before merge. |
+
+## 11. Findings register
+
+Every issue opened from a test failure, with what it blocks. `tests/common/make_record.py` reads this table: a `FAIL` on a criterion listed in an **open** row is reported as *known* with its issue; a finding whose criteria all pass is listed as ready to close. Keep the column order; a case ID (`L0-GFL-08`) covers all its criteria. Set the status to `Closed (<campaign ID>)` when the issue is closed, and keep the row.
+
+| Issue | Criteria | Cause | Owner | Status | Blocks |
+|---|---|---|---|---|---|
+| [#1](https://github.com/luizvilla/Core/issues/1) | L0-GFL-03.b, L0-GFL-08 | Library: SOGI evaluated at the fixed ω_ref, so the 2ω ripple on Vq exceeds the 0.1 V sync tolerance away from 50 Hz | Jean (library) | Open: fix proposed upstream | Gate before commit 10 (L1-APP-06, -07) |

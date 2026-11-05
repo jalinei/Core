@@ -11,18 +11,19 @@
 ## the binary.
 ## @return 1 if the libraries were never fetched, otherwise the test binary's
 ## exit code: 0 when every criterion passes.
+## Set SINGLE_PHASE_INVERTER_DIR to test another library checkout.
 ## @see README.md in this folder
 ##
 ## @par Usage
 ##   bash tests/l0/app/run.sh
 source "$(dirname "$0")/../../common/l0_build.sh"
-INV="$LIB_ROOT/single_phase_inverter/src"
+INV="$INV_LIB_DIR/src"
 CTL="$LIB_ROOT/control_library/src"
 if [ ! -f "$INV/singlePhaseInverterFollowing.cpp" ]; then
     echo "single_phase_inverter not fetched: run a PlatformIO build first" >&2
     exit 1
 fi
-printf 'library commit: %s\n' "$(git -C "$INV" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+printf 'library: %s @ %s\n' "$INV_LIB_DIR" "$(git -C "$INV" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 l0_build test_app \
     --strict "$REPO_ROOT/tests/l0/app/test_app.cpp" \
              "$REPO_ROOT/src/app/control_step.cpp" \

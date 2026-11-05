@@ -55,6 +55,8 @@ l0_build test_boost \
 | `--strict` | `-Wall -Wextra -Werror` | Tests and firmware sources (`src/`) |
 | `--lib` | `-w` | Third-party libraries in `owntech/lib/USB/` |
 
+`SINGLE_PHASE_INVERTER_DIR` selects another `single_phase_inverter` checkout (e.g. a fix branch); `l0_build.sh` exports it as `INV_LIB_DIR`.
+
 All sources build with `-fsanitize=undefined -fno-sanitize-recover`: undefined behaviour aborts the binary, and `run_all.sh` records that as a `FAIL`. `CXX` overrides the compiler. The build folder is temporary and removed on exit.
 
 ## make_record.py
@@ -63,7 +65,9 @@ All sources build with `-fsanitize=undefined -fno-sanitize-recover`: undefined b
 python3 tests/common/make_record.py --out DIR --levels L0,L1 LOG [LOG ...]
 ```
 
-Reads every `@@` line from the logs and writes `DIR/record.md`: front-matter (commits, toolchain, counts, verdict), setup table, verdict chart, test-case table, results table (`BLOCKED` first, then `FAIL`), raw-data list and, on failure, the follow-up reminder. Exit code 1 if any criterion is `FAIL` or none was reported. Standard library only.
+Reads every `@@` line from the logs and the [findings register](../../docs/testing/test-procedure.md#11-findings-register), and writes `DIR/record.md`: front-matter (commits, toolchain, counts, verdict), setup table, verdict chart, test-case table, results table (`BLOCKED` first, then `FAIL`), raw-data list and, on failure, the follow-up reminder. A `FAIL` on a criterion listed in an open finding is marked *known* with its issue, any other `FAIL` **new**; an open finding whose criteria all pass is listed under `findings_to_close`. Exit code 1 if any criterion is `FAIL` (known or new) or none was reported. Standard library only.
+
+`SINGLE_PHASE_INVERTER_DIR`, if set, is the library checkout under test (same variable as `l0_build.sh`); the record stamps its commit.
 
 ## shim/
 

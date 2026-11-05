@@ -15,6 +15,11 @@
 ## on undefined behaviour. Include paths: hardware stand-ins, check.h, src/ and
 ## its subfolders, control_library and single_phase_inverter.
 ##
+## @par SINGLE_PHASE_INVERTER_DIR
+## Optional path to another single_phase_inverter checkout (e.g. a fix branch)
+## to test instead of the PlatformIO copy; exported as INV_LIB_DIR. The test
+## record stamps that checkout's commit.
+##
 ## @par l0_build NAME --strict SOURCES... --lib SOURCES...
 ## Compiles each source and links $L0_BIN/NAME.
 ## @see tests/common/README.md
@@ -27,6 +32,8 @@ set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 LIB_ROOT="$REPO_ROOT/owntech/lib/USB"
+# single_phase_inverter checkout under test; override to regression-test a branch.
+INV_LIB_DIR=$(cd "${SINGLE_PHASE_INVERTER_DIR:-$LIB_ROOT/single_phase_inverter}" 2>/dev/null && pwd || echo "${SINGLE_PHASE_INVERTER_DIR:-$LIB_ROOT/single_phase_inverter}")
 L0_BIN=$(mktemp -d)
 trap 'rm -rf "$L0_BIN"' EXIT
 
@@ -39,7 +46,7 @@ L0_INCLUDES=(
     -I"$REPO_ROOT/src/boost_converter"
     -I"$REPO_ROOT/src/grid_observer"
     -I"$LIB_ROOT/control_library/src"
-    -I"$LIB_ROOT/single_phase_inverter/src"
+    -I"$INV_LIB_DIR/src"
 )
 
 l0_build() {
