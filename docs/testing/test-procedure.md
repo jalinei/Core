@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 1.3 (draft) |
+| Procedure version | 1.4 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -327,9 +327,12 @@ counts: { PASS: 41, FAIL: 6, INFO: 6, BLOCKED: 12 }
 
 | File | Content |
 |---|---|
-| `l0.log` | One line per criterion from the L0 binaries |
-| `L1-APP-xx.csv` | Time series of all contract signals and logged values |
-| `L1-APP-xx.png` | Plots generated from the CSV with matplotlib |
+| `report.html` | **The review page** (§8.5): banner, one plot per plotted criterion, changes since the previous campaign, full table |
+| `record.md` | The test record: setup, results, known/new failures, findings to close |
+| `l0_*.log`, `l1_*.log` | One `@@` line per criterion, plus each script's own output |
+| `<scenario>/control.csv` | One row per 100 µs control tick: firmware inputs and outputs |
+| `<scenario>/waveforms.npz` | Electrical states at the scenario's storage period |
+| `<scenario>/manifest.json` | Scenario, model and firmware identity, peaks between samples |
 
 ### 8.4 Failure follow-up
 
@@ -355,6 +358,31 @@ Rules:
 - The issue records the campaign ID and criterion ID so the failure can be reproduced from its commit.
 - Every issue opened from a test failure gets a row in the [findings register](#11-findings-register), so later campaigns recognise it. A closed finding stays in the register with status `Closed`: if its criteria fail again, the record reports a **new** failure (a regression).
 - A fix in a library is tested before merge by pointing L0 at the fix branch: `SINGLE_PHASE_INVERTER_DIR=/path/to/checkout tests/run_all.sh --l0`. The record stamps that checkout's commit.
+
+### 8.5 Reviewing a campaign
+
+Every campaign writes `tests/out/<campaign>/report.html`. It is the **one file to open** after a run, by whoever ran it or whoever is asked to check it. The review is the same three steps every time:
+
+| Step | Look at | Pass if |
+|---|---|---|
+| 1 | **Banner**: counts, new failures, known failures, findings ready to close | No new failure, or each new failure has an issue (§8.4); counts as expected |
+| 2 | **Plots, failures first**: the judged signal (thick line) against its limits (dashed), inside the judged window (shaded); the driving signals in the panels below | The plot shows the same verdict as the badge, and nothing in the driving signals looks unexplained |
+| 3 | **Changes since the previous campaign**: verdicts that changed, measured values that moved by more than 1 %, criteria added or not run | Each change has a known reason (a commit, a fix, a new test) |
+
+Then sign off in the record's front matter: `reviewed: <name>, <date>, OK` or `questions: <what>`. Records are local (§7), so a campaign that supports a decision (closing a finding, a production change, a release) is also quoted by ID in the issue or commit, with its review status.
+
+**Plot conventions**, the same in every plot so they are learnt once:
+
+- Thick blue line: the signal the criterion judges. Thin grey line: its reference.
+- Dashed lines: limits the signal must stay within. Red dots: samples outside them, inside the window.
+- Dash-dot lines: thresholds the signal crosses (burst levels); they are not limits.
+- Shaded band: the time window the criterion judges. Dotted vertical lines: scenario events (load step, sample loss).
+- Panels below: what drives the signal, one unit per panel (A, duty, flags). Never two units on one axis.
+- The caption states where each limit and window comes from (the scenario's `acceptance` block or `tests/l1/review_plots.json`).
+
+**Which criteria get a plot.** Those listed in `tests/l1/review_plots.json`: the L1 criteria whose verdict is read from a waveform. L0 criteria and L1 checks without a waveform stay table rows. A new L1 criterion with a waveform gets an entry in the same commit as its test; its limits must match the test's own.
+
+Diagnostics written for a finding (`tests/l1/diagnostics/`) use the same conventions, and the issue links their plots instead of tables.
 
 ## 9. Commit plan
 
@@ -401,6 +429,7 @@ flowchart LR
 | 1.1 | 2026-11-05 | `src/app.ini` temporarily fetches the #1 fix branch (worklog). Records stamp the library's remote and branch, not only its commit. |
 | 1.2 | 2026-11-05 | L0-APP-03.c added (boot with a missing first VAC sample), exposed by the earlier L1-FWB-01 prototype; fails, filed as #2 and registered in §11. |
 | 1.3 | 2026-11-05 | Branch `test/microinverter-validation-v2`: Jean Alinei's switched L1 work adopted as the L1 implementation (user decision); the earlier L1-FWB-01 prototype and its contract v1 are retired, superseded by L1-INT-01/-02 and contract app-v1. Archived results removed from git: records stay local and are regenerated from their commit (§7). Switched plant only, no averaged variant ([ADR 0002](../adr/0002-switched-plant-only.md)). Production `app::startup_ramp_rate` raised from 10 to 200 V/s at Jean's request (worklog); L1 limits read it from `control_step.h`; full startup is now 2 s. L1-APP-03.a FAIL filed as #3 (§11). |
+| 1.4 | 2026-11-05 | §8.5 review routine: every campaign writes `report.html` (banner, one plot per waveform criterion with limits and window drawn, changes since the previous campaign, full table), defined by `tests/l1/review_plots.json`; sign-off line in the record. §8.3 lists the files a campaign actually writes. |
 
 ## 11. Findings register
 

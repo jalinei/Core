@@ -9,7 +9,7 @@
 ## each one to the campaign folder. A script that exits non-zero without
 ## reporting a FAIL itself (build error, crash, sanitizer abort) gets a FAIL
 ## criterion added, so it cannot go unnoticed. tests/common/make_record.py then
-## writes record.md.
+## writes record.md, then report.html (the review page, procedure §8.5).
 ##
 ## Record folder: tests/out/<YYYY-MM-DD>_<sha7>[-dirty]/ (git-ignored).
 ## @return 0 when the campaign passes; 1 on any FAIL or when no criterion was
@@ -90,4 +90,12 @@ logs=("$out"/*.log)
 shopt -u nullglob
 echo
 python3 "$repo/tests/common/make_record.py" --out "$out" \
-    --levels "$(IFS=,; echo "${levels[*]}")" "${logs[@]}"
+    --levels "$(IFS=,; echo "${levels[*]}")" "${logs[@]}" && rc=0 || rc=$?
+# The review page needs matplotlib, which lives in the test environment.
+if [ -x "$repo/.venv/bin/python" ]; then
+    "$repo/.venv/bin/python" "$repo/tests/common/review_report.py" "$out" ||
+        echo "Review page not written (see the error above); record.md is complete."
+else
+    echo "Review page skipped: no .venv (tests/l1/setup.sh creates it)."
+fi
+exit $rc

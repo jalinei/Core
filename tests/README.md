@@ -11,7 +11,7 @@ tests/run_all.sh --l1     # L1 only
 tests/run_all.sh --help
 ```
 
-The script prints one line per criterion, writes the test record to `tests/out/<YYYY-MM-DD>_<sha7>[-dirty]/record.md` with one log per test script, and exits non-zero if any criterion is `FAIL`. `tests/out/` is ignored for new generated files. A user-requested historical [result snapshot](out/README.md) is committed with its raw data; its run manifests retain their original execution identities.
+The script prints one line per criterion, writes the test record to `tests/out/<campaign>/record.md` with one log per test script, then the review page `report.html` (open this one; [procedure §8.5](../docs/testing/test-procedure.md#85-reviewing-a-campaign)), and exits non-zero if any criterion is `FAIL`. `tests/out/` is not versioned: a record is regenerated from its commit.
 
 ```mermaid
 flowchart LR
@@ -19,6 +19,8 @@ flowchart LR
   S -- "result lines @@…" --> L[(logs in tests/out/…)]
   L --> M[common/make_record.py]
   M --> D[record.md]
+  L --> V[common/review_report.py]
+  V --> H[report.html]
 ```
 
 Failures already tracked in the procedure's [findings register](../docs/testing/test-procedure.md#11-findings-register) are marked *known* in the record; only **new** failures need an issue. To test a library fix before it is merged:
