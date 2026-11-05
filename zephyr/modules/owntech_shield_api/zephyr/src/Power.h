@@ -59,6 +59,14 @@ private:
 	/* restart together the legs that share a leg-frequency */
 	void alignOwnFrequencyLegs();
 
+	struct InverterPair {
+		bool configured = false;
+		leg_t leg_b = ALL;
+		bool bipolar = false;
+	};
+	InverterPair inverter_pairs[ALL];
+	int initInverter(leg_t leg_a, leg_t leg_b, bool bipolar);
+
 
 public:
 	/**
@@ -407,6 +415,55 @@ public:
 	 * @param leg Leg to initialize: `LEG1` to `ALL`
 	 */
 	void initBoost(leg_t leg);
+
+	/**
+	 * @brief Initialize an H-bridge for unipolar PWM in voltage mode.
+	 *
+	 * Output polarity is V(leg_a midpoint) - V(leg_b midpoint). D is the
+	 * high-side duty of leg_a; leg_b's high-side duty is 1-D. Both legs use
+	 * the high-side switch convention and aligned center-aligned carriers.
+	 * Ideal average output voltage is (2D-1)*Vdc, before dead time/clipping.
+	 *
+	 * @param leg_a First bridge terminal, also identifies the pair for updates.
+	 * @param leg_b Second bridge terminal. Neither argument may be ALL.
+	 * @return 0 on success, -EINVAL for incompatible device-tree settings,
+	 *         -EBUSY if either timer belongs to a pair or has active outputs.
+	 *
+	 * Requires distinct timers, equal frequencies, UpDwn modulation, zero
+	 * phase shifts and both outputs available on each leg. Initializes D=0.5
+	 * and preserves configured dead times. Initialize all hardware before
+	 * starting outputs; enable each leg explicitly with start().
+	 * Use setInverterDutyCycle() for subsequent paired updates. Do not
+	 * reconfigure individual paired legs through the lower-level APIs.
+	 */
+	int initInverterUnipolar(leg_t leg_a, leg_t leg_b);
+
+	/**
+	 * @brief Initialize an H-bridge for bipolar PWM in voltage mode.
+	 *
+	 * Same polarity, requirements and return codes as initInverterUnipolar().
+	 * leg_a uses the high-side convention, leg_b the low-side convention:
+	 * the same compare value D drives leg_a high-side and leg_b low-side.
+	 * The two high-side switching states are opposite, before dead time.
+	 */
+	int initInverterBipolar(leg_t leg_a, leg_t leg_b);
+
+	/**
+	 * @brief Update both legs of an initialized inverter at one PWM boundary.
+	 *
+	 * @param leg_a First leg passed to the initialization helper.
+	 * @param duty D: commanded high-side duty of leg_a. 0.5 is zero average
+	 *             output; above 0.5 is positive. Finite values are clamped
+	 *             to the intersection of both legs' duty limits and the
+	 *             hardware compare margins. Exact 0/100% is not generated.
+	 * @return 0 on success (including clipping), -EINVAL for an invalid pair,
+	 *         nonfinite duty, incompatible configuration or empty duty range;
+	 *         -EBUSY if timer updates are already suspended.
+	 *
+	 * Automatically writes (D, 1-D) in unipolar mode and (D, D) in bipolar
+	 * mode using the selected switch conventions. Start/stop remain explicit.
+	 */
+	int setInverterDutyCycle(leg_t leg_a, float32_t duty);
 
 };
 

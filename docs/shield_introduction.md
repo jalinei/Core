@@ -242,11 +242,59 @@ In `src/app.overlay`:
     ![](images/twist_inverter_schematic.svg)
 
 ```cpp
-    shield.power.initBuck(LEG1);
-    shield.power.initBoost(LEG2);
-    shield.power.setDutyCycle(ALL, 0.5);
-    shield.power.start(ALL);
+    int result = shield.power.initInverterBipolar(LEG1, LEG2);
+    if (result == 0) {
+        shield.power.setInverterDutyCycle(LEG1, 0.5f);
+        shield.power.start(LEG1);
+        shield.power.start(LEG2);
+    }
 ```
+
+Use `initInverterUnipolar(LEG1, LEG2)` for unipolar PWM. Both helpers configure
+voltage mode, preserve the device-tree dead times, initialize D to 0.5, and
+leave outputs disabled. Finish all hardware initialization before starting
+either leg. Check the return value of initialization and subsequent duty updates.
+
+The argument order defines the output polarity: **Vout = V(leg_a midpoint) −
+V(leg_b midpoint)**. **D is the commanded high-side duty of the first leg**.
+Ignoring dead time and clipping, the average output is `(2D − 1) × Vdc`.
+Thus D = 0.5 gives zero average voltage, and D > 0.5 gives positive voltage.
+Swapping the initialization arguments reverses the polarity convention.
+
+| Mode | Leg A convention | Leg B convention | Compare commands written by the paired setter | Ideal bridge voltage levels |
+| --- | --- | --- | --- | --- |
+| Unipolar | High-side | High-side | D, 1 − D | +Vdc, 0, −Vdc |
+| Bipolar | High-side | Low-side | D, D | +Vdc, −Vdc |
+
+In both modes the high-side duties are D and 1 − D. Bipolar PWM produces
+opposite high-side switching states; unipolar PWM compares complementary
+duties against aligned carriers. The low-side switch within each leg is
+complementary to its own high-side switch, with configured dead time.
+The hardware mapping of high-side/low-side to `PWMx1`/`PWMx2` is taken from
+`pwm-x1-high`; callers do not need to choose a timer output.
+
+`setInverterDutyCycle(leg_a, D)` identifies the pair by its **first** leg and
+updates both preloaded compares for the same PWM boundary. Finite commands
+are clamped to the intersection of both legs' duty limits, transformed for
+the selected mode. Hardware compare margins also apply (at least four timer
+ticks and the prescaler's minimum compare value at each end), so exact 0%
+and 100% are excluded. NaN, infinity and an empty allowed duty range return
+`-EINVAL` without changing either compare.
+
+The helpers require two distinct timers, equal frequencies, `UpDwn`
+modulation, zero phase shifts, and neither output marked inactive. Both
+legs must either share the shield frequency or have the same explicit
+`leg-frequency`. `ALL` is not accepted. Invalid settings return `-EINVAL`;
+active outputs or a timer already registered in another pair return `-EBUSY`.
+The pair remains registered when stopped and can be restarted with `start()`.
+An update returns `-EBUSY` if either timer's preload transfers are suspended.
+Do not mix paired operation with individual leg reinitialization, duty,
+phase, counter-reset or frequency changes. Configure the pair's switching
+frequency in the device tree before initialization.
+
+For uSolarVerter, use `LEG1_HIGH` and `LEG2_HIGH` as the two arguments; the
+default overlay configures both inverter legs at 50 kHz.
+
 !!! example
 
     Check the following examples for an application :

@@ -376,6 +376,17 @@ void hrtim_dt_set(hrtim_tu_number_t tu_number,
 void hrtim_duty_cycle_set(hrtim_tu_number_t tu_number, uint16_t value);
 
 /**
+ * @brief Stage two compare values together for already aligned PWM timers.
+ * Both preloads transfer on their next common repetition event. The caller
+ * must keep the timers aligned, at equal periods and in voltage mode, and
+ * supply in-range compare values which require no output hot swap.
+ * @return 0 on success, -EINVAL for invalid timers or swapped outputs,
+ *         -EBUSY if either timer already has updates suspended.
+ */
+int hrtim_duty_cycle_pair_set(hrtim_tu_number_t tu_a, uint16_t value_a,
+                            hrtim_tu_number_t tu_b, uint16_t value_b);
+
+/**
  * @brief   Shifts the PWM of a timing unit
  *
  * @param[in] tu_number        Timing unit number:

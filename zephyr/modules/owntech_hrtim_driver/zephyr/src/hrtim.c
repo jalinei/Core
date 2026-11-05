@@ -32,6 +32,7 @@
 #include <stm32_ll_rcc.h>
 #include "assert.h"
 #include "hrtim.h"
+#include <errno.h>
 
 
 /** @brief Defines the HRTIM IRQ Number */
@@ -1150,6 +1151,56 @@ inline void hrtim_duty_cycle_set(hrtim_tu_number_t tu_number, uint16_t value)
 {
     tu_channel[tu_number]->pwm_conf.duty_cycle = value;
     HRTIM1->sTimerxRegs[tu_number].CMP1xR = value;
+}
+
+int hrtim_duty_cycle_pair_set(hrtim_tu_number_t tu_a, uint16_t value_a,
+                            hrtim_tu_number_t tu_b, uint16_t value_b)
+{
+    /* Validate both indices before accessing the timer configuration array. */
+    if (tu_a >= HRTIM_STU_NUMOF || tu_b >= HRTIM_STU_NUMOF)
+    {
+        return -EINVAL;
+    }
+
+    /* Two compare values cannot be staged on the same timer. */
+    if (tu_a == tu_b)
+    {
+        return -EINVAL;
+    }
+
+    /* A previous 100% duty command may have swapped an output immediately.
+     * Updating only its compare would not restore the expected gate polarity. */
+    if (tu_channel[tu_a]->pwm_conf.duty_swap ||
+        tu_channel[tu_b]->pwm_conf.duty_swap)
+    {
+        return -EINVAL;
+    }
+
+    uint32_t timers = tu_channel[tu_a]->pwm_conf.pwm_tu |
+                      tu_channel[tu_b]->pwm_conf.pwm_tu;
+
+    /* CR1 update-disable bits follow the same order as the counter-enable
+     * bits, shifted down from their positions in MCR. */
+    uint32_t update_mask = timers >> HRTIM_MCR_MCEN_Pos;
+    unsigned int key = irq_lock();
+
+    /* Do not resume transfers that another operation already suspended. */
+    if (HRTIM1->sCommonRegs.CR1 & update_mask)
+    {
+        irq_unlock(key);
+        return -EBUSY;
+    }
+
+    /* Suspend both transfers in one write: an intervening PWM boundary
+     * must see either both old values or both new values. Unlike the LL
+     * SuspendUpdate helper, this preserves other timers' suspend bits.
+     * Interrupt masking also prevents interleaved software writers. */
+    SET_BIT(HRTIM1->sCommonRegs.CR1, update_mask);
+    hrtim_duty_cycle_set(tu_a, value_a);
+    hrtim_duty_cycle_set(tu_b, value_b);
+    CLEAR_BIT(HRTIM1->sCommonRegs.CR1, update_mask);
+    irq_unlock(key);
+    return 0;
 }
 
 

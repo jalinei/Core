@@ -28,6 +28,8 @@
 #include "power_init.h"
 #include "Power.h"
 #include "SpinAPI.h"
+#include <errno.h>
+#include <math.h>
 
 
 hrtim_tu_number_t PowerAPI::spinNumberToTu(uint16_t spin_number)
@@ -186,10 +188,10 @@ void PowerAPI::initMode(leg_t leg,
             {
                 spin.pwm.setEev(spinNumberToTu(dt_pwm_pin[i]), EEV5);
             }
-
-            /* Configure current mode */
-            spin.pwm.setMode(spinNumberToTu(dt_pwm_pin[i]), CURRENT_MODE);
         }
+
+        /* Explicitly select voltage mode too when reinitializing a leg. */
+        spin.pwm.setMode(spinNumberToTu(dt_pwm_pin[i]), leg_mode);
 
         /* Choose which output of the timer unit to control with duty cycle */
         spin.pwm.setSwitchConvention(spinNumberToTu(dt_pwm_pin[i]),
@@ -1057,4 +1059,301 @@ void PowerAPI::initBoost(leg_t leg)
             initMode(static_cast<leg_t>(i), PWMx2, VOLTAGE_MODE);
         }
     }
+}
+
+int PowerAPI::initInverterUnipolar(leg_t leg_a, leg_t leg_b)
+{
+    return initInverter(leg_a, leg_b, false);
+}
+
+int PowerAPI::initInverterBipolar(leg_t leg_a, leg_t leg_b)
+{
+    return initInverter(leg_a, leg_b, true);
+}
+
+int PowerAPI::initInverter(leg_t leg_a, leg_t leg_b, bool bipolar)
+{
+    /* Reject ALL and invalid leg indices before accessing device-tree arrays. */
+    if (static_cast<unsigned>(leg_a) >= dt_leg_count ||
+        static_cast<unsigned>(leg_b) >= dt_leg_count)
+    {
+        return -EINVAL;
+    }
+
+    /* An H-bridge needs two different physical legs. */
+    if (leg_a == leg_b)
+    {
+        return -EINVAL;
+    }
+
+    hrtim_tu_number_t tu_a = spinNumberToTu(dt_pwm_pin[leg_a]);
+    hrtim_tu_number_t tu_b = spinNumberToTu(dt_pwm_pin[leg_b]);
+
+    /* Each leg needs its own compare register, so timer aliases are invalid. */
+    if (tu_a == tu_b)
+    {
+        return -EINVAL;
+    }
+
+    uint32_t frequency_a = dt_leg_frequency[leg_a];
+    uint32_t frequency_b = dt_leg_frequency[leg_b];
+
+    /* A leg without leg-frequency uses the shield's shared frequency. */
+    if (frequency_a == 0)
+    {
+        frequency_a = timer_frequency;
+    }
+    if (frequency_b == 0)
+    {
+        frequency_b = timer_frequency;
+    }
+
+    /* Equal switching frequencies are required to keep the carriers aligned. */
+    if (frequency_a != frequency_b)
+    {
+        return -EINVAL;
+    }
+
+    /* Zero is not a switching frequency; lower frequencies exceed the
+     * resolution selected by the shared HRTIM prescaler. */
+    if (frequency_a == 0 || frequency_a < timer_min_frequency)
+    {
+        return -EINVAL;
+    }
+
+    /* Free-running and master-referenced timers cannot share a carrier phase,
+     * even when their nominal switching frequencies are equal. */
+    bool own_frequency_a = (dt_leg_frequency[leg_a] != 0);
+    bool own_frequency_b = (dt_leg_frequency[leg_b] != 0);
+    if (own_frequency_a != own_frequency_b)
+    {
+        return -EINVAL;
+    }
+
+    /* Both inverter modes use center-aligned PWM on both legs. */
+    if (dt_modulation[leg_a] != UpDwn || dt_modulation[leg_b] != UpDwn)
+    {
+        return -EINVAL;
+    }
+
+    /* The two carriers must have the same zero-phase reference. */
+    if (dt_phase_shift[leg_a] != 0 || dt_phase_shift[leg_b] != 0)
+    {
+        return -EINVAL;
+    }
+
+    /* Leg A needs both its high-side and low-side gate outputs. */
+    if (dt_output1_inactive[leg_a] || dt_output2_inactive[leg_a])
+    {
+        return -EINVAL;
+    }
+
+    /* Leg B also needs both gate outputs for complementary switching. */
+    if (dt_output1_inactive[leg_b] || dt_output2_inactive[leg_b])
+    {
+        return -EINVAL;
+    }
+
+    /* Do not assign a timer to more than one inverter pair. */
+    for (unsigned i = 0; i < dt_leg_count; ++i)
+    {
+        /* Unused pair entries have no timers to reserve. */
+        if (!inverter_pairs[i].configured)
+        {
+            continue;
+        }
+
+        hrtim_tu_number_t used_a = spinNumberToTu(dt_pwm_pin[i]);
+        hrtim_tu_number_t used_b =
+            spinNumberToTu(dt_pwm_pin[inverter_pairs[i].leg_b]);
+
+        /* Compare physical timers too, in case leg names alias the hardware. */
+        if (tu_a == used_a || tu_a == used_b ||
+            tu_b == used_a || tu_b == used_b)
+        {
+            return -EBUSY;
+        }
+    }
+
+    const hrtim_tu_number_t timers[] = {tu_a, tu_b};
+    for (hrtim_tu_number_t timer : timers)
+    {
+        /* Before default initialization, the timer has no valid output map
+         * and cannot have been started through the PWM API. */
+        if (!hrtim_get_status(timer))
+        {
+            continue;
+        }
+
+        /* Reconfiguring either enabled gate could interrupt active switching.
+         * Read the hardware state to include outputs started via SPIN. */
+        if (LL_HRTIM_IsEnabledOutput(HRTIM1, tu_channel[timer]->gpio_conf.OUT_H) ||
+            LL_HRTIM_IsEnabledOutput(HRTIM1, tu_channel[timer]->gpio_conf.OUT_L))
+        {
+            return -EBUSY;
+        }
+    }
+
+    /* Leg A high-side always follows D, using the board's PWM pin mapping. */
+    initBuck(leg_a, VOLTAGE_MODE);
+
+    /* Bipolar: leg B low-side follows D, opposite to its high-side.
+     * Unipolar: leg B high-side follows its own compare command, 1-D. */
+    if (bipolar)
+    {
+        initBoost(leg_b);
+    }
+    else
+    {
+        initBuck(leg_b, VOLTAGE_MODE);
+    }
+
+    inverter_pairs[leg_a] = {true, leg_b, bipolar};
+    int result = setInverterDutyCycle(leg_a, 0.5f);
+
+    /* Release the pair entry if the initial duty could not be programmed.
+     * Outputs remain disabled so the caller can handle the failure. */
+    if (result != 0)
+    {
+        inverter_pairs[leg_a] = {};
+        return result;
+    }
+
+    /* Latch the initial 50% duty while outputs are disabled. An immediate
+     * start() must not expose an old compare value from before initialization. */
+    LL_HRTIM_ForceUpdate(HRTIM1, tu_channel[tu_a]->pwm_conf.pwm_tu |
+                                tu_channel[tu_b]->pwm_conf.pwm_tu);
+    spin.pwm.resetCounters(timers, 2);
+    return 0;
+}
+
+int PowerAPI::setInverterDutyCycle(leg_t leg_a, float32_t duty)
+{
+    /* Reject ALL and invalid indices before looking up the pair. */
+    if (static_cast<unsigned>(leg_a) >= dt_leg_count)
+    {
+        return -EINVAL;
+    }
+
+    /* Only the first leg passed to initInverter identifies a registered pair. */
+    if (!inverter_pairs[leg_a].configured)
+    {
+        return -EINVAL;
+    }
+
+    /* NaN and infinity cannot be converted into a hardware compare value. */
+    if (!isfinite(duty))
+    {
+        return -EINVAL;
+    }
+
+    const InverterPair &pair = inverter_pairs[leg_a];
+    leg_t leg_b = pair.leg_b;
+    hrtim_tu_number_t tu_a = spinNumberToTu(dt_pwm_pin[leg_a]);
+    hrtim_tu_number_t tu_b = spinNumberToTu(dt_pwm_pin[leg_b]);
+    const pwm_conf_t &pwm_a = tu_channel[tu_a]->pwm_conf;
+    const pwm_conf_t &pwm_b = tu_channel[tu_b]->pwm_conf;
+
+    /* The same nonzero period is needed for D and its integer complement. */
+    if (pwm_a.period == 0 || pwm_a.period != pwm_b.period)
+    {
+        return -EINVAL;
+    }
+
+    /* Equal prescalers make a timer tick the same duration on both legs. */
+    if (pwm_a.ckpsc != pwm_b.ckpsc)
+    {
+        return -EINVAL;
+    }
+
+    /* An individual frequency change would break carrier synchronization. */
+    if (pwm_a.frequency != pwm_b.frequency ||
+        pwm_a.own_frequency != pwm_b.own_frequency)
+    {
+        return -EINVAL;
+    }
+
+    /* Reject a leg that was individually reconfigured to edge-aligned PWM. */
+    if (pwm_a.modulation != UpDwn || pwm_b.modulation != UpDwn)
+    {
+        return -EINVAL;
+    }
+
+    /* Current mode can reset a timer independently of its partner. */
+    if (pwm_a.pwm_mode != VOLTAGE_MODE || pwm_b.pwm_mode != VOLTAGE_MODE)
+    {
+        return -EINVAL;
+    }
+
+    /* An individual phase shift would invalidate both modulation schemes. */
+    if (tu_channel[tu_a]->phase_shift.value != 0 ||
+        tu_channel[tu_b]->phase_shift.value != 0)
+    {
+        return -EINVAL;
+    }
+
+    hrtim_switch_convention_t convention_a =
+        dt_pwm_x1_high[leg_a] ? PWMx1 : PWMx2;
+    hrtim_switch_convention_t convention_b =
+        dt_pwm_x1_high[leg_b] ? PWMx1 : PWMx2;
+
+    /* Bipolar PWM drives leg B's low-side instead of its high-side. */
+    if (pair.bipolar)
+    {
+        convention_b = (convention_b == PWMx1) ? PWMx2 : PWMx1;
+    }
+
+    /* Refuse updates if either leg's duty-controlled switch was changed. */
+    if (tu_channel[tu_a]->switch_conv.convention != convention_a ||
+        tu_channel[tu_b]->switch_conv.convention != convention_b)
+    {
+        return -EINVAL;
+    }
+
+    int period = pwm_a.period;
+
+    /* Respect the prescaler's minimum compare value at both pulse edges.
+     * At least four ticks also avoids the immediate 100% output-swap path. */
+    int margin = MAX(4, (int)HRTIM_MIN_PER_and_CMP_REG_VALUES[pwm_a.ckpsc]);
+    int duty_min_raw = MAX(margin, (int)pwm_a.duty_min_user);
+    int duty_max_raw = MIN(period - margin, (int)pwm_a.duty_max_user);
+
+    /* Intersect leg A's range with leg B's range, expressed as leg A's D. */
+    if (pair.bipolar)
+    {
+        /* Both compare commands are D. */
+        duty_min_raw = MAX(duty_min_raw, (int)pwm_b.duty_min_user);
+        duty_max_raw = MIN(duty_max_raw, (int)pwm_b.duty_max_user);
+    }
+    else
+    {
+        /* Leg B's compare is 1-D, so its upper limit bounds D from below. */
+        duty_min_raw = MAX(duty_min_raw, period - pwm_b.duty_max_user);
+        duty_max_raw = MIN(duty_max_raw, period - pwm_b.duty_min_user);
+    }
+
+    /* Conflicting leg limits leave no duty that can be applied to both legs. */
+    if (duty_min_raw > duty_max_raw)
+    {
+        return -EINVAL;
+    }
+
+    float32_t duty_raw = duty * period;
+
+    /* Clamp before converting to an integer, including commands outside [0,1]. */
+    if (duty_raw < duty_min_raw)
+    {
+        duty_raw = duty_min_raw;
+    }
+    else if (duty_raw > duty_max_raw)
+    {
+        duty_raw = duty_max_raw;
+    }
+
+    /* Round once and use the exact integer complement to avoid a one-tick bias. */
+    uint16_t value_a = static_cast<uint16_t>(duty_raw + 0.5f);
+    uint16_t value_b = pair.bipolar ? value_a : period - value_a;
+
+    /* Stage both compares together; they take effect at the same PWM boundary. */
+    return hrtim_duty_cycle_pair_set(tu_a, value_a, tu_b, value_b);
 }
