@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 1.1 (draft) |
+| Procedure version | 1.2 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -174,7 +174,7 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 |---|---|---|---|
 | L0-APP-01 | `controlInit` applies the app tuning; a mode change is flagged on its tick only and runs the cold loop on that tick; leg enables follow the controller | critical task, mode-change block | Implemented |
 | L0-APP-02 | Cold loop on the change tick, then every 10th tick; a new mode change restarts the phase | `cold_loop_divider` = 10 | Implemented |
-| L0-APP-03 | VAC stale for exactly 200 periods (20 ms) trips the observer with `InvalidMeasurement`; a fresh sample restarts the count | `grid_voltage_stale_ticks` = 200 | Implemented |
+| L0-APP-03 | VAC stale for exactly 200 periods (20 ms) trips the observer with `InvalidMeasurement`; a fresh sample restarts the count; one sample missing at boot does not latch a trip | `grid_voltage_stale_ticks` = 200; `gridObserver.cpp` (no trip latched at startup) | Implemented; .c FAIL, [#2](https://github.com/luizvilla/Core/issues/2) |
 | L0-APP-04 | Bridge PWM never enabled and the inverter never requests PWM or relay, in any mode, with or without a sync request | critical task, "Synchronization only" | Implemented |
 | L0-APP-05 | Synchronization only after observer qualification; an observer trip removes it on the trip tick; times to qualification and sync `INFO` | `setGridQuality(grid_observer.canOperate())` | Implemented |
 
@@ -371,7 +371,7 @@ On branch `test/microinverter-validation` (from `dts_uverter`), pushed to `luizv
 | 7 | `test(l1)` | Implemented: native firmware block build, pinned environment, direct-reference and RC checks | No |
 | 8 | `test(l1)` | Implemented integration runner and explicit formal-case BLOCKED reporting | No |
 | 9 | `test(l1)` | Switched model and app-v1 boundary implemented; switching-only fixtures selected by user | No |
-| gate | — | Finding [#1](https://github.com/luizvilla/Core/issues/1) closed (fix merged in the library, L0-GFL-03.b and L0-GFL-08 pass); otherwise L1-APP-06 and -07 cannot be judged | No (library) |
+| gate | — | Findings [#1](https://github.com/luizvilla/Core/issues/1) and [#2](https://github.com/luizvilla/Core/issues/2) closed. Without #1, L1-APP-06 and -07 cannot be judged; without #2, L1-APP-01 and -08 are only valid when VAC is delivered from the first tick | #1: no (library); #2: yes (firmware) |
 | 10 | `test(l1)` | Implement switched L1-APP criteria and preserve measured failures; full-duration cases remain explicit | No |
 | later | `test(l1)` | Complete long startup, repeated L1-APP-04 cycles and remaining scenarios; relay + L1-GFL-* | No |
 
@@ -381,7 +381,7 @@ flowchart LR
   C4 --> C5[5 seam] --> C6[6 L0-APP] --> C7[7 firmware block]
   C7 --> C8[8 L1 runner] --> C9[9 model import] --> C10[10 first L1 campaign]
   M([colleague's model]) -.-> C9
-  F1(["#1 closed<br/>(library fix)"]) -.-> C10
+  F1(["#1 and #2 closed"]) -.-> C10
 ```
 
 ## 10. Changelog
@@ -399,6 +399,7 @@ flowchart LR
 | 0.9 | 2026-11-05 | Implement synthetic native single-diode PV variant, wired bus test load, precharged fixture, independent MPP reference, PV diagnostics, GUI saved-result loading and L1-INT-05. Formal L1-APP-05 remains pending sustained tracking acceptance; short-run extraction is below available MPP. No controller tuning changed. |
 | 1.0 | 2026-11-05 | User selects switching model only; remove averaged-model prerequisite. Implement formal nominal-grid, lost-VAC, first-50-ms startup, precharged bus regulation/load step and initial burst release criteria. Specify observation windows and partial-run limits; preserve measured failures. Keep production firmware unchanged and expose scenario fixtures/results through the GUI. |
 | 1.1 | 2026-11-05 | `src/app.ini` temporarily fetches the #1 fix branch (worklog). Records stamp the library's remote and branch, not only its commit. |
+| 1.2 | 2026-11-05 | L0-APP-03.c added (boot with a missing first VAC sample), exposed by the earlier L1-FWB-01 prototype; fails, filed as #2 and registered in §11. |
 
 ## 11. Findings register
 
@@ -407,3 +408,4 @@ Every issue opened from a test failure, with what it blocks. `tests/common/make_
 | Issue | Criteria | Cause | Owner | Status | Blocks |
 |---|---|---|---|---|---|
 | [#1](https://github.com/luizvilla/Core/issues/1) | L0-GFL-03.b, L0-GFL-08 | Library: SOGI evaluated at the fixed ω_ref, so the 2ω ripple on Vq exceeds the 0.1 V sync tolerance away from 50 Hz | Jean (library) | Open: fix proposed (jalinei/single_phase_inverter#1); firmware temporarily built against it | Gate before commit 10 (L1-APP-06, -07) |
+| [#2](https://github.com/luizvilla/Core/issues/2) | L0-APP-03.c | Firmware: VAC staleness counter starts stale, the observer trips `InvalidMeasurement` before qualification, and the app never calls `clearTrip()`, so one missing VAC sample at boot blocks synchronization until reset | Luiz (firmware) | Open: needs triage | Gate before commit 10 (L1-APP-01, -06, -08) |
