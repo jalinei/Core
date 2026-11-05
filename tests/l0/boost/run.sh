@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
-# L0-BST: build and run the boost converter controller tests on the host.
+## SPDX-License-Identifier: LGPL-2.1
+## Copyright (c) 2026 OWNTECH TECHNOLOGIES
+##
+## @file run.sh
+## @brief L0-BST: builds and runs the boost converter controller tests on the host.
+##
+## Compiles test_boost.cpp and src/boost_converter/boost.cpp with -Werror, and
+## pid.cpp from control_library without it, then runs the binary.
+## @return The test binary's exit code: 0 when every criterion passes.
+## @see README.md in this folder
+##
+## @par Usage
+##   bash tests/l0/boost/run.sh
 source "$(dirname "$0")/../../common/l0_build.sh"
 l0_build test_boost \
     --strict "$REPO_ROOT/tests/l0/boost/test_boost.cpp" \

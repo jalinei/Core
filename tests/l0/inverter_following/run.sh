@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
-# L0-GFL: build and run the grid-following inverter library tests on the host,
-# against the copy PlatformIO fetched for the default (USB) environment.
+## SPDX-License-Identifier: LGPL-2.1
+## Copyright (c) 2026 OWNTECH TECHNOLOGIES
+##
+## @file run.sh
+## @brief L0-GFL: builds and runs the grid-following inverter library tests on the host.
+##
+## Builds against the single_phase_inverter copy that PlatformIO fetched for the
+## USB environment (jalinei main) and prints its commit first. Library and
+## control_library sources build without -Werror.
+## @return 1 if the library was never fetched, otherwise the test binary's exit
+## code: 0 when every criterion passes.
+## @see README.md in this folder
+##
+## @par Usage
+##   bash tests/l0/inverter_following/run.sh
 source "$(dirname "$0")/../../common/l0_build.sh"
 INV="$LIB_ROOT/single_phase_inverter/src"
 CTL="$LIB_ROOT/control_library/src"

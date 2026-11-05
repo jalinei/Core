@@ -1,9 +1,45 @@
-// L0-BST: boost converter controller (src/boost_converter), open loop.
-// Test cases: docs/testing/test-procedure.md §6.1.
-//
-// The sections share one BoostConverter and run in order: each section starts
-// from the state the previous one left. Do not reorder them, and keep every
-// call that has side effects (hotLoop, coldLoop, set*) exactly where it is.
+/*
+ *
+ * Copyright (c) 2026 OWNTECH TECHNOLOGIES
+ *
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU Lesser General Public License as published by
+ *   the Free Software Foundation, either version 2.1 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU Lesser General Public License for more details.
+ *
+ *   You should have received a copy of the GNU Lesser General Public License
+ *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * SPDX-License-Identifier: LGPL-2.1
+ */
+
+/**
+ * @file test_boost.cpp
+ * @brief L0-BST: open-loop tests of the boost converter controller (src/boost_converter).
+ *
+ * Test cases are defined in docs/testing/test-procedure.md §6.1; how to run
+ * them is in the README next to this file.
+ *
+ * | Test case | Behaviour |
+ * |---|---|
+ * | L0-BST-01 | Invalid init, measurements or burst bounds never enable a leg |
+ * | L0-BST-02 | Leg 1 priority up to its current limit, leg 2 takes the excess |
+ * | L0-BST-03 | Cold-loop saturation sets the total current reference |
+ * | L0-BST-04 | MPPT perturb and observe |
+ * | L0-BST-05 | STARTUP voltage ramp |
+ * | L0-BST-06 | STARTUP current ceiling, converter 2 never enabled |
+ * | L0-BST-07 | Burst hysteresis |
+ *
+ * @warning The sections share one BoostConverter and run in order: each one
+ * starts from the state the previous one left. Do not reorder them, and keep
+ * every call that has side effects (hotLoop, coldLoop, set*) exactly where it
+ * is, including calls inside a check expression.
+ */
 
 #include "boost.h"
 #include "check.h"
@@ -13,9 +49,14 @@
 #include <limits>
 
 namespace {
+/** @brief Absolute tolerance for floating-point comparisons (same as the original test). */
 constexpr double tol = 1e-5;
 }
 
+/**
+ * @brief Runs every L0-BST criterion in order.
+ * @return 0 when all criteria pass, 1 otherwise (see tc::finish()).
+ */
 int main() {
     PidParams voltage = {0.001F, 0.1F, 1.0F, 0, 1, 0, 12};
     PidParams current = {0.0001F, 0.1F, 1.0F, 0, 1, 0, 0.95F};
@@ -23,6 +64,7 @@ int main() {
     BoostDutyCycles duty;
 
     {
+        /** @test L0-BST-01.a: Uninitialized controller outputs nothing and enables no leg */
         tc::Criterion c("L0-BST-01.a", "Uninitialized controller outputs nothing and enables no leg");
         c.check("coldLoop() == 0", boost.coldLoop() == 0);
         c.check("hotLoop() duties == 0", boost.hotLoop().leg1 == 0 && boost.hotLoop().leg2 == 0);
@@ -32,6 +74,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-02.a: Leg 1 alone below and at its current limit */
         tc::Criterion c("L0-BST-02.a", "Leg 1 alone below and at its current limit");
         for (float total : {2.0F, 5.0F}) {
             boost.setILowRef(total);
@@ -44,6 +87,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-02.b: Above the limit leg 1 stays at the limit and leg 2 supplies the excess */
         tc::Criterion c("L0-BST-02.b", "Above the limit leg 1 stays at the limit and leg 2 supplies the excess");
         boost.reset();
         boost.setILowRef(8);
@@ -63,6 +107,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-02.c: Removing leg 2 demand clears its output and integral before reuse */
         tc::Criterion c("L0-BST-02.c", "Removing leg 2 demand clears its output and integral before reuse");
         for (int i = 0; i < 100; ++i) boost.hotLoop();
         boost.setILowRef(5);
@@ -76,6 +121,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-03.a: Cold-loop saturation sets the total reference, split across both legs */
         tc::Criterion c("L0-BST-03.a", "Cold-loop saturation sets the total reference, split across both legs");
         boost.setMode(BUSREG);
         boost.setVBusRef(1000);
@@ -92,6 +138,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-03.b: IDLE clears references and duties */
         tc::Criterion c("L0-BST-03.b", "IDLE clears references and duties");
         boost.setMode(IDLE);
         c.check("ILow ref 0, leg 2 off", boost.getILowRef() == 0 && !boost.isLeg2Enabled());
@@ -100,6 +147,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-04.a: MPPT perturbs current demand from total input power */
         tc::Criterion c("L0-BST-04.a", "MPPT perturbs current demand from total input power");
         boost.setMode(MPPT);
         boost.setVBus(48);
@@ -114,6 +162,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-04.b: MPPT restarts on reference changes, keeps leg 1 priority, turns back at bounds */
         tc::Criterion c("L0-BST-04.b", "MPPT restarts on reference changes, keeps leg 1 priority, turns back at bounds");
         boost.setILowRef(4.95F);
         c.near("step from new reference", boost.coldLoop(), 5.05F, tol);
@@ -135,6 +184,7 @@ int main() {
     BoostConverter comparison;
     PidParams otherVoltage = voltage;
     {
+        /** @test L0-BST-04.c: MPPT ignores bus voltages and voltage PID gains; hot loop does not advance it */
         tc::Criterion c("L0-BST-04.c", "MPPT ignores bus voltages and voltage PID gains; hot loop does not advance it");
         otherVoltage.Kp = 10;
         otherVoltage.Ti = 0.01F;
@@ -159,6 +209,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-04.d: Voltage PID current bounds also constrain MPPT */
         tc::Criterion c("L0-BST-04.d", "Voltage PID current bounds also constrain MPPT");
         otherVoltage.lower_bound = 3;
         c.check("init with lower bound 3", comparison.init(MPPT, 48, otherVoltage, current, 5) == 0);
@@ -173,6 +224,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-05.a: STARTUP ramp starts from the latest bus sample and follows the rate */
         tc::Criterion c("L0-BST-05.a", "STARTUP ramp starts from the latest bus sample and follows the rate");
         c.check("init(STARTUP)", boost.init(STARTUP, 48, voltage, current, 5) == 0);
         c.near("default ramp rate 10 V/s", boost.getStartupRampRate(), 10, tol);
@@ -194,6 +246,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-05.b: Target and rate changes continue the ramp without reset or overshoot */
         tc::Criterion c("L0-BST-05.b", "Target and rate changes continue the ramp without reset or overshoot");
         boost.setVBusRef(30);
         boost.setStartupRampRate(500);
@@ -210,6 +263,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-05.c: Reset and re-entry restart from the measured voltage, keeping target and rate */
         tc::Criterion c("L0-BST-05.c", "Reset and re-entry restart from the measured voltage, keeping target and rate");
         boost.setVBus(20);
         boost.reset();
@@ -229,6 +283,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-06.a: STARTUP never enables converter 2 and respects the current ceiling */
         tc::Criterion c("L0-BST-06.a", "STARTUP never enables converter 2 and respects the current ceiling");
         boost.setMode(STARTUP);
         c.near("default ceiling = leg 1 limit", boost.getStartupCurrentMax(), 5, tol);
@@ -248,6 +303,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-06.b: Ceiling updates apply immediately, reject invalid values, never exceed the leg 1 limit */
         tc::Criterion c("L0-BST-06.b", "Ceiling updates apply immediately, reject invalid values, never exceed the leg 1 limit");
         boost.setStartupCurrentMax(1);  // Tighten the stored reference immediately.
         c.near("ref tightened to 1 A", boost.getILowRef(), 1, tol);
@@ -276,6 +332,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-06.c: A ceiling below the PID lower bound is still respected */
         tc::Criterion c("L0-BST-06.c", "A ceiling below the PID lower bound is still respected");
         voltage.lower_bound = 3;
         c.check("init with lower bound 3", boost.init(STARTUP, 48, voltage, current, 5) == 0);
@@ -297,6 +354,7 @@ int main() {
         const char *letter = mode == STARTUP ? "-startup" : "-busreg";
         BoostConverter burst;
         {
+            /** @test L0-BST-07.a-startup, L0-BST-07.a-busreg: burst pauses at the upper bound without a cold-loop call */
             tc::Criterion c(std::string("L0-BST-07.a") + letter,
                             std::string("Burst pauses at the upper bound without a cold-loop call") + suffix);
             c.check("disabled before config", !burst.isBurstEnabled() && !burst.isBurstPaused());
@@ -331,6 +389,7 @@ int main() {
             }
         }
         {
+            /** @test L0-BST-07.b-startup, L0-BST-07.b-busreg: burst resumes at the lower bound; demand regenerated by the cold loop */
             tc::Criterion c(std::string("L0-BST-07.b") + letter,
                             std::string("Burst resumes at the lower bound; demand regenerated by the cold loop") + suffix);
             burst.setVBus(50);
@@ -346,6 +405,7 @@ int main() {
             c.check("stays active inside band", !burst.isBurstPaused());
         }
         {
+            /** @test L0-BST-07.c-startup, L0-BST-07.c-busreg: cold loop detects overvoltage; reset and mode change cannot bypass a pause */
             tc::Criterion c(std::string("L0-BST-07.c") + letter,
                             std::string("Cold loop detects overvoltage; reset and mode change cannot bypass a pause") + suffix);
             burst.setVBus(53);
@@ -359,6 +419,7 @@ int main() {
             c.check("leg 1 duty 0", burst.hotLoop().leg1 == 0);
         }
         {
+            /** @test L0-BST-07.d-startup, L0-BST-07.d-busreg: bounds persist across init; MPPT and IDLE are exempt */
             tc::Criterion c(std::string("L0-BST-07.d") + letter,
                             std::string("Bounds persist across init; MPPT and IDLE are exempt from burst") + suffix);
             c.check("re-init at 53 V", burst.init(mode, 53, voltage, current, 5) == 0);
@@ -374,6 +435,7 @@ int main() {
             c.check("IDLE: not paused, leg 1 off", !burst.isBurstPaused() && !burst.isLeg1Enabled());
         }
         {
+            /** @test L0-BST-01.b-startup, L0-BST-01.b-busreg: invalid burst bounds are rejected and keep the configured ones */
             tc::Criterion c(std::string("L0-BST-01.b") + letter,
                             std::string("Invalid burst bounds are rejected and keep the configured ones") + suffix);
             c.check("upper < lower", burst.setVBusBurstBounds(52, 50) < 0);
@@ -387,6 +449,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-07.e: Configuring bounds while active pauses immediately with no PI windup kept */
         tc::Criterion c("L0-BST-07.e", "Configuring bounds while active pauses immediately with no PI windup kept");
         BoostConverter burst;
         c.check("init(BUSREG) at 53 V", burst.init(BUSREG, 53, voltage, current, 5) == 0);
@@ -405,6 +468,7 @@ int main() {
     }
 
     {
+        /** @test L0-BST-01.c: Invalid measurements and configuration cannot enable a leg */
         tc::Criterion c("L0-BST-01.c", "Invalid measurements and configuration cannot enable a leg");
         boost.setILow2(std::numeric_limits<float>::quiet_NaN());
         c.near("NaN measurement ignored", boost.getILow2(), 1, tol);

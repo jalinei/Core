@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+## SPDX-License-Identifier: LGPL-2.1
+## Copyright (c) 2026 OWNTECH TECHNOLOGIES
+##
+## @file make_record.py
+## @brief Writes the test record (record.md) of a campaign from the criterion result lines.
+## @see tests/common/README.md, docs/testing/test-procedure.md §8
 """Build the test record (record.md) of a campaign from the criterion lines.
 
 Usage: make_record.py --out DIR --levels L0,L1 LOG [LOG ...]

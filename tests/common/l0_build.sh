@@ -1,16 +1,28 @@
-# Sourced by tests/l0/*/run.sh. Builds one L0 test binary on the host.
-#
-#   source "$(dirname "$0")/../../common/l0_build.sh"
-#   l0_build <name> --strict <our sources...> --lib <third-party sources...>
-#   "$L0_BIN/<name>"
-#
-# Our sources (tests and src/) build with -Werror. Third-party library sources
-# (owntech/lib/...) build without -Werror: their warnings are not ours to fix
-# here, and must not hide behind a test failure.
-#
-# Include paths: hardware stand-ins, check.h, every src/ subfolder, and the
-# libraries fetched by PlatformIO for the default (USB) environment.
-
+#!/usr/bin/env bash
+## SPDX-License-Identifier: LGPL-2.1
+## Copyright (c) 2026 OWNTECH TECHNOLOGIES
+##
+## @file l0_build.sh
+## @brief Build helper sourced by every tests/l0/*/run.sh.
+##
+## Defines REPO_ROOT, LIB_ROOT (libraries fetched by PlatformIO for the USB
+## environment), L0_BIN (temporary build folder, removed on exit) and
+## l0_build().
+##
+## Our sources (tests and src/) build with -Wall -Wextra -Werror; third-party
+## library sources (owntech/lib/...) build without -Werror, because their
+## warnings are not ours to fix here. Everything builds with UBSan, which aborts
+## on undefined behaviour. Include paths: hardware stand-ins, check.h, src/ and
+## its subfolders, control_library and single_phase_inverter.
+##
+## @par l0_build NAME --strict SOURCES... --lib SOURCES...
+## Compiles each source and links $L0_BIN/NAME.
+## @see tests/common/README.md
+##
+## @par Usage
+##   source "$(dirname "$0")/../../common/l0_build.sh"
+##   l0_build test_x --strict "$REPO_ROOT/tests/l0/x/test_x.cpp" --lib "$LIB_ROOT/..."
+##   "$L0_BIN/test_x"
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)

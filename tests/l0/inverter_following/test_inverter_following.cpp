@@ -1,20 +1,57 @@
-// L0-GFL: grid-following inverter controller from the single_phase_inverter
-// library (jalinei/single_phase_inverter, main), open loop.
-// Test cases: docs/testing/test-procedure.md §6.3.
-//
-// The grid is a synthetic sine fed sample by sample; nothing the controller
-// outputs feeds back into it. Relay feedback is driven directly through
-// setGridConnected(). Settings are the application's: 400 V bus, 230 V RMS,
-// 50 Hz, 100 µs control period.
-//
-// Limits come from the library's own documentation and constants:
-//   synchronization: Vd within ±10 % of the nominal peak, |Vq| < 0.1 V,
-//                    |w - w_ref| < 5 % of w_ref, for 1000 consecutive calls;
-//   connection and disconnection timeouts: 1 s;
-//   duty = alpha_output / (2 V_bus) + 0.5, unclamped.
-// Durations the library does not state (lock time, tracking time, phase
-// error) are reported as INFO. The simulation horizons below (5 s, 3 s) only
-// bound the test; they are not requirements.
+/*
+ *
+ * Copyright (c) 2026 OWNTECH TECHNOLOGIES
+ *
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU Lesser General Public License as published by
+ *   the Free Software Foundation, either version 2.1 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU Lesser General Public License for more details.
+ *
+ *   You should have received a copy of the GNU Lesser General Public License
+ *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * SPDX-License-Identifier: LGPL-2.1
+ */
+
+/**
+ * @file test_inverter_following.cpp
+ * @brief L0-GFL: open-loop tests of the grid-following inverter controller (single_phase_inverter library).
+ *
+ * The library is jalinei/single_phase_inverter, branch main, as fetched by
+ * PlatformIO for the USB environment. Test cases are defined in
+ * docs/testing/test-procedure.md §6.3; how to run them is in the README next to
+ * this file.
+ *
+ * | Test case | Behaviour |
+ * |---|---|
+ * | L0-GFL-01 | Init validation |
+ * | L0-GFL-02 | PLL lock on a clean 230 V / 50 Hz grid |
+ * | L0-GFL-03 | PLL tracking of a 50 → 51 Hz step and re-synchronization |
+ * | L0-GFL-04 | Connection lifecycle and its timeouts |
+ * | L0-GFL-05 | Grid quality gating |
+ * | L0-GFL-06 | Fault latching and clearing |
+ * | L0-GFL-07 | Duty formula |
+ *
+ * The grid is a synthetic sine fed sample by sample; nothing the controller
+ * outputs feeds back into it. Relay feedback is driven directly through
+ * setGridConnected(). Settings are the application's: 400 V bus, 230 V RMS,
+ * 50 Hz, 100 µs control period.
+ *
+ * Limits come from the library's own documentation and constants:
+ * - synchronization: Vd within ±10 % of the nominal peak, |Vq| < 0.1 V,
+ *   |w - w_ref| < 5 % of w_ref, for 1000 consecutive calls;
+ * - connection and disconnection timeouts: 1 s;
+ * - duty = alpha_output / (2 V_bus) + 0.5, unclamped.
+ *
+ * Durations the library does not state (lock time, tracking time, phase error)
+ * are reported as INFO. The simulation horizons (5 s, 3 s) only bound the test;
+ * they are not requirements.
+ */
 
 #include "singlePhaseInverterFollowing.h"
 #include "check.h"
@@ -25,41 +62,62 @@
 
 namespace {
 
-constexpr float Ts = 1e-4F;
-constexpr float V_bus = 400.0F;
-constexpr float V_pk = 230.0F * 1.41421356F;
-constexpr double two_pi = 6.283185307179586;
-constexpr float w0 = static_cast<float>(two_pi * 50.0);
-constexpr int sync_min_delay = 1000;  // _sync_min_delay
-constexpr int ticks_per_s = 10000;
-const float f_nan = std::numeric_limits<float>::quiet_NaN();
-const float f_inf = std::numeric_limits<float>::infinity();
+constexpr float Ts = 1e-4F;                       ///< Control period (s), as in main.cpp.
+constexpr float V_bus = 400.0F;                   ///< DC bus voltage (V), as in main.cpp.
+constexpr float V_pk = 230.0F * 1.41421356F;      ///< Nominal grid peak voltage (V).
+constexpr double two_pi = 6.283185307179586;      ///< 2π in double precision.
+constexpr float w0 = static_cast<float>(two_pi * 50.0);  ///< Nominal angular frequency (rad/s).
+constexpr int sync_min_delay = 1000;              ///< Library _sync_min_delay (calls).
+constexpr int ticks_per_s = 10000;                ///< Control ticks per second.
+const float f_nan = std::numeric_limits<float>::quiet_NaN();  ///< Invalid-input stimulus.
+const float f_inf = std::numeric_limits<float>::infinity();   ///< Invalid-input stimulus.
 
-/// Synthetic grid: v = amplitude * cos(phase), i = current * cos(phase).
+/** @brief Synthetic grid: v = amplitude · cos(phase), i = current · cos(phase). */
 struct Grid {
-    double phase = 1.0;  // arbitrary non-zero start so the PLL has to move
-    double hz = 50.0;
-    double amplitude = V_pk;
-    double current = 0.0;
+    double phase = 1.0;     ///< Grid angle (rad); non-zero start so the PLL has to move.
+    double hz = 50.0;       ///< Grid frequency (Hz).
+    double amplitude = V_pk; ///< Voltage peak (V).
+    double current = 0.0;   ///< Current peak (A), in phase with the voltage.
 
+    /** @brief Instantaneous voltage sample (V). */
     float v() const { return static_cast<float>(amplitude * std::cos(phase)); }
+    /** @brief Instantaneous current sample (A). */
     float i() const { return static_cast<float>(current * std::cos(phase)); }
+    /** @brief Advances the grid by one control period. */
     void advance() { phase = std::fmod(phase + two_pi * hz * Ts, two_pi); }
 };
 
+/**
+ * @brief Wraps an angle to [-π, π).
+ * @param angle Angle in rad.
+ * @return The equivalent angle in [-π, π).
+ */
 double wrap(double angle) {
     angle = std::fmod(angle + M_PI, two_pi);
     if (angle < 0) angle += two_pi;
     return angle - M_PI;
 }
 
+/**
+ * @brief Runs one control period: feeds the current grid sample, then advances the grid.
+ * @param inv Controller under test.
+ * @param grid Synthetic grid.
+ * @return The duty returned by calculateDuty().
+ */
 float step(singlePhaseInverterFollowing &inv, Grid &grid) {
     const float duty = inv.calculateDuty(grid.v(), grid.i());
     grid.advance();
     return duty;
 }
 
-/// Runs until the controller reaches `mode`; returns the number of ticks, or -1.
+/**
+ * @brief Runs control periods until the controller reaches a mode.
+ * @param inv Controller under test.
+ * @param grid Synthetic grid.
+ * @param mode Mode to wait for.
+ * @param max_ticks Upper bound on the number of periods.
+ * @return Number of periods run when the mode was reached, or -1.
+ */
 int runUntilMode(singlePhaseInverterFollowing &inv, Grid &grid, vsi_mode_t mode, int max_ticks) {
     for (int n = 1; n <= max_ticks; ++n) {
         step(inv, grid);
@@ -68,11 +126,22 @@ int runUntilMode(singlePhaseInverterFollowing &inv, Grid &grid, vsi_mode_t mode,
     return -1;
 }
 
+/**
+ * @brief Initializes the controller with the application's settings.
+ * @param inv Controller under test.
+ * @return true when init() returns 0.
+ */
 bool initDefault(singlePhaseInverterFollowing &inv) {
     return inv.init(V_bus, V_pk, w0, Ts) == 0;
 }
 
-/// Fresh controller, connection requested, run until GRID_CONNECT.
+/**
+ * @brief Initializes a controller, requests connection and runs until GRID_CONNECT.
+ * @param c Criterion that records the observations.
+ * @param inv Fresh controller.
+ * @param grid Synthetic grid.
+ * @return true when GRID_CONNECT was reached within 5 s.
+ */
 bool reachConnect(tc::Criterion &c, singlePhaseInverterFollowing &inv, Grid &grid) {
     c.check("init", initDefault(inv));
     inv.requestConnect();
@@ -80,7 +149,13 @@ bool reachConnect(tc::Criterion &c, singlePhaseInverterFollowing &inv, Grid &gri
                    runUntilMode(inv, grid, VSI_GRID_CONNECT, 5 * ticks_per_s) > 0);
 }
 
-/// Fresh controller driven to RUN with relay feedback closed.
+/**
+ * @brief Drives a fresh controller to RUN with the relay feedback closed and I_d ref = 1 A.
+ * @param c Criterion that records the observations.
+ * @param inv Fresh controller.
+ * @param grid Synthetic grid.
+ * @return true when RUN was reached.
+ */
 bool reachRun(tc::Criterion &c, singlePhaseInverterFollowing &inv, Grid &grid) {
     if (!reachConnect(c, inv, grid)) return false;
     inv.setGridConnected(true);
@@ -93,9 +168,14 @@ bool reachRun(tc::Criterion &c, singlePhaseInverterFollowing &inv, Grid &grid) {
 
 }  // namespace
 
+/**
+ * @brief Runs every L0-GFL criterion.
+ * @return 0 when all criteria pass, 1 otherwise (see tc::finish()).
+ */
 int main() {
     // ---------------------------------------------------------------- L0-GFL-01
     {
+        /** @test L0-GFL-01.a: Valid init starts in OFF with no fault, no PWM and no relay request */
         tc::Criterion c("L0-GFL-01.a", "Valid init starts in OFF with no fault, no PWM and no relay request");
         singlePhaseInverterFollowing inv;
         c.check("init returns 0", initDefault(inv));
@@ -106,6 +186,7 @@ int main() {
         c.near("estimated w = w0", inv.getw(), w0, 1e-3);
     }
     {
+        /** @test L0-GFL-01.b: Invalid init parameters return -EINVAL and latch INVALID_CONFIGURATION */
         tc::Criterion c("L0-GFL-01.b", "Invalid init parameters return -EINVAL and latch INVALID_CONFIGURATION");
         struct Bad { const char *what; float vbus, vpk, w, ts; };
         const Bad bad[] = {
@@ -126,6 +207,7 @@ int main() {
         }
     }
     {
+        /** @test L0-GFL-01.c: A successful init after an invalid one clears the fault */
         tc::Criterion c("L0-GFL-01.c", "A successful init after an invalid one clears the fault");
         singlePhaseInverterFollowing inv;
         c.check("invalid init", inv.init(0.0F, V_pk, w0, Ts) == -EINVAL);
@@ -134,6 +216,7 @@ int main() {
         c.check("fault NONE", inv.getFaultReason() == VSI_FAULT_NONE);
     }
     {
+        /** @test L0-GFL-01.d: calculateDuty before init latches INVALID_CONFIGURATION with neutral duty */
         tc::Criterion c("L0-GFL-01.d", "calculateDuty before init latches INVALID_CONFIGURATION with neutral duty");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -158,6 +241,7 @@ int main() {
             if (lock_tick < 0 && inv.getSync()) lock_tick = n;
         }
         {
+            /** @test L0-GFL-02.a: PLL synchronizes on a clean 230 V / 50 Hz grid (5 s horizon) */
             tc::Criterion c("L0-GFL-02.a", "PLL synchronizes on a clean 230 V / 50 Hz grid (5 s horizon)");
             c.check("getSync() true", lock_tick > 0);
             c.check("still synchronized at end", inv.getSync());
@@ -166,14 +250,18 @@ int main() {
             c.range("|Vq| < 0.1 V", inv.getVdq().q, -0.1, 0.1);
         }
         {
+            /** @test L0-GFL-02.b: Synchronization only never requests PWM or relay closure */
             tc::Criterion c("L0-GFL-02.b", "Synchronization only never requests PWM or relay closure");
             c.check("no PWM or relay request at any tick", !requested_hardware);
             c.check("mode stays VOLTAGE_SYNC", !left_sync);
         }
+        /** @test L0-GFL-02.c: Time to getSync() true from a 1 rad phase offset (includes 1000-call dwell) */
         tc::info("L0-GFL-02.c", "Time to getSync() true from a 1 rad phase offset (includes 1000-call dwell)",
                  lock_tick > 0 ? lock_tick * Ts : -1.0, "s");
+        /** @test L0-GFL-02.d: Steady-state phase error after 5 s */
         tc::info("L0-GFL-02.d", "Steady-state phase error after 5 s",
                  wrap(inv.getTheta() - (grid.phase - two_pi * grid.hz * Ts)) * 180.0 / M_PI, "deg");
+        /** @test L0-GFL-02.e: Steady-state frequency error after 5 s */
         tc::info("L0-GFL-02.e", "Steady-state frequency error after 5 s", inv.getw() / two_pi - 50.0, "Hz");
 
         // ------------------------------------------------------------ L0-GFL-03
@@ -196,23 +284,30 @@ int main() {
             if (n > 2 * ticks_per_s) vq_peak = std::fmax(vq_peak, std::fabs(inv.getVdq().q));
         }
         {
+            /** @test L0-GFL-03.a: PLL frequency estimate follows a 50 → 51 Hz step (3 s horizon) */
             tc::Criterion c("L0-GFL-03.a", "PLL frequency estimate follows a 50 → 51 Hz step (3 s horizon)");
             c.near("20 ms mean of the estimate (Hz)", sum / window, 51.0, 0.05 * 50.0);  // ±5 % of w_ref
         }
         {
+            /** @test L0-GFL-03.b: Synchronized again at 51 Hz, inside the library's ±5 % frequency window (3 s horizon) */
             tc::Criterion c("L0-GFL-03.b", "Synchronized again at 51 Hz, inside the library's ±5 % frequency window (3 s horizon)");
             c.check("getSync() true at end", inv.getSync());
             c.range("|Vq| peak over the last 1 s (V)", vq_peak, 0.0, 0.1);  // _sync_voltage_tolerance
         }
+        /** @test L0-GFL-03.c: Time until the 20 ms mean estimate stays within 51 ± 0.05 Hz */
         tc::info("L0-GFL-03.c", "Time until the 20 ms mean estimate stays within 51 ± 0.05 Hz",
                  last_outside * Ts, "s");
+        /** @test L0-GFL-03.d: Time not synchronized after the step (of 3 s) */
         tc::info("L0-GFL-03.d", "Time not synchronized after the step (of 3 s)", ticks_unsynced * Ts, "s");
+        /** @test L0-GFL-03.e: Steady-state error of the 20 ms mean estimate at 51 Hz */
         tc::info("L0-GFL-03.e", "Steady-state error of the 20 ms mean estimate at 51 Hz", sum / window - 51.0, "Hz");
+        /** @test L0-GFL-03.f: Peak |Vq| ripple at 51 Hz (sync tolerance 0.1 V) */
         tc::info("L0-GFL-03.f", "Peak |Vq| ripple at 51 Hz (sync tolerance 0.1 V)", vq_peak, "V");
     }
 
     // ---------------------------------------------------------------- L0-GFL-04
     {
+        /** @test L0-GFL-04.a: Lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → CONNECTED → STOPPING → DISCONNECT → OFF */
         tc::Criterion c("L0-GFL-04.a", "Lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → CONNECTED → STOPPING → DISCONNECT → OFF");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -253,6 +348,7 @@ int main() {
         c.check("no fault on the way", inv.getFaultReason() == VSI_FAULT_NONE);
     }
     {
+        /** @test L0-GFL-04.b: Relay never confirms closing: CONNECTION_TIMEOUT after 1 s */
         tc::Criterion c("L0-GFL-04.b", "Relay never confirms closing: CONNECTION_TIMEOUT after 1 s");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -265,6 +361,7 @@ int main() {
         }
     }
     {
+        /** @test L0-GFL-04.c: Relay never confirms opening: DISCONNECTION_TIMEOUT 1 s after the disconnect request */
         tc::Criterion c("L0-GFL-04.c", "Relay never confirms opening: DISCONNECTION_TIMEOUT 1 s after the disconnect request");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -278,6 +375,7 @@ int main() {
         }
     }
     {
+        /** @test L0-GFL-04.d: Relay feedback lost in RUN: GRID_CONNECTION_LOST, PWM dropped */
         tc::Criterion c("L0-GFL-04.d", "Relay feedback lost in RUN: GRID_CONNECTION_LOST, PWM dropped");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -290,6 +388,7 @@ int main() {
         }
     }
     {
+        /** @test L0-GFL-04.e: Grid phase jump while awaiting the relay: SYNC_LOST */
         tc::Criterion c("L0-GFL-04.e", "Grid phase jump while awaiting the relay: SYNC_LOST");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -303,6 +402,7 @@ int main() {
 
     // ---------------------------------------------------------------- L0-GFL-05
     {
+        /** @test L0-GFL-05.a: Bad grid quality blocks synchronization; good quality restarts the 1000-call dwell */
         tc::Criterion c("L0-GFL-05.a", "Bad grid quality blocks synchronization; good quality restarts the 1000-call dwell");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -324,6 +424,7 @@ int main() {
         c.check("dwell restarted from zero", ticks >= sync_min_delay);
     }
     {
+        /** @test L0-GFL-05.b: Bad grid quality in CONNECT, CONNECTED or RUN trips BAD_GRID_QUALITY at once */
         tc::Criterion c("L0-GFL-05.b", "Bad grid quality in CONNECT, CONNECTED or RUN trips BAD_GRID_QUALITY at once");
         for (vsi_mode_t target : {VSI_GRID_CONNECT, VSI_GRID_CONNECTED, VSI_RUN}) {
             singlePhaseInverterFollowing inv;
@@ -345,6 +446,7 @@ int main() {
         }
     }
     {
+        /** @test L0-GFL-05.c: clearFault needs good grid quality and an open relay, then returns to OFF */
         tc::Criterion c("L0-GFL-05.c", "clearFault needs good grid quality and an open relay, then returns to OFF");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -362,6 +464,7 @@ int main() {
 
     // ---------------------------------------------------------------- L0-GFL-06
     {
+        /** @test L0-GFL-06.a: Non-finite measurements latch INVALID_MEASUREMENT with neutral duty and no PWM */
         tc::Criterion c("L0-GFL-06.a", "Non-finite measurements latch INVALID_MEASUREMENT with neutral duty and no PWM");
         for (int which = 0; which < 2; ++which) {
             singlePhaseInverterFollowing inv;
@@ -375,6 +478,7 @@ int main() {
         }
     }
     {
+        /** @test L0-GFL-06.b: Non-positive bus voltage latches INVALID_BUS_VOLTAGE */
         tc::Criterion c("L0-GFL-06.b", "Non-positive bus voltage latches INVALID_BUS_VOLTAGE");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -389,6 +493,7 @@ int main() {
         }
     }
     {
+        /** @test L0-GFL-06.c: Non-finite current reference or invalid frequency reference latches INVALID_REFERENCE */
         tc::Criterion c("L0-GFL-06.c", "Non-finite current reference or invalid frequency reference latches INVALID_REFERENCE");
         for (int which = 0; which < 4; ++which) {
             singlePhaseInverterFollowing inv;
@@ -402,6 +507,7 @@ int main() {
         }
     }
     {
+        /** @test L0-GFL-06.d: A latched fault keeps its first cause and ignores requests until cleared */
         tc::Criterion c("L0-GFL-06.d", "A latched fault keeps its first cause and ignores requests until cleared");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -423,6 +529,7 @@ int main() {
 
     // ---------------------------------------------------------------- L0-GFL-07
     {
+        /** @test L0-GFL-07.a: Duty is exactly 0.5 in OFF and VOLTAGE_SYNC */
         tc::Criterion c("L0-GFL-07.a", "Duty is exactly 0.5 in OFF and VOLTAGE_SYNC");
         singlePhaseInverterFollowing inv;
         Grid grid;
@@ -432,6 +539,7 @@ int main() {
         for (int n = 0; n < 5000; ++n) c.check("VOLTAGE_SYNC: 0.5", step(inv, grid) == 0.5F);
     }
     {
+        /** @test L0-GFL-07.b: Duty = alpha_output / (2 V_bus) + 0.5 every sample, unclamped */
         tc::Criterion c("L0-GFL-07.b", "Duty = alpha_output / (2 V_bus) + 0.5 every sample, unclamped");
         singlePhaseInverterFollowing inv;
         Grid grid;

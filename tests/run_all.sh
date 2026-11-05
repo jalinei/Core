@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
-# Run a test campaign and write its test record.
-#
-#   tests/run_all.sh          L0 then L1
-#   tests/run_all.sh --l0     L0 only
-#   tests/run_all.sh --l1     L1 only
-#
-# Record: tests/out/<YYYY-MM-DD>_<sha7>[-dirty]/record.md, plus one log per
-# test binary or script. Exit code is non-zero if any criterion is FAIL.
-# See docs/testing/test-procedure.md §7.
-
+## SPDX-License-Identifier: LGPL-2.1
+## Copyright (c) 2026 OWNTECH TECHNOLOGIES
+##
+## @file run_all.sh
+## @brief Runs a test campaign (L0 and/or L1) and writes its test record.
+##
+## Runs every tests/l0/*/run.sh and, when present, tests/l1/run.sh, logging
+## each one to the campaign folder. A script that exits non-zero without
+## reporting a FAIL itself (build error, crash, sanitizer abort) gets a FAIL
+## criterion added, so it cannot go unnoticed. tests/common/make_record.py then
+## writes record.md.
+##
+## Record folder: tests/out/<YYYY-MM-DD>_<sha7>[-dirty]/ (git-ignored).
+## @return 0 when the campaign passes; 1 on any FAIL or when no criterion was
+## reported; 2 on a bad option.
+## @see docs/testing/test-procedure.md §7, tests/README.md
+##
+## @par Usage
+##   tests/run_all.sh          # L0 then L1
+##   tests/run_all.sh --l0     # L0 only
+##   tests/run_all.sh --l1     # L1 only
 set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -17,7 +28,7 @@ for arg in "$@"; do
     case "$arg" in
         --l0) levels+=(L0) ;;
         --l1) levels+=(L1) ;;
-        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        -h|--help) sed -n '/^## @brief/,/^##   .*--l1/s/^## \{0,1\}//p' "$0"; exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
