@@ -9,6 +9,8 @@ plant_sha256_reviewed: 58839236cbd50d8564e36793e33aaa6ee3ab58935eed73dbf724a069d
 
 # Using the Core test procedure with full_model.pulsim
 
+> **Superseded in part (procedure 1.3, 2026-11-05).** Two recommendations below no longer apply: there will be no averaged plant ([ADR 0002](../adr/0002-switched-plant-only.md)), and the production startup slew rate is now 200 V/s ([worklog](worklog.md)). The rest of this review stands. The text is kept as written so its reasoning can be followed.
+
 The first executable integration milestone is now available in [tests/l1](../../tests/l1/README.md). The review observations below describe the pre-implementation checkout; the L1 README and generated campaign records describe the implemented scope and remaining prerequisites.
 
 ## 1. Recommendation
@@ -68,14 +70,9 @@ This establishes **source-identical application/control logic** across target, L
 
 ### Keep the production and accelerated profiles separate
 
-Core's `app::startup_ramp_rate` is **10 V/s**. A 0 → 400 V reference therefore takes approximately 40 s before pauses and handoff conditions. The previously agreed **200 V/s** profile belongs to our earlier experimental application; it is not the current Core baseline.
+Core's `app::startup_ramp_rate` was **10 V/s** at review time: a 0 → 400 V reference took about 40 s. The 200 V/s profile of the earlier experimental application was kept out of the baseline, and the rule was that it could enter only as a deliberate production change documented in the worklog and procedure.
 
-| Profile | Proposed treatment |
-|---|---|
-| Current application baseline | Use `controlInit` and all `app::` constants unchanged, including 10 V/s. This is the profile for existing L1-APP criteria. |
-| Accelerated 200 V/s | Keep as a separately identified experiment until an explicit, shared configuration mechanism exists for both target and host. Record its configuration and source revision separately. |
-
-Do not call `setStartupRampRate(200)` behind the firmware block's back and describe that run as the unchanged application. If 200 V/s is to become a supported target profile, introduce that production configuration deliberately, document it in the worklog/procedure, and build the corresponding host and target variants from it.
+That change was made on 2026-11-05, at Jean Alinei's request: `app::startup_ramp_rate` is now **200 V/s** in production, so target, L0 and L1 share one profile and the full startup lasts about 2 s. See the [worklog](worklog.md) entry. L1 checks read the rate from `src/app/control_step.h` (`tests/l1/app_constants.py`) instead of repeating it.
 
 Likewise, do not inherit the experimental simulation's 5–95% inverter duty policy as an undocumented target setting. Duty clamping, timer counts, modulation and dead time belong to the plant/hardware adapter and need their own source references.
 

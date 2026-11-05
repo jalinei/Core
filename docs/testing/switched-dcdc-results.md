@@ -8,6 +8,8 @@ The campaign record (`tests/out/2026-11-05_28f7f0f-dirty_181727_1IftGG/record.md
 
 ## Results by scenario
 
+These results were measured with the earlier 10 V/s startup slew rate. Production now uses 200 V/s ([worklog](worklog.md)); only the STARTUP row depends on it.
+
 | Scenario | Result | Scope |
 |---|---|---|
 | Healthy IDLE | PASS: legs disabled; observer qualification dwell 1.0001 s | Dwell begins at continuously eligible estimates; synchronization occurs at 1.1309 s from source start |

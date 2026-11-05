@@ -9,6 +9,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import numpy as np
 from runner import run,save
 from runtime import HERE
+from app_constants import STARTUP_RAMP_RATE
 
 
 def emit(id,verdict,description,limit,value):
@@ -57,15 +58,15 @@ def main():
             continue
         if case=='dcdc_startup':
             cold=[r for r in rows if r['cold_tick']==0]
-            errors=[abs(r['startup_ref']-.01*(i+1)) for i,r in enumerate(cold)]
-            # @test L1-APP-02.a: Real production reference advances 10 V/s.
-            ok=emit('L1-APP-02.a','PASS' if max(errors)<1e-4 else 'FAIL','STARTUP reference ramp over first 50 ms','10 V/s, 1e-4 V numerical tolerance',max(errors)) and ok
+            errors=[abs(r['startup_ref']-STARTUP_RAMP_RATE*1e-3*(i+1)) for i,r in enumerate(cold)]
+            # @test L1-APP-02.a: Real production reference advances at app::startup_ramp_rate.
+            ok=emit('L1-APP-02.a','PASS' if max(errors)<1e-4 else 'FAIL','STARTUP reference ramp over first 50 ms',f'{STARTUP_RAMP_RATE:g} V/s, 1e-4 V numerical tolerance',max(errors)) and ok
             peak=meta['electrical_step_extrema']['ILow1']['max']
             # @test L1-APP-02.b: Check physical current at every electrical step.
             ok=emit('L1-APP-02.b','PASS' if peak<=1. else 'FAIL','STARTUP physical leg-1 current over first 50 ms','<= 1 A at every 50 ns step',peak) and ok
             # @test L1-APP-02.c: Startup never enables converter 2.
             ok=emit('L1-APP-02.c','PASS' if all(r['en_leg2']==0 for r in rows) else 'FAIL','STARTUP keeps converter 2 disabled','always off',max(r['en_leg2'] for r in rows)) and ok
-            emit('L1-APP-02.d','BLOCKED','Full zero-to-400 V startup trajectory','complete 40 s switched run','Only first 50 ms executed; no full-ramp claim')
+            emit('L1-APP-02.d','BLOCKED','Full zero-to-400 V startup trajectory',f'complete {400/STARTUP_RAMP_RATE:g} s switched run (dcdc_startup_full.json)','Only first 50 ms executed; no full-ramp claim')
         elif case=='dcdc_busreg':
             a=scenario['acceptance'];window=(data['time']>=a['settled_window_s'][0]-1e-12)&(data['time']<=a['settled_window_s'][1]+1e-12)
             low=float(data['VDCBus'][window].min());high=float(data['VDCBus'][window].max())

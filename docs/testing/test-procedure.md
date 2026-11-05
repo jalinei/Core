@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 1.2 (draft) |
+| Procedure version | 1.3 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -140,7 +140,7 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 | L0-BST-02 | Leg 1 takes priority up to its current limit, leg 2 takes the excess, leg 2 is cleared when its demand stops | `splitCurrentReference` | Migrated |
 | L0-BST-03 | Cold-loop saturation sets the total current reference | voltage PID bounds | Migrated |
 | L0-BST-04 | MPPT perturb and observe: direction, turnaround at bounds, voltage ignored | `Mppt`, `MPPT_CURRENT_STEP` = 0.1 A | Migrated |
-| L0-BST-05 | STARTUP ramp starts from the measured voltage, follows the rate, does not overshoot, restarts from the measurement on re-entry | `setStartupRampRate`; `startup_ramp_rate` = 10 V/s in `main.cpp` | Migrated |
+| L0-BST-05 | STARTUP ramp starts from the measured voltage, follows the rate, does not overshoot, restarts from the measurement on re-entry | `setStartupRampRate` (class default 10 V/s); the application sets `app::startup_ramp_rate` = 200 V/s in `control_step.h` | Migrated |
 | L0-BST-06 | STARTUP current ceiling; converter 2 never enabled in STARTUP | `setStartupCurrentMax`; `startup_current_max` = 1 A | Migrated |
 | L0-BST-07 | Burst hysteresis: pause at ≥ upper bound, resume at ≤ lower bound, ramp frozen, no bypass, MPPT exempt | `updateBurstState`; 395 / 405 V in `main.cpp` | Migrated |
 
@@ -183,7 +183,7 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 | ID | Scenario | Criteria | Model | Status |
 |---|---|---|---|---|
 | L1-APP-01 | IDLE on a healthy grid | legs off; observer qualifies after 1 s ± 1 tick of continuously eligible estimates; PLL lock time `INFO` | switched | Implemented (.a–.b; .c INFO) |
-| L1-APP-02 | STARTUP from 0 V | bus reference follows 10 V/s; physical ILow1 ≤ 1 A at electrical steps; leg 2 never enabled | switched | Implemented first 50 ms (.a–.c); full 40 s trajectory .d pending |
+| L1-APP-02 | STARTUP from 0 V | bus reference follows `app::startup_ramp_rate` (200 V/s); physical ILow1 ≤ 1 A at electrical steps; leg 2 never enabled | switched | Implemented first 50 ms (.a–.c); full 2 s trajectory .d pending |
 | L1-APP-03 | BUSREG at 400 V | VDCBus within 395–405 V during 80–100 ms after load step at 50 ms; overshoot/current extrema `INFO` | switched | Implemented; preserve FAIL if outside band |
 | L1-APP-04 | Burst cycling at light load | start paused above 405 V, legs off, resume at 395 V; subsequent rising crossing and bus dip reported separately | switched | Initial pause/release implemented; repeated cycling pending if no later upper crossing |
 | L1-APP-05 | MPPT on the PV curve | settles near the maximum power point; tracking efficiency `INFO` | switched | BLOCKED (sustained MPPT fixture) |
@@ -213,7 +213,7 @@ These establish the execution/measurement boundary using the same Core source. T
 | L1-INT-00 | Build/runner failure before a reported criterion must fail the campaign | campaign runner | Infrastructure fallback |
 | L1-INT-01 | Wrapper matches direct controlStep; independent state; invalid ABI/timing rejected | `controlStep`, app-v1 contract | Implemented (.a–.c) |
 | L1-INT-02 | Pulsim actually loads native C-Block, executes once per 100 us, closes an RC loop and resets independently | `pulsim.add_c_block`, application period | Implemented (.a–.c) |
-| L1-INT-03 | Refined switched model, nominal 50 Hz sync with inverter off, exact current-probe binding and tick-aligned short STARTUP at 10 V/s | accepted plant, `controlStep`, `app::startup_ramp_rate` | Implemented (.a–.d) |
+| L1-INT-03 | Refined switched model, nominal 50 Hz sync with inverter off, exact current-probe binding and tick-aligned short STARTUP at `app::startup_ramp_rate` | accepted plant, `controlStep`, `app::startup_ramp_rate` | Implemented (.a–.d) |
 | L1-INT-04 | Missing VAC delivery holds last sample and invalidates at age 200; physical grid stays present | sensor hold contract, `grid_voltage_stale_ticks` | Implemented (.a–.b) |
 | L1-INT-05 | Native PV passive MPP load; actual Core MPPT coupling; initial 2 ms step refinement; short-run power ratio INFO | synthetic single-diode variant | Implemented (.a–.c PASS checks, .d INFO) |
 
@@ -400,6 +400,7 @@ flowchart LR
 | 1.0 | 2026-11-05 | User selects switching model only; remove averaged-model prerequisite. Implement formal nominal-grid, lost-VAC, first-50-ms startup, precharged bus regulation/load step and initial burst release criteria. Specify observation windows and partial-run limits; preserve measured failures. Keep production firmware unchanged and expose scenario fixtures/results through the GUI. |
 | 1.1 | 2026-11-05 | `src/app.ini` temporarily fetches the #1 fix branch (worklog). Records stamp the library's remote and branch, not only its commit. |
 | 1.2 | 2026-11-05 | L0-APP-03.c added (boot with a missing first VAC sample), exposed by the earlier L1-FWB-01 prototype; fails, filed as #2 and registered in §11. |
+| 1.3 | 2026-11-05 | Branch `test/microinverter-validation-v2`: Jean Alinei's switched L1 work adopted as the L1 implementation (user decision); the earlier L1-FWB-01 prototype and its contract v1 are retired, superseded by L1-INT-01/-02 and contract app-v1. Archived results removed from git: records stay local and are regenerated from their commit (§7). Switched plant only, no averaged variant ([ADR 0002](../adr/0002-switched-plant-only.md)). Production `app::startup_ramp_rate` raised from 10 to 200 V/s at Jean's request (worklog); L1 limits read it from `control_step.h`; full startup is now 2 s. |
 
 ## 11. Findings register
 

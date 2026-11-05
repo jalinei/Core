@@ -63,3 +63,16 @@ The leg enables are read before `scope.acquire()` instead of after; the scope do
 **Revert condition.** When the PR is merged into jalinei `main` (or replaced by another remedy), restore `single_phase_inverter = https://github.com/jalinei/single_phase_inverter`, delete `owntech/lib/USB/single_phase_inverter` so PlatformIO re-fetches it, run `tests/run_all.sh --l0`, close #1 with that campaign ID and mark it `Closed` in the findings register. If the PR is rejected, revert the same way and reopen the triage on #1.
 
 **Re-fetching.** PlatformIO does not always refresh a git dependency when only the URL or branch changes; deleting the library folder forces it.
+
+## 2026-11-05 — Raise the startup slew rate to 200 V/s
+
+| Field | Value |
+|---|---|
+| Commit | the `feat(app): raise the startup slew rate to 200 V/s` commit that adds this entry |
+| Files | `src/app/control_step.h` (`app::startup_ramp_rate` 10.0F → 200.0F) |
+| Reason | Requested by Jean Alinei, agreed by Luiz Villa. L1 uses the switched plant only ([ADR 0002](../adr/0002-switched-plant-only.md)); at 10 V/s the full 0 → 400 V startup is a 40 s run, hours of simulation at 50 ns. At 200 V/s it takes about 2 s |
+| Behaviour change | **Yes.** STARTUP raises the bus reference 20× faster: 0.2 V per 1 ms cold-loop call instead of 0.01 V; 0 → 400 V in about 2 s instead of 40 s. The startup current ceiling (1 A on leg 1) and every other constant are unchanged. Charging 120 µF at 200 V/s needs 24 mA at the bus, about 0.25 A from 40 V before losses, within the ceiling |
+| Evidence | Firmware builds (`pio run -e USB`). L0 campaign `2026-11-05_7b3857d-dirty_200722_RXHcr3`: 85 pass, 1 fail (known, #2), 11 info; L0-APP-01 reads the new value through `controlInit`. L1 campaign `2026-11-05_7b3857d-dirty_200921_gZABaa`: 24 pass, 1 fail (L1-APP-03.a, #3, unrelated to the ramp), 5 info, 9 blocked, the same counts as before the change. L1-INT-03.d and L1-APP-02.a measure the new rate (0.2 V after the first cold call; ramp error < 5 µV over 50 ms); L1-APP-02.b peak leg-1 current 0.605 A ≤ 1 A |
+| Hardware check | Not done. Before relying on it: on the board, run STARTUP from a discharged bus and check that ILow1 stays under the 1 A ceiling and the bus reaches 400 V without overshoot |
+
+The `BoostConverter` class default stays 10 V/s (L0-BST-05 tests the class); only the application's value changes. L1 checks now read the rate from `control_step.h` (`tests/l1/app_constants.py`) instead of repeating it, so a later change is picked up by the tests. `tests/l1/scenarios/dcdc_startup_full.json` now runs 2.5 s instead of 40 s; it is still run on demand, so L1-APP-02.d stays `BLOCKED` in the default campaign.

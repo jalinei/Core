@@ -11,10 +11,11 @@ from PySide6.QtWidgets import QApplication
 from pulsimgui.services.backend_adapter import BackendLoader,BackendInfo,BackendRunResult,PlaceholderBackend
 from pulsimgui.models.project import Project
 from runtime import HERE
+from app_constants import STARTUP_RAMP_RATE
 from runner import run,save
 from plant.create_gui import create
 
-INFO=BackendInfo(identifier='core-controlstep',name='Core controlStep C-Block',version='2.0.0',status='available',capabilities={'transient'},message='Actual Core app-v1 / 10 V/s / synchronization only')
+INFO=BackendInfo(identifier='core-controlstep',name='Core controlStep C-Block',version='2.0.0',status='available',capabilities={'transient'},message=f'Actual Core app-v1 / {STARTUP_RAMP_RATE:g} V/s / synchronization only')
 class Backend(PlaceholderBackend):
     """GUI adapter delegates execution to the same runner as command-line checks."""
     def __init__(self):super().__init__(INFO)

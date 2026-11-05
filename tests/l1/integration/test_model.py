@@ -9,6 +9,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import numpy as np
 from runner import run,save
 from runtime import HERE,CONTRACT
+from app_constants import STARTUP_RAMP_RATE
 
 def emit(id,ok,description,value):
     """Report one criterion using the campaign's existing protocol."""
@@ -33,7 +34,7 @@ def main():
     ok=emit('L1-INT-03.c',finite_current<1e-6 and np.max(abs(signals['ILow2']-signals['IP(DC2_Iin)']))<1e-6,'Physical current probe inputs retain native current offsets',finite_current) and ok
     _,_,rows,manifest=results['startup_short'];changed=[r for r in rows if r['boost_mode_changed']]
     # @test L1-INT-03.d: The scenario command reaches exactly its requested tick; Core owns scheduling.
-    ok=emit('L1-INT-03.d',len(changed)==1 and abs(changed[0]['time_s']-.001)<1e-12 and changed[0]['cold_tick']==0 and changed[0]['boost_mode']==1 and abs(rows[-1]['startup_ref']-.1)<1e-5 and manifest['finite_states'],'Tick-aligned STARTUP uses unchanged 10 V/s Core profile',[(r['time_s'],r['startup_ref']) for r in changed]) and ok
+    ok=emit('L1-INT-03.d',len(changed)==1 and abs(changed[0]['time_s']-.001)<1e-12 and changed[0]['cold_tick']==0 and changed[0]['boost_mode']==1 and abs(rows[-1]['startup_ref']-STARTUP_RAMP_RATE*1e-3*10)<1e-5 and manifest['finite_states'],f'Tick-aligned STARTUP uses unchanged {STARTUP_RAMP_RATE:g} V/s Core profile',[(r['time_s'],r['startup_ref']) for r in changed]) and ok
     _,signals,rows,manifest=results['vac_dropout'];trip=[r for r in rows if r['observer_trip']==1];fresh=[r for r in rows if r['vac_updated']==1]
     # @test L1-INT-04.a: Real VAC delivery loss holds the sample, ages to 200 and trips invalid measurement.
     ok=emit('L1-INT-04.a',bool(trip) and trip[0]['vac_age_ticks']==200 and abs(trip[0]['time_s']-fresh[-1]['time_s']-.02)<1e-10 and manifest['finite_states'],'VAC delivery dropout triggers Core stale detection after exactly 200 periods',trip[0]['time_s'] if trip else None) and ok

@@ -63,7 +63,7 @@ inline constexpr float32_t v_dc_bus_burst_resume = 395.0F;
 /** @brief VDCBus burst pause boundary, in V. */
 inline constexpr float32_t v_dc_bus_burst_pause = 405.0F;
 /** @brief STARTUP bus reference slew rate, in V/s. */
-inline constexpr float32_t startup_ramp_rate = 10.0F;
+inline constexpr float32_t startup_ramp_rate = 200.0F;
 /** @brief STARTUP current ceiling, in A, converter 1 only. */
 inline constexpr float32_t startup_current_max = 1.0F;
 /** @brief Leg 1 current limit, in A; leg 2 takes the excess. */

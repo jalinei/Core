@@ -6,10 +6,10 @@ The active test plan uses the supplied switching circuit throughout. There is no
 
 | Scenario | Initial bus | Simulation load | Run and observation window |
 |---|---|---|---|
-| `dcdc_startup.json` | 0 V | 20 kohm | First 50 ms; 10 V/s reference, physical leg-1 current <= 1 A, leg 2 disabled |
+| `dcdc_startup.json` | 0 V | 20 kohm | First 50 ms; reference at `app::startup_ramp_rate` (200 V/s), physical leg-1 current <= 1 A, leg 2 disabled |
 | `dcdc_busreg.json` | 400 V | 20 kohm, then parallel 10 kohm switched on at 50 ms | Run 100 ms; assess 395–405 V over 80–100 ms |
 | `dcdc_burst.json` | 406 V | 10 kohm | Run 150 ms; initial upper-bound pause and electrical discharge to 395 V; later upper crossing assessed separately |
-| `dcdc_startup_full.json` | 0 V | 20 kohm | Reproducible 40 s full-startup scenario; not part of the default short campaign |
+| `dcdc_startup_full.json` | 0 V | 20 kohm | 2.5 s full-startup scenario (2 s ramp at 200 V/s, then hold); not part of the default short campaign |
 
 All cases retain the ideal 40 V input, original source resistance, transformer model, switches, diodes, input/output filters and existing 200 kohm bleed. The inverter remains disabled, as in the real application. The separately named simulation load consumes the DCDC output power; it does not represent grid injection or an added board component. The load values are reproducible software fixtures within the controller's nominal input-power envelope, not measured appliance loads.
 
@@ -48,7 +48,7 @@ For a campaign folder, use its `dcdc_startup`, `dcdc_busreg` or `dcdc_burst` sub
 ## Coverage limits and next steps
 
 - L1-APP-01 checks IDLE and the one-second observer qualification dwell, measured from continuously healthy estimates rather than from source energization. Lock time remains INFO.
-- L1-APP-02 checks the first 50 ms. Its full-trajectory completion criterion stays BLOCKED until a complete run is assessed. A roughly 40 s reference ramp at 50 ns requires about 800 million electrical steps; this can take hours on this host. The scenario is available without substituting an averaged model or altering Core's 10 V/s ramp.
+- L1-APP-02 checks the first 50 ms. Its full-trajectory completion criterion stays BLOCKED until a complete run is assessed. At 200 V/s the ramp takes about 2 s; `dcdc_startup_full.json` runs 2.5 s, about 50 million electrical steps at 50 ns, roughly 30 minutes on this host. It is run on demand, not in the default campaign. No averaged model is substituted.
 - L1-APP-03 assesses the explicitly declared regulation window. Keep failure evidence and investigate current control, sampling, actuator mapping and fixture transients before changing gains.
 - L1-APP-04 checks initial pause/disable and release. If the bus never returns to 405 V during the run, subsequent rising-edge and repeated-cycle coverage remains BLOCKED; an initial pause alone is not a completed cycling test.
 - L1-APP-08 assesses actual lost VAC delivery and the 200-period stale threshold using the switching model.

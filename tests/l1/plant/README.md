@@ -10,7 +10,7 @@ The output-filter reference image is in `reference/output_filter.png`. Input/DC/
 
 `create_gui.py` appends signal-only native firmware-block, scenario-source and timer-adapter representations to a disposable GUI view under `derived/`. It never rewrites the accepted snapshot. The main controller block has ten inputs and 32 command/telemetry outputs. It is executed via Pulsim's native C-Block API in the same runner used for tests. Power paths stay explicitly wired; only signal/control routing uses Goto/From.
 
-The user selected switching only; an averaged variant is not a prerequisite or planned deliverable. Long 10 V/s startup, sustained PV MPPT and repeated burst cycling still need coverage. Standalone commands are in `../README.md`.
+The user selected switching only; an averaged variant is not a prerequisite or planned deliverable. The full 2 s startup, sustained PV MPPT and repeated burst cycling still need coverage. Standalone commands are in `../README.md`.
 
 PV source options, native feasibility results and the proposed implementation path are documented in the [PV model assessment](../../../docs/testing/pv-model-assessment.md). `assess_pv_source.py` is a standalone synthetic source bench; it does not enable PV capability in the accepted plant or change formal campaign verdicts. Run it with Core's `.venv/bin/python`.
 
