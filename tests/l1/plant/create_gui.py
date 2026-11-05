@@ -13,8 +13,9 @@ from pulsimgui.utils.net_utils import build_node_map
 from pulsimgui.models.component import Component,ComponentType as T,Pin
 from pulsimgui.models.wire import Wire,WireSegment,WireConnection
 
-def create(pv=False,scenario=None):
-    """Write a disposable derived view; never change the accepted model snapshot."""
+def create(pv=False,scenario=None,dest=None):
+    """Write a disposable derived view; never change the accepted model snapshot.
+    @param dest Folder for the derived .pulsim (default plant/derived/)."""
     project=Project.load(HERE/'plant/full_model.pulsim')
     if pv:
         from plant.pv import apply
@@ -65,7 +66,7 @@ def create(pv=False,scenario=None):
             for pin in timer.pins:
                 if pin.name=='OUT':port(timer,pin.index,f'DC{channel}_pwm_{role}',False)
                 elif pin.name=='DUTY_IN':port(timer,pin.index,f'duty_leg{channel}',True)
-    dest=HERE/'plant/derived';dest.mkdir(exist_ok=True)
+    dest=Path(dest) if dest else HERE/'plant/derived';dest.mkdir(parents=True,exist_ok=True)
     project.name='Core controlStep — L1 integration (sync only)';project.simulation_settings.tstop=1.3
     project.simulation_settings.dt=1e-6;project.simulation_settings.max_step=1e-6
     if pv:

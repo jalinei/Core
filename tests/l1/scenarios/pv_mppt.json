@@ -1,10 +1,21 @@
 {
   "name": "synthetic-pv-mppt-short",
+  "title": "Synthetic PV panel in MPPT",
+  "purpose": "The ideal 40 V source is replaced by a synthetic single-diode PV panel (57 W) and a 2.8 k\u03a9 bus load; MPPT from t = 0. Integration check of the PV source and of the MPPT coupling over short runs; it does not judge tracking efficiency.",
+  "criteria": [
+    "L1-INT-05"
+  ],
   "plant_variant": "pv",
   "duration_s": 0.02,
-  "dt_s": 5e-8,
-  "store_period_s": 1e-5,
+  "dt_s": 5e-08,
+  "store_period_s": 1e-05,
   "commands": [
-    {"time_s": 0, "mode": 3, "sync_request": 1, "v_bus_ref": 400, "vac_updated": 1}
+    {
+      "time_s": 0,
+      "mode": 3,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+    }
   ]
 }

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 1.4 (draft) |
+| Procedure version | 1.5 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -333,6 +333,9 @@ counts: { PASS: 41, FAIL: 6, INFO: 6, BLOCKED: 12 }
 | `<scenario>/control.csv` | One row per 100 µs control tick: firmware inputs and outputs |
 | `<scenario>/waveforms.npz` | Electrical states at the scenario's storage period |
 | `<scenario>/manifest.json` | Scenario, model and firmware identity, peaks between samples |
+| `<scenario>/model.pulsim` | The exact model the scenario ran on (accepted model + fixture + firmware block); opens in PulsimGUI |
+| `<scenario>/model_power.png`, `model_full.png` | Pictures of that model: power stage, and everything |
+| `<scenario>/model_changes.json` | Every parameter the fixture changed (initial voltages…) and every component it added (loads, switches) |
 
 ### 8.4 Failure follow-up
 
@@ -361,12 +364,25 @@ Rules:
 
 ### 8.5 Reviewing a campaign
 
-Every campaign writes `tests/out/<campaign>/report.html`. It is the **one file to open** after a run, by whoever ran it or whoever is asked to check it. The review is the same three steps every time:
+Every campaign writes `tests/out/<campaign>/report.html`. It is the **one file to open** after a run, by whoever ran it or whoever is asked to check it.
+
+**Every test result has the same four parts.** In the report, each L1 test case (one scenario run) is a section with, in this order:
+
+| Part | Content | Source |
+|---|---|---|
+| Purpose, then **1 · Test conditions and objectives** | What the test is for; plant, input source, **DC bus state at t = 0 (precharged or discharged)**, loads and when they switch, grid, operator command timeline, firmware revision and profile, simulation length and step; the criteria judged, with their limits | scenario `title`/`purpose`/`criteria`, run manifest, model snapshot |
+| **2 · Model snapshot** | Picture of the power stage as run, the full picture, the exact `model.pulsim` and the command that opens it in PulsimGUI; a table of every change from the accepted model | `tests/l1/plant/snapshot.py` |
+| **3 · Results** | Each criterion with its verdict, finding and measured value | result lines |
+| **4 · Figures** | One plot per waveform criterion (conventions below) | `tests/l1/review_plots.json` |
+
+The same four parts apply to any written results report (for example `switched-dcdc-results.md`) and to diagnostics posted on an issue: conditions first, so no reader has to infer how the test was set up.
+
+The review is the same three steps every time:
 
 | Step | Look at | Pass if |
 |---|---|---|
 | 1 | **Banner**: counts, new failures, known failures, findings ready to close | No new failure, or each new failure has an issue (§8.4); counts as expected |
-| 2 | **Plots, failures first**: the judged signal (thick line) against its limits (dashed), inside the judged window (shaded); the driving signals in the panels below | The plot shows the same verdict as the badge, and nothing in the driving signals looks unexplained |
+| 2 | **Each test case, failures first**: purpose and conditions table first (initial state, loads, commands), then the figures: the judged signal (thick line) against its limits (dashed), inside the judged window (shaded), with the driving signals below | The conditions are what you expect for that test, the plot shows the same verdict as the badge, and nothing in the driving signals looks unexplained |
 | 3 | **Changes since the previous campaign**: verdicts that changed, measured values that moved by more than 1 %, criteria added or not run | Each change has a known reason (a commit, a fix, a new test) |
 
 Then sign off in the record's front matter: `reviewed: <name>, <date>, OK` or `questions: <what>`. Records are local (§7), so a campaign that supports a decision (closing a finding, a production change, a release) is also quoted by ID in the issue or commit, with its review status.
@@ -430,6 +446,7 @@ flowchart LR
 | 1.2 | 2026-11-05 | L0-APP-03.c added (boot with a missing first VAC sample), exposed by the earlier L1-FWB-01 prototype; fails, filed as #2 and registered in §11. |
 | 1.3 | 2026-11-05 | Branch `test/microinverter-validation-v2`: Jean Alinei's switched L1 work adopted as the L1 implementation (user decision); the earlier L1-FWB-01 prototype and its contract v1 are retired, superseded by L1-INT-01/-02 and contract app-v1. Archived results removed from git: records stay local and are regenerated from their commit (§7). Switched plant only, no averaged variant ([ADR 0002](../adr/0002-switched-plant-only.md)). Production `app::startup_ramp_rate` raised from 10 to 200 V/s at Jean's request (worklog); L1 limits read it from `control_step.h`; full startup is now 2 s. L1-APP-03.a FAIL filed as #3 (§11). |
 | 1.4 | 2026-11-05 | §8.5 review routine: every campaign writes `report.html` (banner, one plot per waveform criterion with limits and window drawn, changes since the previous campaign, full table), defined by `tests/l1/review_plots.json`; sign-off line in the record. §8.3 lists the files a campaign actually writes. |
+| 1.5 | 2026-11-05 | §8.5: every test result has four parts (purpose + conditions and objectives, model snapshot, results, figures); the review page is organised per test case. Scenarios carry `title`, `purpose` and `criteria`. Each scenario folder keeps the exact model it ran on, its pictures and its changes from the accepted model (§8.3). The contract profile name follows the 200 V/s change (`Core-app-default-200Vps-sync-only`). |
 
 ## 11. Findings register
 

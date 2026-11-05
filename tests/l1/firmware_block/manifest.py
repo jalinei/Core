@@ -18,10 +18,11 @@ paths=[]
 for depfile in Path(sys.argv[2]).glob('*.d'):
     dependencies=depfile.read_text().replace('\\\n',' ').partition(':')[2]
     paths += [Path(name) for name in shlex.split(dependencies) if Path(name).is_file()]
+CONTRACT=json.loads((Path(__file__).resolve().parents[1]/'contract.json').read_text())
 manifest={'core_commit':git(REPO,'rev-parse','HEAD'),'core_dirty':bool(git(REPO,'status','--porcelain')),
  'inverter_commit':git(INV,'rev-parse','HEAD'),'inverter_dirty':bool(git(INV,'status','--porcelain')),
  'inverter_path':str(INV),'control_library_commit':git(CTL,'rev-parse','HEAD'),
- 'contract':'app-v1','profile':'Core-app-default-10Vps-sync-only','compiler':subprocess.check_output([os.environ.get('CXX','g++'),'--version'],text=True).splitlines()[0],
+ 'contract':CONTRACT['version'],'profile':CONTRACT['application_profile'],'compiler':subprocess.check_output([os.environ.get('CXX','g++'),'--version'],text=True).splitlines()[0],
  'dependency_tracking':'compiler -MMD transitive headers',
  'flags':['-std=c++17','-O1','-g','-fPIC','-fsanitize=undefined','-fno-sanitize-recover=undefined'],
  'sources':{str(p):digest(p) for p in sorted(set(paths))},'library_sha256':digest(Path(__file__).parent/'build/libcore_control.so')}

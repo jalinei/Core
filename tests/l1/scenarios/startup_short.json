@@ -1,1 +1,27 @@
-{"name":"integration-startup-short","duration_s":0.01,"dt_s":5e-8,"store_period_s":0.00001,"commands":[{"time_s":0,"mode":0,"sync_request":1,"v_bus_ref":400,"vac_updated":1},{"time_s":0.001,"mode":1,"sync_request":1,"v_bus_ref":400,"vac_updated":1}]}
+{
+  "name": "integration-startup-short",
+  "title": "Short STARTUP command, integration check",
+  "purpose": "IDLE for 1 ms, then STARTUP. Checks that the command lands on its control tick and that the startup reference advances at the production ramp rate. 10 ms only; it is not the startup performance test (see the DC/DC startup case).",
+  "criteria": [
+    "L1-INT-03.d"
+  ],
+  "duration_s": 0.01,
+  "dt_s": 5e-08,
+  "store_period_s": 1e-05,
+  "commands": [
+    {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+    },
+    {
+      "time_s": 0.001,
+      "mode": 1,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+    }
+  ]
+}

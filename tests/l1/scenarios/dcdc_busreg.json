@@ -1,9 +1,34 @@
 {
   "name": "switched-busreg-load-step",
+  "title": "DC/DC bus regulation with a load step",
+  "purpose": "Bus PRECHARGED to 400 V (the converter does not charge it), 20 k\u03a9 load, then a parallel 10 k\u03a9 switched in at 50 ms. BUSREG from t = 0 with the controllers starting from controlInit. Checks that the bus is back within 395\u2013405 V over 80\u2013100 ms.",
+  "criteria": [
+    "L1-APP-03"
+  ],
   "duration_s": 0.1,
-  "dt_s": 5e-8,
-  "store_period_s": 1e-6,
-  "fixture": {"initial_bus_V": 400, "load_ohm": 20000, "load_step_s": 0.05, "step_load_ohm": 10000},
-  "acceptance": {"settled_window_s": [0.08, 0.1], "bus_min_V": 395, "bus_max_V": 405},
-  "commands": [{"time_s": 0, "mode": 2, "sync_request": 1, "v_bus_ref": 400, "vac_updated": 1}]
+  "dt_s": 5e-08,
+  "store_period_s": 1e-06,
+  "fixture": {
+    "initial_bus_V": 400,
+    "load_ohm": 20000,
+    "load_step_s": 0.05,
+    "step_load_ohm": 10000
+  },
+  "acceptance": {
+    "settled_window_s": [
+      0.08,
+      0.1
+    ],
+    "bus_min_V": 395,
+    "bus_max_V": 405
+  },
+  "commands": [
+    {
+      "time_s": 0,
+      "mode": 2,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+    }
+  ]
 }

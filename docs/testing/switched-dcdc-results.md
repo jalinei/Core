@@ -6,6 +6,18 @@ The switching-only L1 campaign on 2026-11-05 reports **24 PASS, 1 FAIL, 5 INFO a
 
 The campaign record (`tests/out/2026-11-05_28f7f0f-dirty_181727_1IftGG/record.md`) contains every criterion, its verdict and the raw-data links. This was an L1-only campaign; the previously recorded L0 frequency finding was neither retested nor closed here.
 
+## Test conditions and objectives
+
+All three cases use the switched model, an ideal 40 V source (100 mΩ), the board's 200 kΩ bleed, the grid present at 230 V / 50 Hz with the inverter and relay off, and a 50 ns step. Each case's review page also shows a picture of the model as run and every change from the accepted model (procedure §8.5).
+
+| Case | DC bus at t = 0 | Loads | Commands | Objective (criterion) |
+|---|---|---|---|---|
+| `dcdc_startup` | **discharged, 0 V** | 20 kΩ from t = 0 | STARTUP from t = 0 | Reference ramps at the production rate; leg-1 current ≤ 1 A; leg 2 off, over the first 50 ms (L1-APP-02) |
+| `dcdc_busreg` | **precharged, 400 V** (split capacitors 200 V; primary capacitor 26.7 V) | 20 kΩ from t = 0, plus 10 kΩ at 50 ms | BUSREG from t = 0, controllers from `controlInit` | Bus within 395–405 V over 80–100 ms (L1-APP-03) |
+| `dcdc_burst` | **precharged, 406 V** | 10 kΩ from t = 0 | BUSREG from t = 0 | Starts paused with legs off; releases at 395 V; later rise to 405 V (L1-APP-04) |
+
+The precharged cases start the converter on a full bus with its controllers reset: the converter has not charged that bus itself. See [finding #3](https://github.com/luizvilla/Core/issues/3) for why that matters.
+
 ## Results by scenario
 
 These results were measured with the earlier 10 V/s startup slew rate. Production now uses 200 V/s ([worklog](worklog.md)); only the STARTUP row depends on it.

@@ -1,5 +1,10 @@
 {
   "name": "switched-startup-full",
+  "title": "DC/DC full startup (on demand)",
+  "purpose": "Bus discharged, 20 k\u03a9 load, STARTUP for 2.5 s: the whole 0 \u2192 400 V ramp at 200 V/s. About 30 minutes of simulation; not part of the default campaign.",
+  "criteria": [
+    "L1-APP-02.d"
+  ],
   "duration_s": 2.5,
   "dt_s": 5e-08,
   "store_period_s": 0.0001,

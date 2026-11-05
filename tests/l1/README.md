@@ -46,7 +46,9 @@ At the reviewed dependency revision, the L0 baseline has 80 PASS, five known FAI
 - `firmware_block/`: documented ABI wrapper, strict/UBSan shared-library build, source manifest.
 - `contract.json`: app-v1 input/output indices and explicit actuator assumptions.
 - `runtime.py`: native C-Block attachment and target-style stop/update/hold precedence.
-- `plant/`: imported, hash-checked switched model, parameter/provenance manifest, native translation, derived GUI view.
+- `plant/`: imported, hash-checked switched model, parameter/provenance manifest, native translation, derived GUI view; `snapshot.py` saves the exact model each scenario ran on (model.pulsim, pictures, changes from the accepted model) for the review page.
+- `review_plots.json`: the review-page figure of each waveform criterion (procedure §8.5).
+- `diagnostics/`: scripts that explain a failing criterion; INFO only.
 - `scenarios/`: operator command/sample-delivery timelines only.
 - `runner.py`: plant time stepping, source delivery, raw data and provenance.
 - `integration/`: direct-reference, RC and switched-model integration checks.

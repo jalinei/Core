@@ -1,6 +1,6 @@
 {
   "version": "app-v1",
-  "application_profile": "Core-app-default-10Vps-sync-only",
+  "application_profile": "Core-app-default-200Vps-sync-only",
   "control_period_s": 0.0001,
   "inputs": ["VLow", "ILow1", "ILow2", "VDCBus", "VAC", "IAC", "vac_updated", "mode", "sync_request", "v_bus_ref"],
   "outputs": ["duty_leg1", "duty_leg2", "en_leg1", "en_leg2", "boost_mode_changed", "boost_pwm_update", "duty_bridge", "en_bridge", "theta", "w", "observer_rms", "observer_hz", "observer_trip", "inverter_mode", "synchronized", "grid_qualified", "burst_paused", "startup_ref", "i_ref1", "i_ref2", "v_alpha", "v_beta", "v_d", "v_q", "vac_age_ticks", "cold_tick", "boost_mode", "invocations", "block_error", "inverter_pwm_requested", "relay_requested", "inverter_fault"],

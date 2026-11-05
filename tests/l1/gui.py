@@ -10,7 +10,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 from pulsimgui.services.backend_adapter import BackendLoader,BackendInfo,BackendRunResult,PlaceholderBackend
 from pulsimgui.models.project import Project
-from runtime import HERE
+from runtime import HERE,CONTRACT
 from app_constants import STARTUP_RAMP_RATE
 from runner import run,save
 from plant.create_gui import create
@@ -84,7 +84,7 @@ def main():
         if '--check-run' in sys.argv:
             def finished(r):
                 assert r.is_valid,r.error_message
-                assert r.statistics['native_cblock'] and r.statistics['profile']=='Core-app-default-10Vps-sync-only'
+                assert r.statistics['native_cblock'] and r.statistics['profile']==CONTRACT['application_profile']
                 if args.pv:assert 'pv_power' in r.signals and r.statistics['pv_model_available']
                 print('GUI Run executed the actual Core C-Block:',len(r.time),'points',flush=True)
                 QTimer.singleShot(50,app.quit)

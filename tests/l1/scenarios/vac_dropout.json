@@ -1,1 +1,28 @@
-{"name":"integration-vac-delivery-dropout","duration_s":0.035,"dt_s":1e-6,"store_period_s":0.0001,"commands":[{"time_s":0,"mode":0,"sync_request":1,"v_bus_ref":400,"vac_updated":1},{"time_s":0.01,"mode":0,"sync_request":1,"v_bus_ref":400,"vac_updated":0}]}
+{
+  "name": "integration-vac-delivery-dropout",
+  "title": "Grid voltage samples lost",
+  "purpose": "The grid stays electrically present, but the firmware stops receiving fresh VAC samples at 10 ms. Checks that the last sample is held and that the observer trips InvalidMeasurement after exactly 200 control periods (20 ms).",
+  "criteria": [
+    "L1-INT-04",
+    "L1-APP-08"
+  ],
+  "duration_s": 0.035,
+  "dt_s": 1e-06,
+  "store_period_s": 0.0001,
+  "commands": [
+    {
+      "time_s": 0,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 1
+    },
+    {
+      "time_s": 0.01,
+      "mode": 0,
+      "sync_request": 1,
+      "v_bus_ref": 400,
+      "vac_updated": 0
+    }
+  ]
+}
