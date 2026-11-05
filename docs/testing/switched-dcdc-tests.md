@@ -48,7 +48,7 @@ For a campaign folder, use its `dcdc_startup`, `dcdc_busreg` or `dcdc_burst` sub
 ## Coverage limits and next steps
 
 - L1-APP-01 checks IDLE and the one-second observer qualification dwell, measured from continuously healthy estimates rather than from source energization. Lock time remains INFO.
-- L1-APP-02 checks the first 50 ms. Its full-trajectory completion criterion stays BLOCKED until a complete run is assessed. At 200 V/s the ramp takes about 2 s; `dcdc_startup_full.json` runs 2.5 s, about 50 million electrical steps at 50 ns, roughly 30 minutes on this host. It is run on demand, not in the default campaign. No averaged model is substituted.
+- L1-APP-02 checks the first 50 ms. Its full-trajectory completion criterion stays BLOCKED until a complete run is assessed. At 200 V/s the ramp takes about 2 s; `dcdc_startup_full.json` runs 2.5 s, about 50 million electrical steps at 50 ns: about 30 minutes on Jean's machine, about 1.3 hours on Luiz's laptop. It is run on demand, not in the default campaign. No averaged model is substituted.
 - L1-APP-03 assesses the explicitly declared regulation window. Keep failure evidence and investigate current control, sampling, actuator mapping and fixture transients before changing gains.
 - L1-APP-04 checks initial pause/disable and release. If the bus never returns to 405 V during the run, subsequent rising-edge and repeated-cycle coverage remains BLOCKED; an initial pause alone is not a completed cycling test.
 - L1-APP-08 assesses actual lost VAC delivery and the 200-period stale threshold using the switching model.

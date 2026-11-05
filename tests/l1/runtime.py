@@ -33,14 +33,20 @@ def attach(builder,wires,dt):
                          dt=CONTRACT['control_period_s'],lib=str(LIB),name='Core',sim_dt=dt)
     raw_extra=block.b_extra_fn
     rows=[builder.pool.branch_var_id_for_source(builder.branch_id_of(f'Core_out{i}'),builder.graph) for i in range(len(NAMES))]
+    cache={'fire':None,'extra':None}
     def diagnostic_extra(t):
         # Observer intentionally emits NaN telemetry on invalid/stale samples.
         # Preserve those raw block outputs in logs, but do not inject a NaN
         # diagnostic-only voltage into the electrical matrix. Actuator NaNs fail.
+        # The stamp depends only on the block outputs, which change once per control
+        # tick (n_fires), not per electrical step: rebuild it only when they change.
+        # Pulsim copies the returned list before summing, so sharing it is safe.
+        if cache['fire']==block.n_fires:return cache['extra']
         if not np.isfinite(block.outputs[:8]).all():raise RuntimeError('Non-finite actuator command')
         extra=raw_extra(t)
         for i in range(8,len(NAMES)):
             if not np.isfinite(block.outputs[i]):extra[rows[i]]=0.
+        cache['fire']=block.n_fires;cache['extra']=extra
         return extra
     block.b_extra_fn=diagnostic_extra
     return block
