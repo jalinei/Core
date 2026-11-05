@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 0.1 (draft) |
+| Procedure version | 0.2 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -109,6 +109,8 @@ Format: `<level>-<object>-<nn>`. A criterion inside a case adds a letter: `L1-AP
 | `GFL` | Grid-following inverter controller (library) |
 | `APP` | Application control step |
 
+When the same criterion runs once per mode, the mode is appended: `L0-BST-07.a-startup`, `L0-BST-07.a-busreg`.
+
 IDs are never reused. A retired case keeps its ID with status `RETIRED` in the catalogue.
 
 ## 5. Verdicts
@@ -130,24 +132,24 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 
 | ID | Behaviour | Source | Status |
 |---|---|---|---|
-| L0-BST-01 | Invalid init, measurements or burst bounds never enable a leg | `BoostConverter::init`, `isLeg1Enabled`, `isLeg2Enabled` | Exists (assert), to migrate |
-| L0-BST-02 | Leg 1 takes priority up to its current limit, leg 2 takes the excess, leg 2 is cleared when its demand stops | `splitCurrentReference` | Exists, to migrate |
-| L0-BST-03 | Cold-loop saturation sets the total current reference | voltage PID bounds | Exists, to migrate |
-| L0-BST-04 | MPPT perturb and observe: direction, turnaround at bounds, voltage ignored | `Mppt`, `MPPT_CURRENT_STEP` = 0.1 A | Exists, to migrate |
-| L0-BST-05 | STARTUP ramp starts from the measured voltage, follows the rate, does not overshoot, restarts from the measurement on re-entry | `setStartupRampRate`; `startup_ramp_rate` = 10 V/s in `main.cpp` | Exists, to migrate |
-| L0-BST-06 | STARTUP current ceiling; converter 2 never enabled in STARTUP | `setStartupCurrentMax`; `startup_current_max` = 1 A | Exists, to migrate |
-| L0-BST-07 | Burst hysteresis: pause at ≥ upper bound, resume at ≤ lower bound, ramp frozen, no bypass, MPPT exempt | `updateBurstState`; 395 / 405 V in `main.cpp` | Exists, to migrate |
+| L0-BST-01 | Invalid init, measurements or burst bounds never enable a leg | `BoostConverter::init`, `isLeg1Enabled`, `isLeg2Enabled` | Migrated |
+| L0-BST-02 | Leg 1 takes priority up to its current limit, leg 2 takes the excess, leg 2 is cleared when its demand stops | `splitCurrentReference` | Migrated |
+| L0-BST-03 | Cold-loop saturation sets the total current reference | voltage PID bounds | Migrated |
+| L0-BST-04 | MPPT perturb and observe: direction, turnaround at bounds, voltage ignored | `Mppt`, `MPPT_CURRENT_STEP` = 0.1 A | Migrated |
+| L0-BST-05 | STARTUP ramp starts from the measured voltage, follows the rate, does not overshoot, restarts from the measurement on re-entry | `setStartupRampRate`; `startup_ramp_rate` = 10 V/s in `main.cpp` | Migrated |
+| L0-BST-06 | STARTUP current ceiling; converter 2 never enabled in STARTUP | `setStartupCurrentMax`; `startup_current_max` = 1 A | Migrated |
+| L0-BST-07 | Burst hysteresis: pause at ≥ upper bound, resume at ≤ lower bound, ramp frozen, no bypass, MPPT exempt | `updateBurstState`; 395 / 405 V in `main.cpp` | Migrated |
 
 ### 6.2 L0-GOB — grid observer
 
 | ID | Behaviour | Source | Status |
 |---|---|---|---|
-| L0-GOB-01 | Not operable before init; invalid config rejected | `GridObserver::init`, `canOperate` | Exists, to migrate |
-| L0-GOB-02 | Qualification dwell; restart on dropout; no nuisance trip when the grid is absent at startup | `qualification_time_s` = 1 s | Exists, to migrate |
-| L0-GOB-03 | RMS and frequency estimates accurate on a clean grid | `getVoltageRms`, `getFrequencyHz` | Exists, to migrate |
-| L0-GOB-04 | UV, OV, UF, OF trip after their delay; shorter events do not trip | 207–253 V, 47.5–52.5 Hz, 0.1 s delays in `grid_observer_config` | Exists, to migrate |
-| L0-GOB-05 | Trip latches; clearing needs a full healthy interval and open-relay feedback | `clearTrip` | Exists, to migrate |
-| L0-GOB-06 | Invalid measurement trips with reason `InvalidMeasurement` | `update(..., measurements_valid)` | To write |
+| L0-GOB-01 | Not operable before init; invalid config rejected | `GridObserver::init`, `canOperate` | Migrated |
+| L0-GOB-02 | Qualification dwell; restart on dropout; no nuisance trip when the grid is absent at startup | `qualification_time_s` = 1 s | Migrated |
+| L0-GOB-03 | RMS and frequency estimates accurate on a clean grid | `getVoltageRms`, `getFrequencyHz` | Migrated |
+| L0-GOB-04 | UV, OV, UF, OF trip after their delay; shorter events do not trip | 207–253 V, 47.5–52.5 Hz, 0.1 s delays in `grid_observer_config` | Migrated |
+| L0-GOB-05 | Trip latches; clearing needs a full healthy interval and open-relay feedback | `clearTrip` | Migrated |
+| L0-GOB-06 | Invalid measurement trips with reason `InvalidMeasurement` | `update(..., measurements_valid)` | Migrated (already covered by the original test) |
 
 ### 6.3 L0-GFL — grid-following inverter (library)
 
@@ -337,3 +339,4 @@ flowchart LR
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-11-05 | First draft: scope, levels, contract v0, catalogue, record format, commit plan |
+| 0.2 | 2026-11-05 | L0-BST and L0-GOB migrated to per-criterion checks, no assertion removed. L0-GOB-06 was already covered by the original test. Criteria added to existing cases where the original test checked more than the catalogue listed: L0-GOB-04.e (opposite excursions), 04.f (negative frequency, first cause kept), 04.g (zero delays). Mode suffix for per-mode criteria. |
