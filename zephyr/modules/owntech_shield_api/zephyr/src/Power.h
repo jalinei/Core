@@ -88,7 +88,7 @@ public:
 	 * @brief Initialize burst mode for the selected capable shield legs.
 	 * Call after leg initialization, before starting the timers or burst mode.
 	 * Legs without the device tree property `burst-mode-capable` are skipped.
-	 * The generator is shared; the last initialized leg selects its clock.
+	 * The generator is shared and uses the master timer clock.
 	 *
 	 * @param leg Leg to initialize, or `ALL` for all capable shield legs.
 	 */

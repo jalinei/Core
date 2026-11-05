@@ -574,7 +574,7 @@ public:
      /**
       * @brief   Initialize burst mode for one PWM channel.
       *          Call before starting the channel's timer or burst mode.
-      *          Generator settings are shared; the last call selects the clock.
+      *          Generator settings are shared and use the master timer clock.
       *
       * @param[in] pwmX PWM channel: `PWMA` through `PWMF`.
       */

@@ -1421,8 +1421,11 @@ void hrtim_burst_mode_init(hrtim_tu_number_t tu_number){
     /* Burst mode operate continuously when software triggered */
     LL_HRTIM_BM_SetMode(HRTIM1, LL_HRTIM_BM_MODE_CONTINOUS);
 
-    /* The burst clock is shared by all participating channels. */
-    LL_HRTIM_BM_SetClockSrc(HRTIM1, tu->pwm_conf.burst_clk);
+    /* The shared burst generator always uses the master timer clock. */
+    LL_HRTIM_BM_SetClockSrc(HRTIM1, LL_HRTIM_BM_CLKSRC_MASTER);
+    /* Load the initial settings immediately; subsequent changes take effect
+     * at a burst boundary rather than shortening the current burst. */
+    LL_HRTIM_BM_DisablePreload(HRTIM1);
 
     /* Only this channel's outputs enter idle during burst mode. */
     LL_HRTIM_OUT_SetIdleMode(HRTIM1, tu->gpio_conf.OUT_H,
@@ -1447,6 +1450,7 @@ void hrtim_burst_set(int bm_cmp, int bm_per){
 }
 
 void hrtim_burst_start(void){
+    LL_HRTIM_BM_EnablePreload(HRTIM1);
     /* Software trigger starting burst mode*/
     LL_HRTIM_BM_Start(HRTIM1);
 }
@@ -1454,6 +1458,7 @@ void hrtim_burst_start(void){
 void hrtim_burst_stop(void){
     /* Software trigger stopping burst mode*/
     LL_HRTIM_BM_Stop(HRTIM1);
+    LL_HRTIM_BM_DisablePreload(HRTIM1);
 }
 
 void hrtim_burst_dis(void){

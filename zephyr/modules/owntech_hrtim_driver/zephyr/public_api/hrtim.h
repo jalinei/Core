@@ -412,8 +412,7 @@ void hrtim_dt_init(hrtim_tu_number_t tu_number);
  *          idling the output on a low state. It is used in light load
  *          conditions to minimize switching losses.
  *          Call before enabling the channel's timer or starting burst mode.
- *          The generator settings are shared; the last initialized channel
- *          selects the burst clock for all participating channels.
+ *          The generator settings are shared and use the master timer clock.
  *
  * @param[in] tu_number PWM channel: `PWMA` through `PWMF`.
  */
