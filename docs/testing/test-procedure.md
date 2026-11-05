@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 0.4 (draft) |
+| Procedure version | 0.5 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -67,8 +67,11 @@ Every parameter in the model cites its source (schematic, datasheet or measureme
 The control logic of `loop_critical_task` is extracted into a hardware-free function (the **control step**):
 
 ```cpp
-ControlOutputs controlStep(const Measurements&, const OperatorCommands&);
+int8_t controlInit(ControlState&);
+ControlOutputs controlStep(ControlState&, const Measurements&, const OperatorCommands&);
 ```
+
+`ControlState` holds the boost, inverter and grid observer and the per-tick state; `controlInit` applies the application's tuning (`app::` constants in `src/app/control_step.h`). Taking the state explicitly lets each test and the L1 firmware block hold its own instance.
 
 `main.cpp` keeps reading sensors and writing PWM through the shield API. On the host, L0 calls `controlStep` directly. For L1, `controlStep` and the controller sources are compiled into a shared library that exports the Pulsim C-Block ABI (`pulsim_cblock_step`) and runs every 100 µs. Pulsim holds the outputs (zero-order hold) between steps.
 
@@ -167,11 +170,11 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 
 | ID | Behaviour | Source | Status |
 |---|---|---|---|
-| L0-APP-01 | A mode change stops both legs and runs the cold loop on the same tick | critical task, mode-change block | To write (needs seam) |
-| L0-APP-02 | Cold loop runs every 10th tick | `cold_loop_divider` = 10 | To write (needs seam) |
-| L0-APP-03 | VAC stale for more than 20 ms makes the measurement invalid, which trips the observer | `grid_voltage_stale_ticks` = 200 | To write (needs seam) |
-| L0-APP-04 | Bridge PWM is never enabled, in any mode or command | critical task, "Synchronization only" | To write (needs seam) |
-| L0-APP-05 | Grid quality passed to the inverter comes only from the observer's `canOperate()` | `setGridQuality(grid_observer.canOperate())` | To write (needs seam) |
+| L0-APP-01 | A mode change stops both legs and runs the cold loop on the same tick | critical task, mode-change block | To write (seam ready) |
+| L0-APP-02 | Cold loop runs every 10th tick | `cold_loop_divider` = 10 | To write (seam ready) |
+| L0-APP-03 | VAC stale for more than 20 ms makes the measurement invalid, which trips the observer | `grid_voltage_stale_ticks` = 200 | To write (seam ready) |
+| L0-APP-04 | Bridge PWM is never enabled, in any mode or command | critical task, "Synchronization only" | To write (seam ready) |
+| L0-APP-05 | Grid quality passed to the inverter comes only from the observer's `canOperate()` | `setGridQuality(grid_observer.canOperate())` | To write (seam ready) |
 
 ### 6.5 L1-APP — application with the averaged plant model
 
@@ -359,3 +362,4 @@ flowchart LR
 | 0.2 | 2026-11-05 | L0-BST and L0-GOB migrated to per-criterion checks, no assertion removed. L0-GOB-06 was already covered by the original test. Criteria added to existing cases where the original test checked more than the catalogue listed: L0-GOB-04.e (opposite excursions), 04.f (negative frequency, first cause kept), 04.g (zero delays). Mode suffix for per-mode criteria. |
 | 0.3 | 2026-11-05 | L0-GFL implemented. Off-nominal frequency criteria use a 20 ms mean of the PLL estimate, because the estimate carries a 100 Hz ripple away from 50 Hz. L0-GFL-03 split into frequency tracking (.a) and re-synchronization (.b). |
 | 0.4 | 2026-11-05 | §7.3 test code documentation rules: README per test folder, Core license and Doxygen style in C/C++, `@test` tag per criterion, `##` Doxygen headers in shell and Python. Applied to all existing test code. L0-GFL-03.b failure filed as luizvilla/Core#1. |
+| 0.5 | 2026-11-05 | Control step extracted to `src/app/control_step.{h,cpp}` with `controlInit` and an explicit `ControlState` (worklog entry of the same date). |

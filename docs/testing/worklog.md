@@ -23,4 +23,28 @@ The procedure tests existing features. It must not change behaviour. Each entry 
 
 ## Entries
 
-_No production-code changes yet. The first planned entry is the `controlStep` seam extraction (commit 5 of the plan in [test-procedure.md](test-procedure.md#9-commit-plan))._
+## 2026-11-05 — Extract the control step from the critical task
+
+| Field | Value |
+|---|---|
+| Commit | the `refactor(app): extract controlStep …` commit that adds this entry (parent `566d9b3`) |
+| Files | `src/app/control_step.h` (new), `src/app/control_step.cpp` (new), `src/main.cpp`, `zephyr/CMakeLists.txt` |
+| Reason | L0-APP and L1 must run the application's real control logic and tuning without the shield API ([ADR 0001](../adr/0001-firmware-in-the-loop-via-pulsim.md)) |
+| Behaviour change | None intended. Two timing differences inside one tick, listed below |
+| Evidence | Firmware builds (`pio run -e USB`) with the same warning set as a full rebuild of the parent; flash +256 B (146 916 → 147 172), RAM +7 B. `control_step.cpp` compiles on the host with `-Wall -Wextra -Werror`. L0 campaign unchanged: 69 pass, 1 fail (L0-GFL-03.b, pre-existing), 7 info. L0-APP tests on the seam follow in the next commit |
+| Hardware check | Not done. Recommended before L1: flash, run `i → p → b → m → c → i` from the serial menu and compare telemetry with the parent commit |
+
+**What moved, unchanged.** From `loop_critical_task()`: boost measurement and reference updates, mode-change handling, the cold-loop divider, the hot loop, inverter bus update and sync/disconnect request, `calculateDuty`, grid observer update with the stale-VAC flag, grid-quality gating and the grid angle. From `setup_routine()`: controller `init` calls, startup ramp rate, startup current ceiling, bus reference and burst bounds, same order and values. From the globals: timing constants, PID tuning, grid constants and the observer configuration, now `app::` constants in `control_step.h`. The three controllers and the per-tick state (`cold_loop_tick`, `previous_mode`, `grid_voltage_age_ticks`) are now members of `ControlState`.
+
+**What stays in `main.cpp`.** Sensor reads with last-value hold, the serial menu (which only sets `mode`, `inverter_sync_requested`, `voltage_reference`), telemetry, the scope, and every `shield.power.*` call.
+
+**Order of hardware calls in a tick.** Unchanged: on a mode change `stop(LEG1_LOW)`, `stop(LEG2_LOW)`; then, if the mode is not IDLE, `setDutyCycle` ×2 and `start`/`stop` per leg; then `stop(LEG1_HIGH)`, `stop(LEG2_HIGH)`.
+
+**Timing differences inside a tick:**
+
+1. On a mode change, the two boost legs are now stopped **after** the control computation instead of before it, so for the duration of that computation (tens of µs) they keep the previous period's duty. They are stopped before any new duty is written, as before.
+2. The VAC staleness counter is now updated at the start of `controlStep` instead of during the sensor read. Nothing reads it in between, so its value at the observer update is the same.
+
+The leg enables are read before `scope.acquire()` instead of after; the scope does not touch the boost controller, so the values are the same. Operator commands are captured once per tick at the call to `controlStep`; the communication task cannot preempt the critical task, so this matches the previous reads.
+
+**Signature.** The procedure sketched `controlStep(Measurements, OperatorCommands)`; the implementation also takes the `ControlState` explicitly, so tests and the L1 firmware block can hold independent instances instead of sharing hidden globals.

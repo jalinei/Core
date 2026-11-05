@@ -37,9 +37,7 @@
 #include "TaskAPI.h"
 
 /*--------------OWNTECH Libraries----------------------------- */
-#include "boost_converter/boost.h"
-#include "singlePhaseInverterFollowing.h"
-#include "grid_observer/gridObserver.h"
+#include "app/control_step.h"
 #include <math.h>
 #include "ScopeMimicry.h"
 
@@ -57,11 +55,7 @@ void loop_critical_task();
 
 /*--------------USER VARIABLES DECLARATIONS------------------- */
 
-/* [us] period of the control task */
-static constexpr uint32_t control_task_period = 100;
-/* Run the boost voltage/startup or MPPT cold loop every ten critical ticks. */
-static constexpr uint8_t cold_loop_divider = 10U;
-static uint8_t cold_loop_tick;
+/* Timing, controller tuning and the control logic itself live in app/control_step. */
 
 uint8_t received_serial_char;
 
@@ -74,53 +68,23 @@ static float32_t v_dc_bus_value;
 static float32_t i_low_1_value;
 static float32_t i_low_2_value;
 static float32_t i_ac_value;
+/* A new VAC sample arrived in this critical tick. */
+static bool v_ac_updated;
 
 /* Temporary storage fore measured value (ctrl task) */
 static float meas_data;
 
-static constexpr float32_t duty_cycle_min = 0.05F;
 static BoostDutyCycles boost_duty;
 static uint16_t leg1_low_deadtime_ns = 100;
 static uint16_t leg2_low_deadtime_ns = 100;
 static constexpr uint16_t deadtime_step_ns = 10;
 static constexpr uint16_t deadtime_min_ns = 40;
 
-/* Controller timing and initial tuning; validate gains/current limits on hardware. */
-static constexpr float32_t hot_loop_period = control_task_period * 1e-6F;
-static constexpr float32_t cold_loop_period = hot_loop_period * cold_loop_divider;
 /* Shared boost output capacitor feeding the DC/AC stage (VDCBus). */
-static float32_t voltage_reference = 400.0F;
-static constexpr float32_t v_dc_bus_burst_resume = 395.0F;
-static constexpr float32_t v_dc_bus_burst_pause = 405.0F;
-static constexpr float32_t startup_ramp_rate = 10.0F; // V/s.
-static constexpr float32_t startup_current_max = 1.0F; // A, converter 1 only.
-static constexpr float32_t leg1_current_limit = 1.0F;
-static const PidParams boost_voltage_params = {
-    cold_loop_period, 0.05F, 0.1F, 0.0F, 0.0F, 0.0F, 2.0F
-};
-static const PidParams boost_current_params = {
-    hot_loop_period, 0.000215F, 7.5175e-5F, 0.0F, 0.0F, duty_cycle_min, 0.95F
-};
-static BoostConverter boost_converter;
-static singlePhaseInverterFollowing inverter;
-static GridObserver grid_observer;
+static float32_t voltage_reference = app::initial_voltage_reference;
+/* Boost, inverter and grid observer, with the state kept between control steps. */
+static ControlState control;
 
-static constexpr float32_t grid_frequency_hz = 50.0F;
-static constexpr float32_t grid_angular_frequency = 2.0F * PI * grid_frequency_hz;
-static constexpr float32_t grid_voltage_peak = 230.0F * 1.41421356F;
-/* Initial engineering settings, not a grid-code protection profile. Voltage and
- * frequency windows match the VSI's existing synchronization tolerances.
- * Validate thresholds, delays and SOGI/PLL response before grid operation.
- */
-static const GridObserverConfig grid_observer_config = {
-    hot_loop_period,
-    230.0F * 0.9F, 230.0F * 1.1F,
-    grid_frequency_hz * 0.95F, grid_frequency_hz * 1.05F,
-    0.1F, 0.1F, 1.0F
-};
-/* Invalidate the observer if no new VAC sample arrives for 20 ms. */
-static constexpr uint32_t grid_voltage_stale_ticks = 200U;
-static uint32_t grid_voltage_age_ticks = grid_voltage_stale_ticks;
 /* One nominal 50 Hz period at the 10 kHz critical task rate. */
 static constexpr uint32_t v_ac_rms_window_sample_count = 200U;
 static float32_t grid_angle;
@@ -179,7 +143,7 @@ void setup_routine()
         printk("inverter initialization failed\n");
         return;
     }
-    shield.power.setDutyCycleMin(ALL, duty_cycle_min);
+    shield.power.setDutyCycleMin(ALL, app::duty_cycle_min);
     shield.sensors.enableSensor(VLow, ADC_1);
     shield.sensors.enableSensor(VAC, ADC_1);
     shield.sensors.enableSensor(VDCBus, ADC_1);
@@ -188,20 +152,13 @@ void setup_routine()
     shield.sensors.enableSensor(IAC, ADC_2);
 
     spin.gpio.configurePin(22, OUTPUT);
-    if (boost_converter.init(IDLE, voltage_reference, boost_voltage_params,
-                   boost_current_params, leg1_current_limit) != 0 ||
-        inverter.init(voltage_reference, grid_voltage_peak,
-                      grid_angular_frequency, hot_loop_period) != 0 ||
-        !grid_observer.init(grid_observer_config))
+    const int8_t init_result = controlInit(control);
+    if (init_result == -1)
     {
         printk("controller initialization failed\n");
         return;
     }
-    inverter.setGridQuality(grid_observer.canOperate());
-    boost_converter.setStartupRampRate(startup_ramp_rate);
-    boost_converter.setStartupCurrentMax(startup_current_max);
-    boost_converter.setVBusRef(voltage_reference);
-    if (boost_converter.setVBusBurstBounds(v_dc_bus_burst_resume, v_dc_bus_burst_pause) != 0)
+    if (init_result != 0)
     {
         printk("invalid VDCBus burst boundaries\n");
         return;
@@ -215,7 +172,7 @@ void setup_routine()
     /* Then declare tasks */
     uint32_t app_task_number = task.createBackground(loop_application_task);
     uint32_t com_task_number = task.createBackground(loop_communication_task);
-    task.createCritical(loop_critical_task, control_task_period);
+    task.createCritical(loop_critical_task, app::control_task_period);
 
     /* Finally, start tasks */
     task.startBackground(app_task_number);
@@ -278,7 +235,7 @@ void loop_communication_task()
         break;
     case 'u':
         // Keep the bus target below the configured burst cutoff.
-        if (voltage_reference + 1.0F < v_dc_bus_burst_pause) voltage_reference += 1.0F;
+        if (voltage_reference + 1.0F < app::v_dc_bus_burst_pause) voltage_reference += 1.0F;
         break;
     case 'd':
         voltage_reference -= 1.0F;
@@ -345,7 +302,7 @@ void loop_application_task()
     printk("%7.3f:", (double)i_ac_value);
     printk("%7.3f:", (double)v_dc_bus_value);
     printk("%u:%u\n", static_cast<unsigned int>(mode),
-           static_cast<unsigned int>(boost_converter.isBurstPaused()));
+           static_cast<unsigned int>(control.boost.isBurstPaused()));
     task.suspendBackgroundMs(100);
 }
 
@@ -360,17 +317,18 @@ void loop_application_task()
  */
 void loop_critical_task()
 {
+    /*----- Read sensors, holding the last valid value ----- */
     meas_data = shield.sensors.getLatestValue(ILow1);
     if (meas_data != NO_VALUE) i_low_1_value = meas_data;
 
     meas_data = shield.sensors.getLatestValue(VLow);
     if (meas_data != NO_VALUE) v_low_value = meas_data;
 
-    if (grid_voltage_age_ticks < grid_voltage_stale_ticks) ++grid_voltage_age_ticks;
+    v_ac_updated = false;
     meas_data = shield.sensors.getLatestValue(VAC);
     if (meas_data != NO_VALUE)
     {
-        grid_voltage_age_ticks = 0U;
+        v_ac_updated = true;
         v_ac_value = meas_data;
     }
 
@@ -386,58 +344,44 @@ void loop_critical_task()
         v_dc_bus_value = meas_data;
     }
 
-    boost_converter.setILow1(i_low_1_value);
-    boost_converter.setILow2(i_low_2_value);
-    boost_converter.setVLow(v_low_value);
-    boost_converter.setVBus(v_dc_bus_value);
-    boost_converter.setVBusRef(voltage_reference);
+    /*----- Control logic (hardware-free, see app/control_step.h) ----- */
+    Measurements meas;
+    meas.i_low_1 = i_low_1_value;
+    meas.i_low_2 = i_low_2_value;
+    meas.v_low = v_low_value;
+    meas.v_dc_bus = v_dc_bus_value;
+    meas.v_ac = v_ac_value;
+    meas.i_ac = i_ac_value;
+    meas.v_ac_updated = v_ac_updated;
 
-    const boost_mode requested_mode = mode;
-    const bool sync_only = inverter_sync_requested;
-    static boost_mode previous_mode = IDLE;
-    if (requested_mode != previous_mode)
+    OperatorCommands cmd;
+    cmd.mode = mode;
+    cmd.sync_requested = inverter_sync_requested;
+    cmd.v_bus_ref = voltage_reference;
+
+    const ControlOutputs out = controlStep(control, meas, cmd);
+    boost_duty = out.boost_duty;
+    grid_angle = out.grid_angle;
+
+    /*----- Apply PWM commands ----- */
+    if (out.boost_mode_changed)
     {
         shield.power.stop(LEG1_LOW);
         shield.power.stop(LEG2_LOW);
-        boost_converter.setMode(requested_mode);
-        // Run the new mode's cold loop on this tick, using the measurements above.
-        cold_loop_tick = cold_loop_divider - 1U;
-        previous_mode = requested_mode;
     }
 
-    if (++cold_loop_tick >= cold_loop_divider)
-    {
-        cold_loop_tick = 0U;
-        boost_converter.coldLoop();
-    }
-    boost_duty = boost_converter.hotLoop();
-
-    /* Keep the PLL running in idle, using a positive bus value for duty scaling. */
-    if (isfinite(v_dc_bus_value) && v_dc_bus_value > 0.0F)
-    {
-        inverter.setVBus(v_dc_bus_value);
-    }
-    if (sync_only) inverter.requestSync();
-    else inverter.requestDisconnect();
-    inverter.calculateDuty(v_ac_value, i_ac_value);
-    const clarke_t grid_voltage_ab = inverter.getVab();
-    grid_observer.update(grid_voltage_ab.alpha, grid_voltage_ab.beta, inverter.getw(),
-                         grid_voltage_age_ticks < grid_voltage_stale_ticks);
-    /* Grid quality qualifies synchronization; this application never connects. */
-    inverter.setGridQuality(grid_observer.canOperate());
-    grid_angle = inverter.getTheta();
     if (!is_scope_downloading)
     {
         scope.acquire();
     }
 
-    if (requested_mode != IDLE)
+    if (out.boost_pwm_update)
     {
-        shield.power.setDutyCycle(LEG1_LOW, boost_duty.leg1);
-        shield.power.setDutyCycle(LEG2_LOW, boost_duty.leg2);
-        if (boost_converter.isLeg1Enabled()) shield.power.start(LEG1_LOW);
+        shield.power.setDutyCycle(LEG1_LOW, out.boost_duty.leg1);
+        shield.power.setDutyCycle(LEG2_LOW, out.boost_duty.leg2);
+        if (out.leg1_enable) shield.power.start(LEG1_LOW);
         else shield.power.stop(LEG1_LOW);
-        if (boost_converter.isLeg2Enabled()) shield.power.start(LEG2_LOW);
+        if (out.leg2_enable) shield.power.start(LEG2_LOW);
         else shield.power.stop(LEG2_LOW);
     }
 
