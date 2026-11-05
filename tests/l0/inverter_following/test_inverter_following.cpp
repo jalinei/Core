@@ -1,0 +1,453 @@
+// L0-GFL: grid-following inverter controller from the single_phase_inverter
+// library (jalinei/single_phase_inverter, main), open loop.
+// Test cases: docs/testing/test-procedure.md §6.3.
+//
+// The grid is a synthetic sine fed sample by sample; nothing the controller
+// outputs feeds back into it. Relay feedback is driven directly through
+// setGridConnected(). Settings are the application's: 400 V bus, 230 V RMS,
+// 50 Hz, 100 µs control period.
+//
+// Limits come from the library's own documentation and constants:
+//   synchronization: Vd within ±10 % of the nominal peak, |Vq| < 0.1 V,
+//                    |w - w_ref| < 5 % of w_ref, for 1000 consecutive calls;
+//   connection and disconnection timeouts: 1 s;
+//   duty = alpha_output / (2 V_bus) + 0.5, unclamped.
+// Durations the library does not state (lock time, tracking time, phase
+// error) are reported as INFO. The simulation horizons below (5 s, 3 s) only
+// bound the test; they are not requirements.
+
+#include "singlePhaseInverterFollowing.h"
+#include "check.h"
+
+#include <cmath>
+#include <limits>
+#include <string>
+
+namespace {
+
+constexpr float Ts = 1e-4F;
+constexpr float V_bus = 400.0F;
+constexpr float V_pk = 230.0F * 1.41421356F;
+constexpr double two_pi = 6.283185307179586;
+constexpr float w0 = static_cast<float>(two_pi * 50.0);
+constexpr int sync_min_delay = 1000;  // _sync_min_delay
+constexpr int ticks_per_s = 10000;
+const float f_nan = std::numeric_limits<float>::quiet_NaN();
+const float f_inf = std::numeric_limits<float>::infinity();
+
+/// Synthetic grid: v = amplitude * cos(phase), i = current * cos(phase).
+struct Grid {
+    double phase = 1.0;  // arbitrary non-zero start so the PLL has to move
+    double hz = 50.0;
+    double amplitude = V_pk;
+    double current = 0.0;
+
+    float v() const { return static_cast<float>(amplitude * std::cos(phase)); }
+    float i() const { return static_cast<float>(current * std::cos(phase)); }
+    void advance() { phase = std::fmod(phase + two_pi * hz * Ts, two_pi); }
+};
+
+double wrap(double angle) {
+    angle = std::fmod(angle + M_PI, two_pi);
+    if (angle < 0) angle += two_pi;
+    return angle - M_PI;
+}
+
+float step(singlePhaseInverterFollowing &inv, Grid &grid) {
+    const float duty = inv.calculateDuty(grid.v(), grid.i());
+    grid.advance();
+    return duty;
+}
+
+/// Runs until the controller reaches `mode`; returns the number of ticks, or -1.
+int runUntilMode(singlePhaseInverterFollowing &inv, Grid &grid, vsi_mode_t mode, int max_ticks) {
+    for (int n = 1; n <= max_ticks; ++n) {
+        step(inv, grid);
+        if (inv.getMode() == mode) return n;
+    }
+    return -1;
+}
+
+bool initDefault(singlePhaseInverterFollowing &inv) {
+    return inv.init(V_bus, V_pk, w0, Ts) == 0;
+}
+
+/// Fresh controller, connection requested, run until GRID_CONNECT.
+bool reachConnect(tc::Criterion &c, singlePhaseInverterFollowing &inv, Grid &grid) {
+    c.check("init", initDefault(inv));
+    inv.requestConnect();
+    return c.check("reaches GRID_CONNECT within 5 s",
+                   runUntilMode(inv, grid, VSI_GRID_CONNECT, 5 * ticks_per_s) > 0);
+}
+
+/// Fresh controller driven to RUN with relay feedback closed.
+bool reachRun(tc::Criterion &c, singlePhaseInverterFollowing &inv, Grid &grid) {
+    if (!reachConnect(c, inv, grid)) return false;
+    inv.setGridConnected(true);
+    step(inv, grid);
+    inv.requestRun();
+    inv.setIdqRef({1.0F, 0.0F, 0.0F});
+    step(inv, grid);
+    return c.check("reaches RUN", inv.getMode() == VSI_RUN);
+}
+
+}  // namespace
+
+int main() {
+    // ---------------------------------------------------------------- L0-GFL-01
+    {
+        tc::Criterion c("L0-GFL-01.a", "Valid init starts in OFF with no fault, no PWM and no relay request");
+        singlePhaseInverterFollowing inv;
+        c.check("init returns 0", initDefault(inv));
+        c.check("mode OFF", inv.getMode() == VSI_OFF);
+        c.check("fault NONE", inv.getFaultReason() == VSI_FAULT_NONE);
+        c.check("no PWM request", !inv.isPwmRequested());
+        c.check("no relay request", !inv.isGridConnectionRequested());
+        c.near("estimated w = w0", inv.getw(), w0, 1e-3);
+    }
+    {
+        tc::Criterion c("L0-GFL-01.b", "Invalid init parameters return -EINVAL and latch INVALID_CONFIGURATION");
+        struct Bad { const char *what; float vbus, vpk, w, ts; };
+        const Bad bad[] = {
+            {"V_bus = 0", 0.0F, V_pk, w0, Ts},       {"V_bus < 0", -1.0F, V_pk, w0, Ts},
+            {"V_bus NaN", f_nan, V_pk, w0, Ts},        {"V_bus f_inf", f_inf, V_pk, w0, Ts},
+            {"V_pk = 0", V_bus, 0.0F, w0, Ts},       {"w0 = 0", V_bus, V_pk, 0.0F, Ts},
+            {"Ts = 0", V_bus, V_pk, w0, 0.0F},       {"w0*Ts >= pi", V_bus, V_pk, w0, 0.02F},
+        };
+        for (const Bad &b : bad) {
+            singlePhaseInverterFollowing inv;
+            c.check(b.what, inv.init(b.vbus, b.vpk, b.w, b.ts) == -EINVAL);
+            c.check("mode FAULT", inv.getMode() == VSI_FAULT);
+            c.check("reason INVALID_CONFIGURATION",
+                    inv.getFaultReason() == VSI_FAULT_INVALID_CONFIGURATION);
+            Grid grid;
+            c.check("neutral duty", step(inv, grid) == 0.5F);
+            c.check("no PWM request", !inv.isPwmRequested());
+        }
+    }
+    {
+        tc::Criterion c("L0-GFL-01.c", "A successful init after an invalid one clears the fault");
+        singlePhaseInverterFollowing inv;
+        c.check("invalid init", inv.init(0.0F, V_pk, w0, Ts) == -EINVAL);
+        c.check("valid init", initDefault(inv));
+        c.check("mode OFF", inv.getMode() == VSI_OFF);
+        c.check("fault NONE", inv.getFaultReason() == VSI_FAULT_NONE);
+    }
+    {
+        tc::Criterion c("L0-GFL-01.d", "calculateDuty before init latches INVALID_CONFIGURATION with neutral duty");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        c.check("neutral duty", step(inv, grid) == 0.5F);
+        c.check("mode FAULT", inv.getMode() == VSI_FAULT);
+        c.check("reason INVALID_CONFIGURATION", inv.getFaultReason() == VSI_FAULT_INVALID_CONFIGURATION);
+    }
+
+    // ---------------------------------------------------------------- L0-GFL-02
+    {
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        initDefault(inv);
+        inv.requestSync();
+        int lock_tick = -1;
+        bool requested_hardware = false;
+        bool left_sync = false;
+        for (int n = 1; n <= 5 * ticks_per_s; ++n) {
+            step(inv, grid);
+            requested_hardware |= inv.isPwmRequested() || inv.isGridConnectionRequested();
+            left_sync |= n > 1 && inv.getMode() != VSI_VOLTAGE_SYNC;
+            if (lock_tick < 0 && inv.getSync()) lock_tick = n;
+        }
+        {
+            tc::Criterion c("L0-GFL-02.a", "PLL synchronizes on a clean 230 V / 50 Hz grid (5 s horizon)");
+            c.check("getSync() true", lock_tick > 0);
+            c.check("still synchronized at end", inv.getSync());
+            c.near("frequency estimate (Hz)", inv.getw() / two_pi, 50.0, 2.5);  // ±5 % of w_ref
+            c.range("Vd within ±10 % of peak (V)", inv.getVdq().d, 0.9 * V_pk, 1.1 * V_pk);
+            c.range("|Vq| < 0.1 V", inv.getVdq().q, -0.1, 0.1);
+        }
+        {
+            tc::Criterion c("L0-GFL-02.b", "Synchronization only never requests PWM or relay closure");
+            c.check("no PWM or relay request at any tick", !requested_hardware);
+            c.check("mode stays VOLTAGE_SYNC", !left_sync);
+        }
+        tc::info("L0-GFL-02.c", "Time to getSync() true from a 1 rad phase offset (includes 1000-call dwell)",
+                 lock_tick > 0 ? lock_tick * Ts : -1.0, "s");
+        tc::info("L0-GFL-02.d", "Steady-state phase error after 5 s",
+                 wrap(inv.getTheta() - (grid.phase - two_pi * grid.hz * Ts)) * 180.0 / M_PI, "deg");
+        tc::info("L0-GFL-02.e", "Steady-state frequency error after 5 s", inv.getw() / two_pi - 50.0, "Hz");
+
+        // ------------------------------------------------------------ L0-GFL-03
+        // Off-nominal, the estimate carries a 100 Hz ripple, so frequency is
+        // judged on a 20 ms moving mean (two ripple periods).
+        grid.hz = 51.0;
+        constexpr int window = 200;
+        double ring[window] = {};
+        double sum = 0.0;
+        int last_outside = 0;
+        int ticks_unsynced = 0;
+        float vq_peak = 0.0F;
+        for (int n = 1; n <= 3 * ticks_per_s; ++n) {
+            step(inv, grid);
+            const double f = inv.getw() / two_pi;
+            sum += f - ring[n % window];
+            ring[n % window] = f;
+            if (n < window || std::fabs(sum / window - 51.0) > 0.05) last_outside = n;
+            if (!inv.getSync()) ++ticks_unsynced;
+            if (n > 2 * ticks_per_s) vq_peak = std::fmax(vq_peak, std::fabs(inv.getVdq().q));
+        }
+        {
+            tc::Criterion c("L0-GFL-03.a", "PLL frequency estimate follows a 50 → 51 Hz step (3 s horizon)");
+            c.near("20 ms mean of the estimate (Hz)", sum / window, 51.0, 0.05 * 50.0);  // ±5 % of w_ref
+        }
+        {
+            tc::Criterion c("L0-GFL-03.b", "Synchronized again at 51 Hz, inside the library's ±5 % frequency window (3 s horizon)");
+            c.check("getSync() true at end", inv.getSync());
+            c.range("|Vq| peak over the last 1 s (V)", vq_peak, 0.0, 0.1);  // _sync_voltage_tolerance
+        }
+        tc::info("L0-GFL-03.c", "Time until the 20 ms mean estimate stays within 51 ± 0.05 Hz",
+                 last_outside * Ts, "s");
+        tc::info("L0-GFL-03.d", "Time not synchronized after the step (of 3 s)", ticks_unsynced * Ts, "s");
+        tc::info("L0-GFL-03.e", "Steady-state error of the 20 ms mean estimate at 51 Hz", sum / window - 51.0, "Hz");
+        tc::info("L0-GFL-03.f", "Peak |Vq| ripple at 51 Hz (sync tolerance 0.1 V)", vq_peak, "V");
+    }
+
+    // ---------------------------------------------------------------- L0-GFL-04
+    {
+        tc::Criterion c("L0-GFL-04.a", "Lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → CONNECTED → STOPPING → DISCONNECT → OFF");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        c.check("init", initDefault(inv));
+        inv.requestConnect();
+        step(inv, grid);
+        c.check("OFF → VOLTAGE_SYNC on request", inv.getMode() == VSI_VOLTAGE_SYNC);
+        c.check("no PWM in VOLTAGE_SYNC", !inv.isPwmRequested());
+        const int to_connect = runUntilMode(inv, grid, VSI_GRID_CONNECT, 5 * ticks_per_s);
+        c.check("reaches GRID_CONNECT", to_connect > 0);
+        c.check("not before the 1000-call dwell", to_connect >= sync_min_delay);
+        c.check("CONNECT requests relay and PWM", inv.isGridConnectionRequested() && inv.isPwmRequested());
+        for (int n = 0; n < 100; ++n) step(inv, grid);
+        c.check("waits in GRID_CONNECT without feedback", inv.getMode() == VSI_GRID_CONNECT);
+        inv.setGridConnected(true);
+        step(inv, grid);
+        c.check("feedback → GRID_CONNECTED", inv.getMode() == VSI_GRID_CONNECTED);
+        inv.setIdqRef({1.0F, 0.0F, 0.0F});
+        inv.requestRun();
+        step(inv, grid);
+        c.check("requestRun → RUN", inv.getMode() == VSI_RUN);
+        inv.requestStop();
+        step(inv, grid);
+        c.check("requestStop → GRID_CONNECTED", inv.getMode() == VSI_GRID_CONNECTED);
+        grid.current = 2.0;  // current still flowing: must hold STOPPING
+        for (int n = 0; n < 200; ++n) step(inv, grid);
+        inv.requestDisconnect();
+        step(inv, grid);
+        c.check("requestDisconnect with current → STOPPING", inv.getMode() == VSI_STOPPING);
+        c.check("STOPPING keeps PWM and relay", inv.isPwmRequested() && inv.isGridConnectionRequested());
+        grid.current = 0.0;
+        c.check("current decays → DISCONNECT", runUntilMode(inv, grid, VSI_DISCONNECT, ticks_per_s / 2) > 0);
+        c.check("DISCONNECT: PWM off, relay open requested",
+                !inv.isPwmRequested() && !inv.isGridConnectionRequested());
+        inv.setGridConnected(false);
+        step(inv, grid);
+        c.check("open feedback → OFF", inv.getMode() == VSI_OFF);
+        c.check("no fault on the way", inv.getFaultReason() == VSI_FAULT_NONE);
+    }
+    {
+        tc::Criterion c("L0-GFL-04.b", "Relay never confirms closing: CONNECTION_TIMEOUT after 1 s");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (reachConnect(c, inv, grid)) {
+            const int ticks = runUntilMode(inv, grid, VSI_FAULT, 2 * ticks_per_s);
+            c.near("time in GRID_CONNECT (s)", ticks * Ts, 1.0, 2 * Ts);
+            c.check("reason CONNECTION_TIMEOUT", inv.getFaultReason() == VSI_FAULT_CONNECTION_TIMEOUT);
+            c.check("PWM and relay requests dropped",
+                    !inv.isPwmRequested() && !inv.isGridConnectionRequested());
+        }
+    }
+    {
+        tc::Criterion c("L0-GFL-04.c", "Relay never confirms opening: DISCONNECTION_TIMEOUT 1 s after the disconnect request");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (reachConnect(c, inv, grid)) {
+            inv.setGridConnected(true);
+            step(inv, grid);
+            inv.requestDisconnect();  // relay stays closed, no current: STOPPING then DISCONNECT
+            const int ticks = runUntilMode(inv, grid, VSI_FAULT, 2 * ticks_per_s);
+            c.near("time from disconnect request to fault (s)", ticks * Ts, 1.0, 2 * Ts);
+            c.check("reason DISCONNECTION_TIMEOUT", inv.getFaultReason() == VSI_FAULT_DISCONNECTION_TIMEOUT);
+        }
+    }
+    {
+        tc::Criterion c("L0-GFL-04.d", "Relay feedback lost in RUN: GRID_CONNECTION_LOST, PWM dropped");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (reachRun(c, inv, grid)) {
+            inv.setGridConnected(false);
+            step(inv, grid);
+            c.check("mode FAULT", inv.getMode() == VSI_FAULT);
+            c.check("reason GRID_CONNECTION_LOST", inv.getFaultReason() == VSI_FAULT_GRID_CONNECTION_LOST);
+            c.check("no PWM request", !inv.isPwmRequested());
+        }
+    }
+    {
+        tc::Criterion c("L0-GFL-04.e", "Grid phase jump while awaiting the relay: SYNC_LOST");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (reachConnect(c, inv, grid)) {
+            grid.phase += M_PI / 2;
+            const int ticks = runUntilMode(inv, grid, VSI_FAULT, ticks_per_s / 10);
+            c.check("faults within 0.1 s", ticks > 0);
+            c.check("reason SYNC_LOST", inv.getFaultReason() == VSI_FAULT_SYNC_LOST);
+        }
+    }
+
+    // ---------------------------------------------------------------- L0-GFL-05
+    {
+        tc::Criterion c("L0-GFL-05.a", "Bad grid quality blocks synchronization; good quality restarts the 1000-call dwell");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        c.check("init", initDefault(inv));
+        inv.requestConnect();
+        bool synced = false, pwm = false;
+        for (int n = 0; n < 2 * ticks_per_s; ++n) {
+            inv.setGridQuality(false);
+            step(inv, grid);
+            synced |= inv.getSync();
+            pwm |= inv.isPwmRequested();
+        }
+        c.check("never synchronized while quality is bad", !synced);
+        c.check("never requests PWM", !pwm);
+        c.check("held in VOLTAGE_SYNC", inv.getMode() == VSI_VOLTAGE_SYNC);
+        inv.setGridQuality(true);
+        const int ticks = runUntilMode(inv, grid, VSI_GRID_CONNECT, 2 * ticks_per_s);
+        c.check("connects once quality is good", ticks > 0);
+        c.check("dwell restarted from zero", ticks >= sync_min_delay);
+    }
+    {
+        tc::Criterion c("L0-GFL-05.b", "Bad grid quality in CONNECT, CONNECTED or RUN trips BAD_GRID_QUALITY at once");
+        for (vsi_mode_t target : {VSI_GRID_CONNECT, VSI_GRID_CONNECTED, VSI_RUN}) {
+            singlePhaseInverterFollowing inv;
+            Grid grid;
+            if (target == VSI_RUN) {
+                if (!reachRun(c, inv, grid)) continue;
+            } else {
+                if (!reachConnect(c, inv, grid)) continue;
+                if (target == VSI_GRID_CONNECTED) {
+                    inv.setGridConnected(true);
+                    step(inv, grid);
+                }
+            }
+            c.check("in target mode", inv.getMode() == target);
+            inv.setGridQuality(false);
+            c.check("FAULT before the next sample", inv.getMode() == VSI_FAULT);
+            c.check("reason BAD_GRID_QUALITY", inv.getFaultReason() == VSI_FAULT_BAD_GRID_QUALITY);
+            c.check("no PWM request", !inv.isPwmRequested());
+        }
+    }
+    {
+        tc::Criterion c("L0-GFL-05.c", "clearFault needs good grid quality and an open relay, then returns to OFF");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (reachRun(c, inv, grid)) {
+            inv.setGridQuality(false);
+            c.check("refused: quality bad", !inv.clearFault());
+            inv.setGridQuality(true);
+            c.check("refused: relay still closed", !inv.clearFault());
+            inv.setGridConnected(false);
+            c.check("accepted", inv.clearFault());
+            c.check("mode OFF", inv.getMode() == VSI_OFF);
+            c.check("reason NONE", inv.getFaultReason() == VSI_FAULT_NONE);
+        }
+    }
+
+    // ---------------------------------------------------------------- L0-GFL-06
+    {
+        tc::Criterion c("L0-GFL-06.a", "Non-finite measurements latch INVALID_MEASUREMENT with neutral duty and no PWM");
+        for (int which = 0; which < 2; ++which) {
+            singlePhaseInverterFollowing inv;
+            Grid grid;
+            if (!reachRun(c, inv, grid)) continue;
+            const float duty = which == 0 ? inv.calculateDuty(f_nan, 0.0F) : inv.calculateDuty(0.0F, f_inf);
+            c.check(which == 0 ? "NaN voltage: FAULT" : "infinite current: FAULT", inv.getMode() == VSI_FAULT);
+            c.check("reason INVALID_MEASUREMENT", inv.getFaultReason() == VSI_FAULT_INVALID_MEASUREMENT);
+            c.check("neutral duty", duty == 0.5F);
+            c.check("no PWM request", !inv.isPwmRequested());
+        }
+    }
+    {
+        tc::Criterion c("L0-GFL-06.b", "Non-positive bus voltage latches INVALID_BUS_VOLTAGE");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (reachRun(c, inv, grid)) {
+            inv.setVBus(0.0F);
+            c.check("neutral duty", step(inv, grid) == 0.5F);
+            c.check("reason INVALID_BUS_VOLTAGE", inv.getFaultReason() == VSI_FAULT_INVALID_BUS_VOLTAGE);
+            inv.setGridConnected(false);
+            c.check("clearFault refused while V_bus <= 0", !inv.clearFault());
+            inv.setVBus(V_bus);
+            c.check("clearFault accepted once V_bus is valid", inv.clearFault());
+        }
+    }
+    {
+        tc::Criterion c("L0-GFL-06.c", "Non-finite current reference or invalid frequency reference latches INVALID_REFERENCE");
+        for (int which = 0; which < 4; ++which) {
+            singlePhaseInverterFollowing inv;
+            c.check("init", initDefault(inv));
+            if (which == 0) inv.setIdqRef({f_nan, 0.0F, 0.0F});
+            if (which == 1) inv.setIdqRef({0.0F, f_inf, 0.0F});
+            if (which == 2) inv.setWRef(0.0F);
+            if (which == 3) inv.setWRef(4.0F * M_PI / Ts);  // w * Ts >= pi
+            c.check("immediate FAULT", inv.getMode() == VSI_FAULT);
+            c.check("reason INVALID_REFERENCE", inv.getFaultReason() == VSI_FAULT_INVALID_REFERENCE);
+        }
+    }
+    {
+        tc::Criterion c("L0-GFL-06.d", "A latched fault keeps its first cause and ignores requests until cleared");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (reachRun(c, inv, grid)) {
+            inv.tripFault();
+            c.check("tripFault() without cause → EXTERNAL", inv.getFaultReason() == VSI_FAULT_EXTERNAL);
+            inv.tripFault(VSI_FAULT_PWM_UPDATE_FAILED);
+            c.check("first cause kept", inv.getFaultReason() == VSI_FAULT_EXTERNAL);
+            inv.requestSync();
+            inv.requestConnect();
+            inv.requestRun();
+            bool neutral = true;
+            for (int n = 0; n < 2000; ++n) neutral &= step(inv, grid) == 0.5F;
+            c.check("stays FAULT despite requests", inv.getMode() == VSI_FAULT);
+            c.check("neutral duty every tick", neutral);
+            c.check("no PWM or relay request", !inv.isPwmRequested() && !inv.isGridConnectionRequested());
+        }
+    }
+
+    // ---------------------------------------------------------------- L0-GFL-07
+    {
+        tc::Criterion c("L0-GFL-07.a", "Duty is exactly 0.5 in OFF and VOLTAGE_SYNC");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        c.check("init", initDefault(inv));
+        for (int n = 0; n < 100; ++n) c.check("OFF: 0.5", step(inv, grid) == 0.5F);
+        inv.requestSync();
+        for (int n = 0; n < 5000; ++n) c.check("VOLTAGE_SYNC: 0.5", step(inv, grid) == 0.5F);
+    }
+    {
+        tc::Criterion c("L0-GFL-07.b", "Duty = alpha_output / (2 V_bus) + 0.5 every sample, unclamped");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (reachConnect(c, inv, grid)) {
+            float max_duty = 0.0F;
+            for (float vbus : {400.0F, 300.0F, 100.0F}) {
+                inv.setVBus(vbus);
+                for (int n = 0; n < 200; ++n) {
+                    const float duty = step(inv, grid);
+                    c.near("duty vs formula", duty, inv.getVabOutput().alpha / (2.0F * vbus) + 0.5F, 1e-6);
+                    if (vbus == 100.0F && duty > max_duty) max_duty = duty;
+                }
+            }
+            c.check("not clamped: exceeds 1 when V_bus < grid peak", max_duty > 1.0F);
+        }
+    }
+
+    return tc::finish();
+}

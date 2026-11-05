@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 0.2 (draft) |
+| Procedure version | 0.3 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -155,13 +155,13 @@ The "Source" column names the symbol that states the behaviour or the limit. Sym
 
 | ID | Behaviour | Source | Verdict type | Status |
 |---|---|---|---|---|
-| L0-GFL-01 | Init validation; invalid config latches `VSI_FAULT_INVALID_CONFIGURATION` | library README, `init` | PASS/FAIL | To write |
-| L0-GFL-02 | PLL locks on a clean 230 V / 50 Hz grid | `getTheta`, `getw` | lock time `INFO` | To write |
-| L0-GFL-03 | PLL tracks a 50 → 51 Hz step | `getw` | tracking time `INFO` | To write |
-| L0-GFL-04 | Mode lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → STOPPING → DISCONNECT → OFF with feedback; 1 s connection timeout | `vsi_mode_t`, `_connection_timeout` | PASS/FAIL | To write |
-| L0-GFL-05 | SYNC is blocked while grid quality is false | `setGridQuality` | PASS/FAIL | To write |
-| L0-GFL-06 | Invalid reference or non-finite state latches a fault, returns 0.5 duty with PWM off; `clearFault` works | library README (faults) | PASS/FAIL | To write |
-| L0-GFL-07 | Duty = 0.5 + α / (2 · V_bus) | library README (`calculateDuty`) | PASS/FAIL | To write |
+| L0-GFL-01 | Init validation; invalid config latches `VSI_FAULT_INVALID_CONFIGURATION` | library README, `init` | PASS/FAIL | Implemented |
+| L0-GFL-02 | PLL locks on a clean 230 V / 50 Hz grid; synchronization only never requests PWM or relay | `getSync`, `isPwmRequested` | PASS/FAIL; lock time, phase and frequency error `INFO` | Implemented |
+| L0-GFL-03 | PLL tracks a 50 → 51 Hz step (20 ms mean) and synchronizes again inside the library's ±5 % frequency window | `getw`, `synchronizationAligned` (±5 % ω, \|Vq\| < 0.1 V) | PASS/FAIL; tracking time, ripple `INFO` | Implemented |
+| L0-GFL-04 | Mode lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → STOPPING → DISCONNECT → OFF with feedback; 1 s connection and disconnection timeouts; connection lost; sync lost while awaiting the relay | `vsi_mode_t`, `_connection_timeout` | PASS/FAIL | Implemented |
+| L0-GFL-05 | Bad grid quality blocks SYNC and trips CONNECT/CONNECTED/RUN; `clearFault` needs good quality and an open relay | `setGridQuality`, `clearFault` | PASS/FAIL | Implemented |
+| L0-GFL-06 | Non-finite measurement, non-positive bus, invalid references latch a fault with 0.5 duty and PWM off; first cause kept; requests ignored until cleared | library README (faults) | PASS/FAIL | Implemented |
+| L0-GFL-07 | Duty exactly 0.5 in OFF and SYNC; duty = α / (2 · V_bus) + 0.5 otherwise, unclamped | library README (`calculateDuty`) | PASS/FAIL | Implemented |
 
 ### 6.4 L0-APP — application control step (no model)
 
@@ -340,3 +340,4 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-11-05 | First draft: scope, levels, contract v0, catalogue, record format, commit plan |
 | 0.2 | 2026-11-05 | L0-BST and L0-GOB migrated to per-criterion checks, no assertion removed. L0-GOB-06 was already covered by the original test. Criteria added to existing cases where the original test checked more than the catalogue listed: L0-GOB-04.e (opposite excursions), 04.f (negative frequency, first cause kept), 04.g (zero delays). Mode suffix for per-mode criteria. |
+| 0.3 | 2026-11-05 | L0-GFL implemented. Off-nominal frequency criteria use a 20 ms mean of the PLL estimate, because the estimate carries a 100 Hz ripple away from 50 Hz. L0-GFL-03 split into frequency tracking (.a) and re-synchronization (.b). |
