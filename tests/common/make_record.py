@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import json
 import datetime as dt
 import platform
 import re
@@ -156,7 +157,10 @@ def main() -> int:
     library = git_state(LIBRARY) if LIBRARY.exists() else "not fetched"
     gcc = run(["g++", "-dumpfullversion"]) or "unknown"
     levels = [lvl for lvl in args.levels.split(",") if lvl]
-    plant = "none"  # set by the L1 runner once a plant model exists
+    l1_path = args.out / "l1-manifest.json"
+    l1 = json.loads(l1_path.read_text()) if l1_path.exists() else {}
+    plant = l1.get("plant_model", "none")
+    contract = l1.get("contract", "v0")
 
     cases: "OrderedDict[str, list[dict]]" = OrderedDict()
     for row in sorted(rows, key=lambda r: r["id"]):
@@ -171,7 +175,8 @@ def main() -> int:
             f"core_commit: {core}",
             f"library_commit: {library}",
             f"plant_model: {plant}",
-            "contract_version: v0",
+            f"contract_version: {contract}",
+            f"l1_integration_only: {str(l1.get('integration_only',False) if l1 else False).lower()}",
             f'toolchain: {{ gcc: "{gcc}", python: "{platform.python_version()}", '
             f'pulsim: "{pulsim_version()}" }}',
             f"levels: [{', '.join(levels)}]",
@@ -191,6 +196,8 @@ def main() -> int:
     if counts["FAIL"]:
         out += [f"> **Failures:** {len(new)} new, {len(known)} known "
                 f"(open findings, procedure §11). Only new failures need an issue.", ""]
+    if l1:
+        out += ["> **L1 scope:** switching integration plus selected formal application criteria. First-50-ms startup, declared-window regulation and initial burst release are assessed. Full startup, repeated burst cycles and remaining scenarios are explicitly incomplete. No averaged model is required.", ""]
     if fixed:
         out += ["> **Findings ready to close:** " +
                 ", ".join(f"[{f['issue']}]({f['url']})" if f["url"] else f["issue"] for f in fixed) +
@@ -208,7 +215,7 @@ def main() -> int:
             f"| Library commit | `{library}` (single_phase_inverter, "
             + (f"override `{LIBRARY}`" if LIBRARY_OVERRIDDEN else "jalinei `main`") + ") |",
             f"| Plant model | {plant} |",
-            "| Contract | v0 |",
+            f"| Contract | {contract} |",
             "| Control period | 100 µs (cold loop every 10 ticks) |",
             f"| Toolchain | gcc {gcc}, Python {platform.python_version()}, "
             f"Pulsim {pulsim_version()} |",
@@ -246,6 +253,12 @@ def main() -> int:
 
     out += ["## Raw data", "", "| File | Content |", "|---|---|"]
     out += [f"| `{log.name}` | Full output of `{log.stem}` |" for log in args.logs]
+    if l1:
+        out += ["| `l1-manifest.json` | Plant/profile/contract/toolchain identity |",
+                "| `firmware-manifest.json` | Exact Core/dependency sources and native C-Block hash |",
+                "| `contract.json` | Inputs, outputs and hardware-adapter assumptions |"]
+        for file in sorted(args.out.glob("*/manifest.json")):
+            out.append(f"| `{file.parent.name}/` | Scenario manifest, control.csv and waveforms.npz |")
     out.append("")
 
     if new:

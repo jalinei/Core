@@ -4,7 +4,7 @@ status: accepted
 
 # L1 tests run the real firmware inside Pulsim through a `controlStep` seam
 
-L1 test cases need the controllers (boost, grid observer, grid-following inverter, and the application logic that sequences them) closed-loop against a model of the uSolarVerter. We decided to extract the application's per-tick control logic from `loop_critical_task` into a hardware-free `controlStep()` function, compile it unchanged with the controller sources into a shared library, and run it as a Pulsim C-Block at the 100 µs control-task period, so the code under test in simulation is byte-for-byte the code that runs on the Spin board.
+L1 test cases need the controllers (boost, grid observer, grid-following inverter, and the application logic that sequences them) closed-loop against a model of the uSolarVerter. We decided to extract the application's per-tick control logic from `loop_critical_task` into a hardware-free `controlStep()` function, compile it unchanged with the controller sources into a shared library, and run it as a Pulsim C-Block at the 100 µs control-task period, so the same application/controller source is compiled for the host tests and the Spin board. This is source identity; it does not imply identical host/ARM machine code or hardware timing.
 
 ## Considered options
 

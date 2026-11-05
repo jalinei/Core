@@ -1,0 +1,15 @@
+{
+  "name": "synthetic-57W-single-diode-v1",
+  "synthetic": true,
+  "description": "Software fixture, not calibrated to a commercial panel. Rsource becomes module Rs; original ideal-source 0.1 ohm is replaced.",
+  "parameters": {
+    "IL_A": 1.6,
+    "I0_A": 2.7070366766422116e-10,
+    "a_V": 2.0,
+    "Rs_ohm": 0.3,
+    "Rsh_ohm": 1000.0
+  },
+  "thermal_voltage_V": 0.02569257912108585,
+  "bus_load_ohm": 2800.0,
+  "initial_bus_V": 380.0
+}

@@ -1,0 +1,4 @@
+{
+  "control_library": {"url":"https://github.com/owntech-foundation/control_library.git","commit":"1ef80979d3181035c7dcc7a4f1c6218f297db7ca"},
+  "single_phase_inverter": {"url":"https://github.com/jalinei/single_phase_inverter.git","commit":"0f22378202650301287b08001fc121e37b7b9b17"}
+}

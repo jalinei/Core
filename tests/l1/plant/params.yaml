@@ -1,0 +1,613 @@
+{
+  "model_sha256": "58839236cbd50d8564e36793e33aaa6ee3ab58935eed73dbf724a069da5529de",
+  "components": {
+    "Vsource": {
+      "type": "VOLTAGE_SOURCE",
+      "parameters": {
+        "waveform": {
+          "type": "dc",
+          "value": 40
+        },
+        "enable_thermal_port": false
+      },
+      "source": "declared test fixture in accepted schematic",
+      "confidence": "provided schematic/netlist value"
+    },
+    "Rsource": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 0.1,
+        "enable_thermal_port": false
+      },
+      "source": "declared test fixture in accepted schematic",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_C7": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 6e-05,
+        "initial_voltage": 40,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_L3": {
+      "type": "INDUCTOR",
+      "parameters": {
+        "inductance": 3.3e-05,
+        "initial_current": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_RL3": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 0.001,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_QH": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.0048,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_QL": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.0024,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_DBH": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.00142,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_DBL": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.00142,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_C1": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 2.82e-05,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_C2": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 2.82e-05,
+        "initial_voltage": 40,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_T1": {
+      "type": "TRANSFORMER",
+      "parameters": {
+        "lm": 7.66e-05,
+        "turns_ratio": 0.16666666666666669,
+        "L_p": 7.66e-05,
+        "L_s": 0.0027576,
+        "coupling": 0.9921661096605744,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_Rp": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 0.0066,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_Rs": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 0.0295,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_D1": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.0045,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_D2": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.0045,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_C4": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 1e-06,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC1_C6": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 1e-06,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_C7": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 6e-05,
+        "initial_voltage": 40,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_L3": {
+      "type": "INDUCTOR",
+      "parameters": {
+        "inductance": 3.3e-05,
+        "initial_current": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_RL3": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 0.001,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_QH": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.0048,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_QL": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.0024,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_DBH": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.00142,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_DBL": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.00142,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_C1": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 2.82e-05,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_C2": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 2.82e-05,
+        "initial_voltage": 40,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_T1": {
+      "type": "TRANSFORMER",
+      "parameters": {
+        "lm": 7.66e-05,
+        "turns_ratio": 0.16666666666666669,
+        "L_p": 7.66e-05,
+        "L_s": 0.0027576,
+        "coupling": 0.9921661096605744,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_Rp": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 0.0066,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_Rs": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 0.0295,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_D1": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.0045,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_D2": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.0045,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_C4": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 1e-06,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "DC2_C6": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 1e-06,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "Cbus": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 0.00012,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "provided schematic/netlist value"
+    },
+    "Rbus_bleed": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 200000,
+        "enable_thermal_port": false
+      },
+      "source": "declared test fixture in accepted schematic",
+      "confidence": "provided schematic/netlist value"
+    },
+    "INV_AH": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.02,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "INV_AL": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.02,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "INV_BH": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.02,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "INV_BL": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.02,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "INV_DAH": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.01,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "INV_DAL": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.01,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "INV_DBH": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.01,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "INV_DBL": {
+      "type": "DIODE",
+      "parameters": {
+        "v_forward": 0.7,
+        "ron": 0.01,
+        "roff": 1000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "C120": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 1e-09,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "AC_L1": {
+      "type": "INDUCTOR",
+      "parameters": {
+        "inductance": 0.00025,
+        "initial_current": 0,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "AC_L3": {
+      "type": "INDUCTOR",
+      "parameters": {
+        "inductance": 0.00025,
+        "initial_current": 0,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "C7_damp": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 6.8e-07,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "R3_damp": {
+      "type": "RESISTOR",
+      "parameters": {
+        "resistance": 4.7,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "FL1": {
+      "type": "COUPLED_INDUCTOR",
+      "parameters": {
+        "l1": 0.005,
+        "l2": 0.005,
+        "mutual_inductance": 0.004995,
+        "coupling_coefficient": 0.999,
+        "assumed_coupling": true,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "5 mH label interpreted per winding; coupling 0.999 ASSUMED; DCR/saturation TBD"
+    },
+    "FL2": {
+      "type": "COUPLED_INDUCTOR",
+      "parameters": {
+        "l1": 0.005,
+        "l2": 0.005,
+        "mutual_inductance": 0.004995,
+        "coupling_coefficient": 0.999,
+        "assumed_coupling": true,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "5 mH label interpreted per winding; coupling 0.999 ASSUMED; DCR/saturation TBD"
+    },
+    "C113": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 1.2e-07,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "Relay_L": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.001,
+        "roff": 1000000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "Relay_N": {
+      "type": "SWITCH",
+      "parameters": {
+        "ron": 0.001,
+        "roff": 1000000000000.0,
+        "enable_thermal_port": false
+      },
+      "source": "provided current-fed half-bridge model",
+      "confidence": "placeholder device/contact behavior; physical part identification TBD"
+    },
+    "C10_Y": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 4.7e-09,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "C5_Y": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 4.7e-09,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "C122": {
+      "type": "CAPACITOR",
+      "parameters": {
+        "capacitance": 1.2e-07,
+        "initial_voltage": 0,
+        "enable_thermal_port": false
+      },
+      "source": "reference/output_filter.png",
+      "confidence": "provided schematic/netlist value"
+    },
+    "Vgrid": {
+      "type": "VOLTAGE_SOURCE",
+      "parameters": {
+        "waveform": {
+          "type": "sine",
+          "offset": 0.0,
+          "amplitude": 325.2691193458119,
+          "frequency": 50.0,
+          "phase": 0.0
+        },
+        "enable_thermal_port": false
+      },
+      "source": "declared test fixture in accepted schematic",
+      "confidence": "provided schematic/netlist value"
+    }
+  },
+  "capabilities": {
+    "switched": true,
+    "averaged": false,
+    "pv_curve": false,
+    "physical_device_calibration": false
+  }
+}
