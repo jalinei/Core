@@ -36,17 +36,23 @@
  * | L0-GFL-05 | Grid quality gating |
  * | L0-GFL-06 | Fault latching and clearing |
  * | L0-GFL-07 | Duty formula |
+ * | L0-GFL-16 | PWM start-up before relay closure (PWM_WAIT, PWM_SETTLE) |
  *
  * The grid is a synthetic sine fed sample by sample; nothing the controller
  * outputs feeds back into it. Relay feedback is driven directly through
- * setGridConnected(). Settings are the application's: 400 V bus, 230 V RMS,
+ * setGridConnected(). step() plays the application's part in the PWM start-up
+ * (library 1b4fd06): it acknowledges PWM with setPwmEnabled() whenever the
+ * controller requests it, as an application that applies the duty and starts
+ * PWM on the same tick would; L0-GFL-16 drives the acknowledgement by hand. Settings are the application's: 400 V bus, 230 V RMS,
  * 50 Hz, 100 µs control period.
  *
  * Limits come from the library's own documentation and constants:
  * - synchronization: Vd within ±10 % of the nominal peak, |Vq| < 0.1 V,
  *   |w - w_ref| < 5 % of w_ref, for 1000 consecutive calls;
  * - connection and disconnection timeouts: 1 s;
- * - duty = alpha_output / (2 V_bus) + 0.5, unclamped.
+ * - duty = alpha_output / (2 V_bus) + 0.5, unclamped;
+ * - PWM start-up: PWM at exactly 0.5 until acknowledged, waveform linked within
+ *   ±0.01 of 0.5, then 10 grid periods of settling before the relay is requested.
  *
  * Durations the library does not state (lock time, tracking time, phase error)
  * are reported as INFO. The simulation horizons (5 s, 3 s) only bound the test;
@@ -99,12 +105,15 @@ double wrap(double angle) {
 }
 
 /**
- * @brief Runs one control period: feeds the current grid sample, then advances the grid.
+ * @brief Runs one control period: acknowledges the PWM request, feeds the current grid sample, then advances the grid.
  * @param inv Controller under test.
  * @param grid Synthetic grid.
+ * @param acknowledge Acknowledge PWM as the application would (default); false leaves the acknowledgement unchanged.
  * @return The duty returned by calculateDuty().
  */
-float step(singlePhaseInverterFollowing &inv, Grid &grid) {
+float step(singlePhaseInverterFollowing &inv, Grid &grid, bool acknowledge = true) {
+    // The application applied last period's PWM request: acknowledge it (L0-GFL-16 passes false to hold it back).
+    if (acknowledge) inv.setPwmEnabled(inv.isPwmRequested());
     const float duty = inv.calculateDuty(grid.v(), grid.i());
     grid.advance();
     return duty;
@@ -307,8 +316,8 @@ int main() {
 
     // ---------------------------------------------------------------- L0-GFL-04
     {
-        /** @test L0-GFL-04.a: Lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → CONNECTED → STOPPING → DISCONNECT → OFF */
-        tc::Criterion c("L0-GFL-04.a", "Lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → CONNECTED → STOPPING → DISCONNECT → OFF");
+        /** @test L0-GFL-04.a: Lifecycle OFF → SYNC → PWM_WAIT → PWM_SETTLE → CONNECT → CONNECTED → RUN → CONNECTED → STOPPING → DISCONNECT → OFF */
+        tc::Criterion c("L0-GFL-04.a", "Lifecycle OFF → SYNC → PWM_WAIT → PWM_SETTLE → CONNECT → CONNECTED → RUN → CONNECTED → STOPPING → DISCONNECT → OFF");
         singlePhaseInverterFollowing inv;
         Grid grid;
         c.check("init", initDefault(inv));
@@ -316,9 +325,14 @@ int main() {
         step(inv, grid);
         c.check("OFF → VOLTAGE_SYNC on request", inv.getMode() == VSI_VOLTAGE_SYNC);
         c.check("no PWM in VOLTAGE_SYNC", !inv.isPwmRequested());
-        const int to_connect = runUntilMode(inv, grid, VSI_GRID_CONNECT, 5 * ticks_per_s);
-        c.check("reaches GRID_CONNECT", to_connect > 0);
-        c.check("not before the 1000-call dwell", to_connect >= sync_min_delay);
+        const int to_wait = runUntilMode(inv, grid, VSI_PWM_WAIT, 5 * ticks_per_s);
+        c.check("VOLTAGE_SYNC → PWM_WAIT", to_wait > 0);
+        c.check("not before the 1000-call dwell", to_wait >= sync_min_delay);
+        c.check("PWM_WAIT: PWM, no relay", inv.isPwmRequested() && !inv.isGridConnectionRequested());
+        c.check("PWM_WAIT → PWM_SETTLE", runUntilMode(inv, grid, VSI_PWM_SETTLE, ticks_per_s) > 0);
+        c.check("PWM_SETTLE: PWM, no relay", inv.isPwmRequested() && !inv.isGridConnectionRequested());
+        const int to_connect = runUntilMode(inv, grid, VSI_GRID_CONNECT, ticks_per_s);
+        c.check("PWM_SETTLE → GRID_CONNECT", to_connect > 0);
         c.check("CONNECT requests relay and PWM", inv.isGridConnectionRequested() && inv.isPwmRequested());
         for (int n = 0; n < 100; ++n) step(inv, grid);
         c.check("waits in GRID_CONNECT without feedback", inv.getMode() == VSI_GRID_CONNECT);
@@ -606,6 +620,151 @@ int main() {
         tc::info("L0-GFL-08.f", "Worst cold-start time to synchronization over the cases that locked", worst_lock_s, "s");
         /** @test L0-GFL-08.g: worst transient deviation of the 20 ms mean frequency estimate during cold start (INFO) */
         tc::info("L0-GFL-08.g", "Worst transient error of the 20 ms mean frequency estimate during cold start", worst_transient_hz, "Hz");
+    }
+
+    // ---------------------------------------------------------------- L0-GFL-16
+    // PWM start-up before relay closure (library 1b4fd06). Helper: a fresh controller
+    // synchronized and asking to connect, stopped on entry to PWM_WAIT, PWM not acknowledged.
+    auto toPwmWait = [&](tc::Criterion &c, singlePhaseInverterFollowing &inv, Grid &grid) {
+        c.check("init", initDefault(inv));
+        inv.requestConnect();
+        for (int n = 0; n < 5 * ticks_per_s && inv.getMode() != VSI_PWM_WAIT; ++n) step(inv, grid, false);
+        return c.check("reaches PWM_WAIT", inv.getMode() == VSI_PWM_WAIT);
+    };
+    {
+        /** @test L0-GFL-16.a: PWM_WAIT requests PWM at exactly 0.5 with the relay open, and holds without acknowledgement */
+        tc::Criterion c("L0-GFL-16.a", "PWM_WAIT requests PWM at exactly 0.5 with the relay open, and holds without acknowledgement");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (toPwmWait(c, inv, grid)) {
+            bool neutral = true, relay = false;
+            for (int n = 0; n < ticks_per_s; ++n) {
+                neutral &= step(inv, grid, false) == 0.5F;
+                relay |= inv.isGridConnectionRequested();
+            }
+            c.check("duty exactly 0.5 for 1 s", neutral);
+            c.check("never requests the relay", !relay);
+            c.check("still PWM_WAIT, PWM requested", inv.getMode() == VSI_PWM_WAIT && inv.isPwmRequested());
+        }
+    }
+    {
+        /** @test L0-GFL-16.b: Once acknowledged, the waveform is linked only within ±0.01 of neutral, near a zero crossing */
+        tc::Criterion c("L0-GFL-16.b", "Once acknowledged, the waveform is linked only within ±0.01 of neutral, near a zero crossing");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (toPwmWait(c, inv, grid)) {
+            c.near("default tolerance", inv.getPwmStartDutyTolerance(), 0.01, 1e-7);
+            inv.setPwmEnabled(true);
+            float duty = 0.5F, v = 0.0F;
+            int n = 0;
+            for (; n < ticks_per_s && inv.getMode() == VSI_PWM_WAIT; ++n) {
+                v = grid.v();
+                duty = step(inv, grid, false);
+            }
+            c.check("links within one grid period (20 ms)", inv.getMode() == VSI_PWM_SETTLE && n <= 201);
+            c.range("first linked duty", duty, 0.49F, 0.51F);
+            // The link is judged on the computed duty (±0.01 → ±8 V); the grid itself is off by the
+            // PLL's steady phase error too (bounded at 2.5° in L0-GFL-02.a: 325 V · sin 2.5° ≈ 14 V).
+            const float bound = 0.02F * V_bus + V_pk * std::sin(2.5F * static_cast<float>(M_PI) / 180.0F);
+            c.range("grid voltage there (V): near a zero crossing", v, -bound, bound);
+            float max_dev = 0.0F;
+            for (int k = 0; k < 400; ++k) max_dev = std::fmax(max_dev, std::fabs(step(inv, grid, false) - 0.5F));
+            c.range("then follows the grid-matching waveform (peak duty deviation)", max_dev, 0.35F, 0.45F);
+        }
+    }
+    {
+        /** @test L0-GFL-16.c: PWM_SETTLE lasts 10 grid periods with the relay open, then GRID_CONNECT requests it */
+        tc::Criterion c("L0-GFL-16.c", "PWM_SETTLE lasts 10 grid periods with the relay open, then GRID_CONNECT requests it");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (toPwmWait(c, inv, grid)) {
+            c.check("default 10 periods", inv.getPwmSettleCycles() == 10);
+            inv.setPwmEnabled(true);
+            while (inv.getMode() == VSI_PWM_WAIT) step(inv, grid, false);
+            int ticks = 0;
+            bool relay = false;
+            while (inv.getMode() == VSI_PWM_SETTLE && ticks < ticks_per_s) {
+                relay |= inv.isGridConnectionRequested();
+                step(inv, grid, false);
+                ++ticks;
+            }
+            c.check("relay never requested while settling", !relay);
+            c.near("settling time (s): 10 periods of 50 Hz", ticks * Ts, 0.2, 2 * Ts);
+            c.check("then GRID_CONNECT with the relay requested", inv.getMode() == VSI_GRID_CONNECT && inv.isGridConnectionRequested());
+        }
+    }
+    {
+        /** @test L0-GFL-16.d: Losing the PWM acknowledgement restarts the settling; in GRID_CONNECT it faults PWM_UPDATE_FAILED */
+        tc::Criterion c("L0-GFL-16.d", "Losing the PWM acknowledgement restarts the settling; in GRID_CONNECT it faults PWM_UPDATE_FAILED");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        if (toPwmWait(c, inv, grid)) {
+            inv.setPwmEnabled(true);
+            while (inv.getMode() == VSI_PWM_WAIT) step(inv, grid, false);
+            for (int n = 0; n < 1500; ++n) step(inv, grid, false);  // 150 ms of the 200 ms
+            inv.setPwmEnabled(false);
+            step(inv, grid, false);
+            inv.setPwmEnabled(true);
+            int ticks = 0;
+            while (inv.getMode() == VSI_PWM_SETTLE && ticks < ticks_per_s) { step(inv, grid, false); ++ticks; }
+            c.near("full 10 periods again after the loss (s)", ticks * Ts, 0.2, 2 * Ts);
+            c.check("in GRID_CONNECT", inv.getMode() == VSI_GRID_CONNECT);
+            inv.setPwmEnabled(false);
+            step(inv, grid, false);
+            c.check("loss in GRID_CONNECT → FAULT PWM_UPDATE_FAILED",
+                    inv.getMode() == VSI_FAULT && inv.getFaultReason() == VSI_FAULT_PWM_UPDATE_FAILED);
+            c.check("PWM and relay requests dropped", !inv.isPwmRequested() && !inv.isGridConnectionRequested());
+        }
+    }
+    {
+        /** @test L0-GFL-16.e: In PWM_WAIT and PWM_SETTLE, closed-contact feedback faults EXTERNAL, a phase jump SYNC_LOST, bad quality BAD_GRID_QUALITY */
+        tc::Criterion c("L0-GFL-16.e", "In PWM_WAIT and PWM_SETTLE, closed-contact feedback faults EXTERNAL, a phase jump SYNC_LOST, bad quality BAD_GRID_QUALITY");
+        for (vsi_mode_t target : {VSI_PWM_WAIT, VSI_PWM_SETTLE}) {
+            for (int cause = 0; cause < 3; ++cause) {
+                singlePhaseInverterFollowing inv;
+                Grid grid;
+                if (!toPwmWait(c, inv, grid)) continue;
+                if (target == VSI_PWM_SETTLE) {
+                    inv.setPwmEnabled(true);
+                    while (inv.getMode() == VSI_PWM_WAIT) step(inv, grid, false);
+                }
+                c.check("in the target state", inv.getMode() == target);
+                vsi_fault_reason_t expected = VSI_FAULT_EXTERNAL;
+                if (cause == 0) {
+                    inv.setGridConnected(true);
+                    step(inv, grid, false);
+                } else if (cause == 1) {
+                    grid.phase += M_PI / 2;
+                    expected = VSI_FAULT_SYNC_LOST;
+                    for (int n = 0; n < ticks_per_s / 10 && inv.getMode() != VSI_FAULT; ++n) step(inv, grid, false);
+                } else {
+                    inv.setGridQuality(false);
+                    expected = VSI_FAULT_BAD_GRID_QUALITY;
+                }
+                c.check("FAULT with the expected reason", inv.getMode() == VSI_FAULT && inv.getFaultReason() == expected);
+                c.check("no PWM, no relay", !inv.isPwmRequested() && !inv.isGridConnectionRequested());
+            }
+        }
+    }
+    {
+        /** @test L0-GFL-16.f: Invalid tolerances are rejected; zero settling periods holds PWM_SETTLE; a new count restarts the dwell */
+        tc::Criterion c("L0-GFL-16.f", "Invalid tolerances are rejected; zero settling periods holds PWM_SETTLE; a new count restarts the dwell");
+        singlePhaseInverterFollowing inv;
+        Grid grid;
+        for (float t : {0.0F, 0.5F, -0.1F, f_nan, f_inf})
+            c.check("tolerance rejected", !inv.setPwmStartDutyTolerance(t));
+        c.check("valid tolerance accepted", inv.setPwmStartDutyTolerance(0.02F));
+        c.near("kept across init", (toPwmWait(c, inv, grid), inv.getPwmStartDutyTolerance()), 0.02, 1e-7);
+        inv.setPwmSettleCycles(0);
+        inv.setPwmEnabled(true);
+        while (inv.getMode() == VSI_PWM_WAIT) step(inv, grid, false);
+        for (int n = 0; n < ticks_per_s; ++n) step(inv, grid, false);
+        c.check("zero periods: still PWM_SETTLE after 1 s, relay off", inv.getMode() == VSI_PWM_SETTLE && !inv.isGridConnectionRequested());
+        inv.setPwmSettleCycles(5);
+        int ticks = 0;
+        while (inv.getMode() == VSI_PWM_SETTLE && ticks < ticks_per_s) { step(inv, grid, false); ++ticks; }
+        c.near("5 periods counted from the change (s)", ticks * Ts, 0.1, 2 * Ts);
+        inv.setPwmSettleCycles(10);
     }
 
     return tc::finish();

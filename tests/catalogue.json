@@ -1,6 +1,6 @@
 {
  "_doc": "The validation catalogue: every test, defined once. tests/common/control_center.py builds tests/out/control-center.html from it and from the campaign results; tests/common/catalogue.py --procedure writes procedure §6 from it. status: implemented | partial | planned | blocked (implementation state, not a verdict; verdicts come from campaign results). Amend here, then regenerate §6.",
- "version": "1.3",
+ "version": "1.4",
  "tabs": [
   {
    "id": "bench",
@@ -599,11 +599,11 @@
    "id": "L0-GFL-04",
    "tab": "inverter",
    "level": "L0",
-   "title": "Mode lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → STOPPING → DISCONNECT → OFF with feedback; 1 s connection and disconnection timeouts; connection lost; sync lost while awaiting the relay",
+   "title": "Mode lifecycle OFF → SYNC → PWM_WAIT → PWM_SETTLE → CONNECT → CONNECTED → RUN → STOPPING → DISCONNECT → OFF with feedback; 1 s connection and disconnection timeouts; connection lost; sync lost while awaiting the relay",
    "criterion": "",
    "source": "`vsi_mode_t`, `_connection_timeout`",
    "status": "implemented",
-   "status_note": "Implemented",
+   "status_note": "Implemented; PWM start-up states added 2026-11-06 (library 1b4fd06)",
    "verdict_type": "PASS/FAIL"
   },
   {
@@ -728,10 +728,20 @@
    "status_note": "Defined 2026-11-06; needs board logs"
   },
   {
+   "id": "L0-GFL-16",
+   "tab": "inverter",
+   "level": "L0",
+   "title": "PWM start-up before relay closure (PWM_WAIT, PWM_SETTLE)",
+   "criterion": ".a PWM at exactly 0.5 with the relay open, held without acknowledgement; .b once acknowledged, the waveform links within ±0.01 of neutral near a zero crossing; .c 10 grid periods of settling with the relay open, then GRID_CONNECT; .d acknowledgement loss restarts the settling, and faults PWM_UPDATE_FAILED in GRID_CONNECT; .e closed-contact feedback, a phase jump and bad quality fault EXTERNAL, SYNC_LOST, BAD_GRID_QUALITY in PWM_WAIT and PWM_SETTLE; .f invalid tolerances rejected, zero periods hold, a new count restarts the dwell",
+   "source": "`setPwmEnabled`, `setPwmStartDutyTolerance`, `setPwmSettleCycles` (library 1b4fd06)",
+   "status": "implemented",
+   "status_note": "Implemented 2026-11-06"
+  },
+  {
    "id": "L1-GFL-01",
    "tab": "inverter",
    "level": "L1",
-   "title": "Connect → run (I_d step) → stop → disconnect, with relay feedback",
+   "title": "Connect (PWM start-up at neutral, 10 periods of settling) → relay → run (I_d step) → stop → disconnect, with relay feedback",
    "criterion": "",
    "source": "",
    "status": "blocked",

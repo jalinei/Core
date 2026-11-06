@@ -103,3 +103,25 @@ The local checkout `owntech/lib/USB/single_phase_inverter` was moved to `bcb7e71
 
 The 100 Hz PR of Andres's code is not adopted (it is always on there, which looks unintended). Leg 1's PID is no longer reset when its reference reaches zero: at zero demand it runs at minimum duty and burst skips its periods.
 
+## 2026-11-06 — single_phase_inverter PWM start-up (1b4fd06), application acknowledges bridge PWM
+
+| Field | Value |
+|---|---|
+| Commit | the `feat(app): single_phase_inverter PWM start-up …` commit that adds this entry |
+| Files | `src/app/control_step.h`, `src/app/control_step.cpp`, `tests/l1/dependencies.lock.json` (`src/app.ini` unchanged: it follows jalinei `main`, Luiz's decision) |
+| Reason | Jean Alinei's library update: a connection request now starts the bridge PWM at neutral (PWM_WAIT), links the grid-matching waveform near a zero crossing once the application acknowledges PWM, and settles 10 grid periods (PWM_SETTLE) before requesting relay closure. Integrated on the inverter side only; the boost keeps ADR 0003 |
+| Behaviour change | Library: new states and acknowledgement API (`setPwmEnabled`, `setPwmStartDutyTolerance`, `setPwmSettleCycles`). Application: none observable; it acknowledges the bridge PWM it applied last period (always off: synchronization only), so the PWM start-up states are unreachable as before. **Note:** jalinei `main` was rewritten: `bcb7e71` (the #1 squash merge) is no longer on it; the same fix is `916178d`. Because `app.ini` follows `main`, any clean firmware build already fetched this library |
+| Evidence | L0 written first: L0-GFL-04 updated and L0-GFL-16 added fail on `bcb7e71` (33 compile errors: the API is missing). On `1b4fd06`: full L0 89 pass, 1 known fail (#2). Firmware builds (`pio run -e USB`). L1 campaign: see the commit |
+| Hardware check | Not needed for the application (no observable change). The PWM start-up itself is checked when the application connects to the grid |
+
+## 2026-11-06 — HRTIM low-duty PWM reversal fix (cherry-picked from Jean Alinei)
+
+| Field | Value |
+|---|---|
+| Commit | `fefe392` "Fix low-duty HRTIM PWM reversal" (Jean Alinei, cherry-picked by Luiz Villa) |
+| Files | `zephyr/modules/owntech_hrtim_driver/zephyr/public_api/hrtim.h`, `zephyr/modules/owntech_hrtim_driver/zephyr/src/hrtim.c`, `zephyr/modules/owntech_shield_api/zephyr/src/Power.cpp`, `zephyr/modules/owntech_spin_api/zephyr/src/PwmHAL.cpp` |
+| Reason | A nonzero compare below the prescaler's hardware minimum reversed the PWM output at low duty. The driver now maps such compares to zero (zero taking precedence over near-full duty at small periods), centralizes the full-duty output swap, and routes SPIN, SHIELD and frequency rescaling through the same setter |
+| Behaviour change | Yes, at the duty extremes only: compares below the hardware minimum give zero duty instead of a reversed output. The application's duties stay far from them (boost 0.05–0.60, inverter about 0.09–0.91) |
+| Evidence | Author's validation (commit message): STLink build, 512 register/state checks across CKPSC 0–7, 1,608 MHO984 center-aligned settings across all prescalers, both APIs, buck and boost, including 880 zero-duty checks; single-cycle transitions uncharacterized. Here: firmware builds (`pio run -e USB`). Host tests (L0, L1) do not compile the board drivers and are unaffected; the L1 PWM adapter does not model these compare limits |
+| Hardware check | Part of the ADR 0003 hardware check (burst on leg 1 switches the boost at minimum duty 0.05 in short bursts) |
+

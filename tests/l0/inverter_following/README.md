@@ -35,10 +35,11 @@ Limits come from the library's own documentation and constants: synchronization 
 | L0-GFL-01 | .a – .d | Valid init state; eight invalid parameter sets give `-EINVAL` and `INVALID_CONFIGURATION`; recovery by init; `calculateDuty` before init |
 | L0-GFL-02 | .a, .b; INFO .c – .e | Synchronization on a clean 50 Hz grid; sync-only never requests PWM or relay; lock time, phase and frequency error |
 | L0-GFL-03 | .a, .b; INFO .c – .f | Frequency tracking after a 50 → 51 Hz step; re-synchronization at 51 Hz; tracking time, unsynchronized time, error, Vq ripple |
-| L0-GFL-04 | .a – .e | Full lifecycle with STOPPING held while current flows; connection timeout; disconnection timeout; relay feedback lost in RUN; phase jump while awaiting the relay |
+| L0-GFL-04 | .a – .e | Full lifecycle through PWM_WAIT and PWM_SETTLE (library 1b4fd06; the test acknowledges PWM as the application would), with STOPPING held while current flows; connection timeout; disconnection timeout; relay feedback lost in RUN; phase jump while awaiting the relay |
 | L0-GFL-05 | .a – .c | Bad quality blocks sync and restarts the dwell; bad quality trips CONNECT, CONNECTED, RUN at once; `clearFault` conditions |
 | L0-GFL-06 | .a – .d | Non-finite measurement; non-positive bus; invalid current or frequency reference; first cause kept and requests ignored while latched |
 | L0-GFL-07 | .a, .b | Duty exactly 0.5 in OFF and SYNC; duty formula at 400, 300 and 100 V, exceeding 1 when unclamped |
+| L0-GFL-16 | .a – .f | PWM start-up before relay closure: PWM at exactly 0.5 until acknowledged, waveform linked within ±0.01 of neutral near a zero crossing, 10 grid periods of settling with the relay open, acknowledgement loss (restart / PWM_UPDATE_FAILED), faults in PWM_WAIT/SETTLE (EXTERNAL, SYNC_LOST, BAD_GRID_QUALITY), settings |
 | L0-GFL-08 | .a – .e; INFO .f, .g | Cold-start synchronization at 47.6, 49, 50, 51 and 52.4 Hz from four grid angles, settled estimate within ±5 %; worst lock time and transient |
 
 ## Known findings

@@ -93,6 +93,9 @@ ControlOutputs controlStep(ControlState &state, const Measurements &meas,
     }
     if (sync_only) state.inverter.requestSync();
     else state.inverter.requestDisconnect();
+    /* PWM start-up acknowledgement (single_phase_inverter PWM_WAIT/PWM_SETTLE): report
+     * whether the bridge PWM was applied last period. Always false here: synchronization only. */
+    state.inverter.setPwmEnabled(state.bridge_pwm_applied);
     out.bridge_duty = state.inverter.calculateDuty(meas.v_ac, meas.i_ac);
     const clarke_t grid_voltage_ab = state.inverter.getVab();
     state.grid_observer.update(grid_voltage_ab.alpha, grid_voltage_ab.beta, state.inverter.getw(),
@@ -109,5 +112,6 @@ ControlOutputs controlStep(ControlState &state, const Measurements &meas,
     out.boost_trip = state.boost.isTripped();
     /* Synchronization only: keep the inverter bridge disabled. */
     out.bridge_enable = false;
+    state.bridge_pwm_applied = out.bridge_enable;
     return out;
 }

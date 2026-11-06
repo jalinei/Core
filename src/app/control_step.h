@@ -161,6 +161,7 @@ struct ControlState {
     uint8_t cold_loop_tick = 0U;                ///< Periods since the last cold loop.
     boost_mode previous_mode = IDLE;            ///< Mode applied in the previous period.
     uint32_t grid_voltage_age_ticks = app::grid_voltage_stale_ticks;  ///< Periods since the last VAC sample.
+    bool bridge_pwm_applied = false;            ///< Bridge PWM enable applied last period, acknowledged to the inverter.
 };
 
 /**
