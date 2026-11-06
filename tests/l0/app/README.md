@@ -1,6 +1,6 @@
 # L0-APP: application control step
 
-Open-loop tests of `controlInit()` and `controlStep()` ([src/app/control_step.h](../../../src/app/control_step.h)), the hardware-free logic of the critical task. Catalogue: [procedure §6.4](../../../docs/testing/test-procedure.md#64-l0-app--application-control-step-no-model).
+Open-loop tests of `controlInit()` and `controlStep()` ([src/app/control_step.h](../../../src/app/control_step.h)), the hardware-free logic of the critical task. Catalogue: [procedure §6.6](../../../docs/testing/test-procedure.md#66-application).
 
 ## Run
 

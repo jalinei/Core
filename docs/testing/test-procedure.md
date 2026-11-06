@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 1.7 (draft) |
+| Procedure version | 1.8 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -130,95 +130,141 @@ A limit is added to an `INFO` criterion only through a changelog entry stating i
 
 ## 6. Test catalogue
 
-The "Source" column names the symbol that states the behaviour or the limit. Symbol names are used instead of line numbers so they survive refactoring.
+<!-- Generated from tests/catalogue.json by tests/common/catalogue.py --procedure. Edit the catalogue, not this section. -->
 
-### 6.1 L0-BST — boost converter
+Every test is defined once, in [`tests/catalogue.json`](../../tests/catalogue.json), grouped by validation stage. The [control center](#85-reviewing-a-campaign) shows the same tests with their latest results. "Status" is the implementation state; verdicts come from campaigns (§8). The "Source" names the symbol that states the behaviour or the limit (names survive refactoring, line numbers do not).
 
-| ID | Behaviour | Source | Status |
-|---|---|---|---|
-| L0-BST-01 | Invalid init, measurements or burst bounds never enable a leg | `BoostConverter::init`, `isLeg1Enabled`, `isLeg2Enabled` | Migrated |
-| L0-BST-02 | Leg 1 takes priority up to its current limit, leg 2 takes the excess, leg 2 is cleared when its demand stops | `splitCurrentReference` | Migrated |
-| L0-BST-03 | Cold-loop saturation sets the total current reference | voltage PID bounds | Migrated |
-| L0-BST-04 | MPPT perturb and observe: direction, turnaround at bounds, voltage ignored | `Mppt`, `MPPT_CURRENT_STEP` = 0.1 A | Migrated |
-| L0-BST-05 | STARTUP ramp starts from the measured voltage, follows the rate, does not overshoot, restarts from the measurement on re-entry | `setStartupRampRate` (class default 10 V/s); the application sets `app::startup_ramp_rate` = 200 V/s in `control_step.h` | Migrated |
-| L0-BST-06 | STARTUP current ceiling; converter 2 never enabled in STARTUP | `setStartupCurrentMax`; `startup_current_max` = 1 A | Migrated |
-| L0-BST-07 | Burst hysteresis: pause at ≥ upper bound, resume at ≤ lower bound, ramp frozen, no bypass, MPPT exempt | `updateBurstState`; 395 / 405 V in `main.cpp` | Migrated |
+### 6.1 Test bench
 
-### 6.2 L0-GOB — grid observer
+Is the simulator setup trustworthy? The firmware block runs the real code at the right rate, measurements reach it, the PV panel equations agree.
 
-| ID | Behaviour | Source | Status |
-|---|---|---|---|
-| L0-GOB-01 | Not operable before init; invalid config rejected | `GridObserver::init`, `canOperate` | Migrated |
-| L0-GOB-02 | Qualification dwell; restart on dropout; no nuisance trip when the grid is absent at startup | `qualification_time_s` = 1 s | Migrated |
-| L0-GOB-03 | RMS and frequency estimates accurate on a clean grid | `getVoltageRms`, `getFrequencyHz` | Migrated |
-| L0-GOB-04 | UV, OV, UF, OF trip after their delay; shorter events do not trip | 207–253 V, 47.5–52.5 Hz, 0.1 s delays in `grid_observer_config` | Migrated |
-| L0-GOB-05 | Trip latches; clearing needs a full healthy interval and open-relay feedback | `clearTrip` | Migrated |
-| L0-GOB-06 | Invalid measurement trips with reason `InvalidMeasurement` | `update(..., measurements_valid)` | Migrated (already covered by the original test) |
+These establish the execution and measurement boundary using the same Core source. They do not validate the model or the firmware, and do not override a finding. [Implementation and prerequisites](../../tests/l1/README.md).
 
-### 6.3 L0-GFL — grid-following inverter (library)
+Contract **app-v1**, in `tests/l1/contract.json`, binds six physical probes plus VAC freshness and the three existing operator commands. Outputs include the stop/update action flags as well as duties/enables; relay and bridge request telemetry stays off. Unrun criteria are reported BLOCKED; measured failures stay FAIL.
 
-| ID | Behaviour | Source | Verdict type | Status |
+| ID | Test | Criterion and conditions | Source | Status |
 |---|---|---|---|---|
-| L0-GFL-01 | Init validation; invalid config latches `VSI_FAULT_INVALID_CONFIGURATION` | library README, `init` | PASS/FAIL | Implemented |
-| L0-GFL-02 | PLL locks on a clean 230 V / 50 Hz grid; synchronization only never requests PWM or relay | `getSync`, `isPwmRequested` | PASS/FAIL; lock time, phase and frequency error `INFO` | Implemented |
-| L0-GFL-03 | PLL tracks a 50 → 51 Hz step (20 ms mean) and synchronizes again inside the library's ±5 % frequency window | `getw`, `synchronizationAligned` (±5 % ω, \|Vq\| < 0.1 V) | PASS/FAIL; tracking time, ripple `INFO` | Implemented; .b FAIL, [#1](https://github.com/luizvilla/Core/issues/1) |
-| L0-GFL-04 | Mode lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → STOPPING → DISCONNECT → OFF with feedback; 1 s connection and disconnection timeouts; connection lost; sync lost while awaiting the relay | `vsi_mode_t`, `_connection_timeout` | PASS/FAIL | Implemented |
-| L0-GFL-05 | Bad grid quality blocks SYNC and trips CONNECT/CONNECTED/RUN; `clearFault` needs good quality and an open relay | `setGridQuality`, `clearFault` | PASS/FAIL | Implemented |
-| L0-GFL-06 | Non-finite measurement, non-positive bus, invalid references latch a fault with 0.5 duty and PWM off; first cause kept; requests ignored until cleared | library README (faults) | PASS/FAIL | Implemented |
-| L0-GFL-07 | Duty exactly 0.5 in OFF and SYNC; duty = α / (2 · V_bus) + 0.5 otherwise, unclamped | library README (`calculateDuty`) | PASS/FAIL | Implemented |
-| L0-GFL-08 | Cold-start synchronization at 47.6, 49, 50, 51 and 52.4 Hz from four grid angles (5 s horizon); settled frequency estimate within ±5 % | library README (±5 % frequency window), observer window 47.5–52.5 Hz | PASS/FAIL; worst lock time and transient `INFO` | Implemented; .a, .b, .d, .e FAIL, [#1](https://github.com/luizvilla/Core/issues/1) |
+| L1-INT-00 | Build/runner failure before a reported criterion must fail the campaign | Reported only when a build or runner fails before its criteria; its absence from a campaign of its level means that campaign ran. | campaign runner | Implemented: Infrastructure fallback |
+| L1-INT-01 | Wrapper matches direct controlStep; independent state; invalid ABI/timing rejected |  | `controlStep`, app-v1 contract | Implemented: Implemented (.a–.c) |
+| L1-INT-02 | Pulsim actually loads native C-Block, executes once per 100 us, closes an RC loop and resets independently |  | `pulsim.add_c_block`, application period | Implemented: Implemented (.a–.c) |
+| L1-INT-03 | Refined switched model, nominal 50 Hz sync with inverter off, exact current-probe binding and tick-aligned short STARTUP at `app::startup_ramp_rate` |  | accepted plant, `controlStep`, `app::startup_ramp_rate` | Implemented: Implemented (.a–.d) |
+| L1-INT-04 | Missing VAC delivery holds last sample and invalidates at age 200; physical grid stays present |  | sensor hold contract, `grid_voltage_stale_ticks` | Implemented: Implemented (.a–.b) |
+| L1-INT-05 | Native PV passive MPP load; actual Core MPPT coupling; initial 2 ms step refinement; short-run power ratio INFO |  | synthetic single-diode variant | Implemented: Implemented (.a–.c PASS checks, .d INFO) |
+| L1-INT-07 | Lambert W panel equals the diode panel: explicit current vs implicit solution; same switched circuit loaded through the MPP at a fixed duty (10 mV / 10 mA); speed ratio INFO |  | `plant/pv.py` `current_lambertw`, [PV guide](pv-model-run.md#lambert-w-panel-for-long-runs) | Implemented: Implemented (.a–.b; .c INFO) |
 
-### 6.4 L0-APP — application control step (no model)
+### 6.2 Model
 
-| ID | Behaviour | Source | Status |
-|---|---|---|---|
-| L0-APP-01 | `controlInit` applies the app tuning; a mode change is flagged on its tick only and runs the cold loop on that tick; leg enables follow the controller | critical task, mode-change block | Implemented |
-| L0-APP-02 | Cold loop on the change tick, then every 10th tick; a new mode change restarts the phase | `cold_loop_divider` = 10 | Implemented |
-| L0-APP-03 | VAC stale for exactly 200 periods (20 ms) trips the observer with `InvalidMeasurement`; a fresh sample restarts the count; one sample missing at boot does not latch a trip | `grid_voltage_stale_ticks` = 200; `gridObserver.cpp` (no trip latched at startup) | Implemented; .c FAIL, [#2](https://github.com/luizvilla/Core/issues/2) |
-| L0-APP-04 | Bridge PWM never enabled and the inverter never requests PWM or relay, in any mode, with or without a sync request | critical task, "Synchronization only" | Implemented |
-| L0-APP-05 | Synchronization only after observer qualification; an observer trip removes it on the trip tick; times to qualification and sync `INFO` | `setGridQuality(grid_observer.canOperate())` | Implemented |
+Does the model behave like the converter? Boost and inverter in open loop, firmware out of the loop; later compared with the same sequence on the board.
 
-### 6.5 L1-APP — application with the switching plant model
+Model tests run the power stages with the firmware out of the loop (duty or modulation imposed by the test). Their simulated verdicts check the model against hand calculations; the hardware comparison (same sequence on the board) is defined later.
 
-| ID | Scenario | Criteria | Model | Status |
+| ID | Test | Criterion and conditions | Source | Status |
 |---|---|---|---|---|
-| L1-APP-01 | IDLE on a healthy grid | legs off; observer qualifies after 1 s ± 1 tick of continuously eligible estimates; PLL lock time `INFO` | switched | Implemented (.a–.b; .c INFO) |
-| L1-APP-02 | STARTUP from 0 V | bus reference follows `app::startup_ramp_rate` (200 V/s); physical ILow1 ≤ 1 A at electrical steps; leg 2 never enabled | switched | Implemented first 50 ms (.a–.c); full 2 s trajectory .d pending |
-| L1-APP-03 | BUSREG at 400 V | VDCBus within 395–405 V during 80–100 ms after load step at 50 ms; overshoot/current extrema `INFO` | switched | Implemented; preserve FAIL if outside band |
-| L1-APP-04 | Burst cycling at light load | start paused above 405 V, legs off, resume at 395 V; subsequent rising crossing and bus dip reported separately | switched | Initial pause/release implemented; repeated cycling pending if no later upper crossing |
-| L1-APP-05 | MPPT on the PV curve | settles near the maximum power point; tracking efficiency `INFO` | switched | BLOCKED (sustained MPPT fixture) |
-| L1-APP-06 | Synchronization only | inverter synchronized; bridge PWM never enabled | switched | Nominal integration runs; formal verdict gated by finding #1 |
-| L1-APP-07 | Grid steps out of window (UV, OV, UF, OF) | trip within 0.1 s + 1 tick; synchronization revoked | switched | Fault scenarios pending; finding #1 verdict gate |
-| L1-APP-08 | VAC samples lost for more than 20 ms | trip with reason `InvalidMeasurement` after age 200 | switched | Implemented (.a) |
-| L1-APP-09 | Every mode → every other mode | legs stopped on the switching tick; peak current `INFO` | switched | Switched transition scenarios pending |
+| L1-MOD-01 | Boost open loop, leg 1 alone: gain, currents, efficiency, start-up | .a steady bus voltage within ±5 % of the analytic gain ≈ 6·VLow/(1−d) at every duty (PASS/FAIL). INFO: .b input current mean and ripple, .c transformer primary/secondary peaks, .d efficiency (bus power / input power), .e start-up transient from 0 V (inrush peak, time constant) *Conditions:* Ideal 40 V source; bus discharged; DC1 switched at a fixed duty, firmware out of the loop; resistive bus loads 20 / 100 / 200 W at 400 V (10 / 50 / 100 % of a leg's 200 W); duty 0.05–0.45 every 0.05, plus 0.30–0.46 every 0.02; duties whose steady bus would exceed 450 V are skipped; each run held until the bus is steady | tests/l1/plant/full_model.pulsim; transformer ratio from params.yaml | Planned: Defined 2026-11-06, not implemented |
+| L1-MOD-02 | Boost open loop, leg 2 alone: gain, currents, efficiency, start-up | .a steady bus voltage within ±5 % of the analytic gain ≈ 6·VLow/(1−d) at every duty (PASS/FAIL). INFO: .b input current mean and ripple, .c transformer primary/secondary peaks, .d efficiency (bus power / input power), .e start-up transient from 0 V (inrush peak, time constant) *Conditions:* Ideal 40 V source; bus discharged; DC2 switched at a fixed duty, firmware out of the loop; resistive bus loads 20 / 100 / 200 W at 400 V; duty 0.05–0.45 every 0.05, plus 0.30–0.46 every 0.02; duties whose steady bus would exceed 450 V are skipped; each run held until the bus is steady | tests/l1/plant/full_model.pulsim; transformer ratio from params.yaml | Planned: Defined 2026-11-06, not implemented |
+| L1-MOD-03 | Boost open loop, both legs, same duty: gain, currents, efficiency, start-up | .a steady bus voltage within ±5 % of the analytic gain ≈ 6·VLow/(1−d) at every duty (PASS/FAIL). INFO: .b input current mean and ripple, .c transformer primary/secondary peaks, current sharing between legs, .d efficiency (bus power / input power), .e start-up transient from 0 V (inrush peak, time constant) *Conditions:* Ideal 40 V source; bus discharged; DC1+DC2 switched at a fixed duty, firmware out of the loop; resistive bus loads 40 / 200 / 400 W at 400 V (10 / 50 / 100 % of 400 W); duty 0.05–0.45 every 0.05, plus 0.30–0.46 every 0.02; duties whose steady bus would exceed 450 V are skipped; each run held until the bus is steady | tests/l1/plant/full_model.pulsim; transformer ratio from params.yaml | Planned: Defined 2026-11-06, not implemented |
+| L1-MOD-04 | Inverter open loop, no load: filter behaviour | INFO: output voltage vs modulation index, LCL resonance frequency and damping, compared with the analytic filter values *Conditions:* Ideal 400 V bus (boost disconnected); fixed 50 Hz sinusoidal modulation imposed on the bridge; relay open (filter unloaded) |  | Planned: Defined 2026-11-06, not implemented |
+| L1-MOD-05 | Inverter open loop into a resistor: modulation index sweep | .a output fundamental within ±5 % of m·Vbus/√2 at every index (PASS/FAIL). INFO: .b output THD, .c bridge and filter currents, .d losses *Conditions:* Ideal 400 V bus; fixed 50 Hz modulation, index 0.2–1.0 every 0.2; relay closed on a resistor sized for 400 W at 230 V |  | Planned: Defined 2026-11-06, not implemented |
+| L1-MOD-06 | Inverter open loop into the grid: amplitude and phase steps | .a active and reactive power within ±10 % of the phasor calculation through the filter impedance (PASS/FAIL). INFO: .b grid current THD, .c current at relay closing *Conditions:* Ideal 400 V bus; modulation synchronized to the 230 V / 50 Hz grid by the test (not the firmware); relay closed; amplitude and phase stepped around the no-current point |  | Planned: Defined 2026-11-06, not implemented |
+| L1-MOD-07 | Inverter dead-time effect | INFO: output voltage loss and distortion with dead time 0 / 100 / 200 ns, against the analytic dead-time voltage error *Conditions:* As L1-MOD-05 at index 0.8 |  | Planned: Defined 2026-11-06, not implemented |
+| L1-MOD-08 | Measurement chain: what the firmware reads vs the physical quantity | .a each firmware input (VLow, ILow1, ILow2, VHigh/bus, VAC, inverter current) matches the physical value in scale and sign within 1 % (PASS/FAIL); .b current sampled at the board's ADC trigger instant (PASS/FAIL; known mismatch, #3 H2, drives contract app-v2) *Conditions:* Open-loop runs of L1-MOD-01 and L1-MOD-05 at nominal operating points; probes compared sample by sample | tests/l1/contract.json; board ADC trigger (HRTIM, 0.06·PER up-count) | Planned: Defined 2026-11-06, not implemented |
 
-The [switched DCDC results](switched-dcdc-results.md) preserve the current regulation failure, numerical refinement and remaining coverage.
+### 6.3 Boost
 
-### 6.6 L1-GFL — library only, through a test harness
+Does the boost object do what it should, alone? L0 logic, then the object alone on the model.
 
-These cases exercise library features the application does not use. They run the library through a small test-only harness, **not** through `controlStep`, so nobody reads them as application behaviour.
+| ID | Test | Criterion and conditions | Source | Status |
+|---|---|---|---|---|
+| L0-BST-01 | Invalid init, measurements or burst bounds never enable a leg |  | `BoostConverter::init`, `isLeg1Enabled`, `isLeg2Enabled` | Implemented: Migrated |
+| L0-BST-02 | Leg 1 takes priority up to its current limit, leg 2 takes the excess, leg 2 is cleared when its demand stops |  | `splitCurrentReference` | Implemented: Migrated |
+| L0-BST-03 | Cold-loop saturation sets the total current reference |  | voltage PID bounds | Implemented: Migrated |
+| L0-BST-04 | MPPT perturb and observe: direction, turnaround at bounds, voltage ignored |  | `Mppt`, `MPPT_CURRENT_STEP` = 0.1 A | Implemented: Migrated |
+| L0-BST-05 | STARTUP ramp starts from the measured voltage, follows the rate, does not overshoot, restarts from the measurement on re-entry |  | `setStartupRampRate` (class default 10 V/s); the application sets `app::startup_ramp_rate` = 200 V/s in `control_step.h` | Implemented: Migrated |
+| L0-BST-06 | STARTUP current ceiling; converter 2 never enabled in STARTUP |  | `setStartupCurrentMax`; `startup_current_max` = 1 A | Implemented: Migrated |
+| L0-BST-07 | Burst hysteresis: pause at ≥ upper bound, resume at ≤ lower bound, ramp frozen, no bypass, MPPT exempt |  | `updateBurstState`; 395 / 405 V in `main.cpp` | Implemented: Migrated |
+| L1-BST-01 | STARTUP from 0 V to 400 V | Bus reference follows app::startup_ramp_rate (200 V/s) to 400 V; ILow1 ≤ 1 A at every electrical step; leg 2 never enabled *Conditions:* Ideal 40 V source; bus discharged; light bus load *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-02 | BUSREG load steps | VDCBus within 395–405 V after each step settles; overshoot and settling time INFO *Conditions:* Bus at 400 V; load steps 10 → 50 → 100 → 10 % of 400 W *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-03 | STARTUP → BUSREG hand-over | No bus sag below 395 V when BUSREG takes over at 400 V under load (the #3 transition) *Conditions:* Real sequence from 0 V, BUSREG commanded once the ramp reaches 400 V; 50 % load *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-04 | Burst cycling at light load | Repeated pause above 405 V and resume at 395 V; legs off while paused; cycle period INFO *Conditions:* Bus at 400 V; load 1–2 % of rated; 1 s or more *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-05 | Current split between legs | Leg 1 takes the demand up to its limit, leg 2 the excess; leg 2 off when its demand stops *Conditions:* BUSREG at 400 V; load ramp 0 → 400 W → 0 *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-06 | MPPT on the PV panel | Settles within 2 % of the panel's maximum power; tracking efficiency and settling time INFO *Conditions:* Lambert W panel at 100 % light; bus load sized for the MPP *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-07 | MPPT under light changes | Recovers the MPP within 2 % after a cloud step (100 → 30 %) and a recovery ramp; INFO: energy lost during the transient *Conditions:* Lambert W panel; light step and ramp *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-08 | Every boost mode → every other mode | Legs stopped on the switching tick; no current above the limits; peak currents INFO *Conditions:* All pairs of IDLE / STARTUP / BUSREG / MPPT at representative operating points *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
 
-| ID | Scenario | Status |
-|---|---|---|
-| L1-GFL-01 | Connect → run (I_d step) → stop → disconnect, with relay feedback | BLOCKED (relay) |
-| L1-GFL-02 | Grid fault during RUN: fault latched, PWM dropped immediately | BLOCKED (relay) |
-| L1-GFL-03 | Relay never confirms closing: fault after the 1 s timeout | BLOCKED (relay) |
+### 6.4 Grid observer
 
-### 6.7 L1-INT — native firmware-block integration
+Does the grid observer judge the grid correctly, alone? L0 logic, then the object alone through the model's grid sensing.
 
-These establish the execution/measurement boundary using the same Core source. They do not unblock formal L1-APP/GFL cases, override finding #1 or claim regulation performance. [Implementation and prerequisites](../../tests/l1/README.md).
+| ID | Test | Criterion and conditions | Source | Status |
+|---|---|---|---|---|
+| L0-GOB-01 | Not operable before init; invalid config rejected |  | `GridObserver::init`, `canOperate` | Implemented: Migrated |
+| L0-GOB-02 | Qualification dwell; restart on dropout; no nuisance trip when the grid is absent at startup |  | `qualification_time_s` = 1 s | Implemented: Migrated |
+| L0-GOB-03 | RMS and frequency estimates accurate on a clean grid |  | `getVoltageRms`, `getFrequencyHz` | Implemented: Migrated |
+| L0-GOB-04 | UV, OV, UF, OF trip after their delay; shorter events do not trip |  | 207–253 V, 47.5–52.5 Hz, 0.1 s delays in `grid_observer_config` | Implemented: Migrated |
+| L0-GOB-05 | Trip latches; clearing needs a full healthy interval and open-relay feedback |  | `clearTrip` | Implemented: Migrated |
+| L0-GOB-06 | Invalid measurement trips with reason `InvalidMeasurement` |  | `update(..., measurements_valid)` | Implemented: Migrated (already covered by the original test) |
+| L1-GOB-01 | Clean grid: estimates and qualification | RMS within ±1 %, frequency within ±0.05 Hz of the grid; qualified after 1 s ± 1 tick *Conditions:* 230 V / 50 Hz, then 210 / 250 V and 49 / 51 Hz steady *Harness:* grid observer alone in its own C-Block, fed through the model's VAC sensing |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GOB-02 | Window limits | Steps just inside each limit (UV 207, OV 253 V, UF 47.5, OF 52.5 Hz) never trip; just outside they trip within 0.1 s + 1 tick with the right reason *Conditions:* Steps from nominal to ±1 % of each limit, both sides *Harness:* grid observer alone in its own C-Block, fed through the model's VAC sensing |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GOB-03 | Short events do not trip | Out-of-window events shorter than the 0.1 s delay never trip *Conditions:* Each fault for 50 and 90 ms *Harness:* grid observer alone in its own C-Block, fed through the model's VAC sensing |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GOB-04 | Trip latch and recovery | Trip stays latched while the grid recovers; clearTrip succeeds only after a full healthy interval with the relay open *Conditions:* Fault, recovery, clearTrip at several times *Harness:* grid observer alone in its own C-Block, fed through the model's VAC sensing |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GOB-05 | Waveform quality | RMS and frequency stay within the L1-GOB-01 tolerances and no trip with 3rd/5th harmonics at grid-standard levels, a DC offset and measurement noise *Conditions:* Distorted 230 V / 50 Hz grids *Harness:* grid observer alone in its own C-Block, fed through the model's VAC sensing |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GOB-06 | Phase jumps, frequency ramps, sags and swells | No nuisance trip on phase jumps of 10–60°; frequency ramps (ROCOF) and sag/swell profiles trip only when they leave the window; frequency transient INFO *Conditions:* Profiles applied from nominal *Harness:* grid observer alone in its own C-Block, fed through the model's VAC sensing |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GOB-07 | Grid-code interface-protection sequence | Passes the chosen standard's interface-protection test sequence *Conditions:* Standard to be chosen (e.g. EN 50549-1 or VDE-AR-N 4105) *Harness:* grid observer alone in its own C-Block, fed through the model's VAC sensing |  | Planned: Defined 2026-11-06; standard not chosen yet |
 
-| ID | Behaviour | Source | Status |
-|---|---|---|---|
-| L1-INT-00 | Build/runner failure before a reported criterion must fail the campaign | campaign runner | Infrastructure fallback |
-| L1-INT-01 | Wrapper matches direct controlStep; independent state; invalid ABI/timing rejected | `controlStep`, app-v1 contract | Implemented (.a–.c) |
-| L1-INT-02 | Pulsim actually loads native C-Block, executes once per 100 us, closes an RC loop and resets independently | `pulsim.add_c_block`, application period | Implemented (.a–.c) |
-| L1-INT-03 | Refined switched model, nominal 50 Hz sync with inverter off, exact current-probe binding and tick-aligned short STARTUP at `app::startup_ramp_rate` | accepted plant, `controlStep`, `app::startup_ramp_rate` | Implemented (.a–.d) |
-| L1-INT-04 | Missing VAC delivery holds last sample and invalidates at age 200; physical grid stays present | sensor hold contract, `grid_voltage_stale_ticks` | Implemented (.a–.b) |
-| L1-INT-05 | Native PV passive MPP load; actual Core MPPT coupling; initial 2 ms step refinement; short-run power ratio INFO | synthetic single-diode variant | Implemented (.a–.c PASS checks, .d INFO) |
-| L1-INT-07 | Lambert W panel equals the diode panel: explicit current vs implicit solution; same switched circuit loaded through the MPP at a fixed duty (10 mV / 10 mA); speed ratio INFO | `plant/pv.py` `current_lambertw`, [PV guide](pv-model-run.md#lambert-w-panel-for-long-runs) | Implemented (.a–.b; .c INFO) |
+### 6.5 Inverter
 
-Contract **app-v1**, in `tests/l1/contract.json`, binds six physical probes plus VAC freshness and the three existing operator commands. Outputs include the stop/update action flags as well as duties/enables; relay and bridge request telemetry stays off. The wrapper is the actual Pulsim C-Block execution path. A native synthetic PV variant is implemented and checked separately by L1-INT-05. Switched startup, regulation and initial burst fixtures are implemented. Full-duration startup, sustained MPPT acceptance, repeated burst cycles and the library-only relay/RUN harness remain incomplete. Unrun criteria are explicitly BLOCKED; measured regulation failures remain FAIL. Nominal integration does not close the open library finding.
+Does the grid-following inverter library work, alone? L0 logic, then the library alone with a relay model.
+
+The L1 cases exercise library features the application does not use. They run the library through a small test-only harness, **not** through `controlStep`, so nobody reads them as application behaviour.
+
+| ID | Test | Criterion and conditions | Source | Status |
+|---|---|---|---|---|
+| L0-GFL-01 | Init validation; invalid config latches `VSI_FAULT_INVALID_CONFIGURATION` |  *Verdict:* PASS/FAIL | library README, `init` | Implemented |
+| L0-GFL-02 | PLL locks on a clean 230 V / 50 Hz grid; synchronization only never requests PWM or relay |  *Verdict:* PASS/FAIL; lock time, phase and frequency error `INFO` | `getSync`, `isPwmRequested` | Implemented |
+| L0-GFL-03 | PLL tracks a 50 → 51 Hz step (20 ms mean) and synchronizes again inside the library's ±5 % frequency window |  *Verdict:* PASS/FAIL; tracking time, ripple `INFO` | `getw`, `synchronizationAligned` (±5 % ω, \|Vq\| < 0.1 V) | Implemented: Implemented; .b FAIL, #1 |
+| L0-GFL-04 | Mode lifecycle OFF → SYNC → CONNECT → CONNECTED → RUN → STOPPING → DISCONNECT → OFF with feedback; 1 s connection and disconnection timeouts; connection lost; sync lost while awaiting the relay |  *Verdict:* PASS/FAIL | `vsi_mode_t`, `_connection_timeout` | Implemented |
+| L0-GFL-05 | Bad grid quality blocks SYNC and trips CONNECT/CONNECTED/RUN; `clearFault` needs good quality and an open relay |  *Verdict:* PASS/FAIL | `setGridQuality`, `clearFault` | Implemented |
+| L0-GFL-06 | Non-finite measurement, non-positive bus, invalid references latch a fault with 0.5 duty and PWM off; first cause kept; requests ignored until cleared |  *Verdict:* PASS/FAIL | library README (faults) | Implemented |
+| L0-GFL-07 | Duty exactly 0.5 in OFF and SYNC; duty = α / (2 · V_bus) + 0.5 otherwise, unclamped |  *Verdict:* PASS/FAIL | library README (`calculateDuty`) | Implemented |
+| L0-GFL-08 | Cold-start synchronization at 47.6, 49, 50, 51 and 52.4 Hz from four grid angles (5 s horizon); settled frequency estimate within ±5 % |  *Verdict:* PASS/FAIL; worst lock time and transient `INFO` | library README (±5 % frequency window), observer window 47.5–52.5 Hz | Implemented: Implemented; .a, .b, .d, .e FAIL, [#1](https://github.com/luizvilla/Core/issues/1) |
+| L1-GFL-01 | Connect → run (I_d step) → stop → disconnect, with relay feedback |  *Harness:* inverter library alone in its own C-Block (not controlStep), with a relay model |  | Blocked: BLOCKED: needs the inverter harness and a relay model |
+| L1-GFL-02 | Grid fault during RUN: fault latched, PWM dropped immediately |  *Harness:* inverter library alone in its own C-Block (not controlStep), with a relay model |  | Blocked: BLOCKED: needs the inverter harness and a relay model |
+| L1-GFL-03 | Relay never confirms closing: fault after the 1 s timeout |  *Harness:* inverter library alone in its own C-Block (not controlStep), with a relay model |  | Blocked: BLOCKED: needs the inverter harness and a relay model |
+| L1-GFL-04 | PLL on the model's sensed grid | Synchronizes at 47.6, 49, 50, 51 and 52.4 Hz within the library's ±5 % window; lock time INFO *Conditions:* Inverter in SYNC on the model grid *Harness:* inverter library alone in its own C-Block (not controlStep), with a relay model |  | Planned: Defined 2026-11-06; gated by #1 |
+| L1-GFL-05 | RUN: active current steps | Grid current follows I_d steps; current THD and step response INFO *Conditions:* 400 V bus (ideal); relay closed; I_d 0 → 50 → 100 % of 400 W *Harness:* inverter library alone in its own C-Block (not controlStep), with a relay model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GFL-06 | RUN: reactive current | Grid current follows I_q references; power factor INFO *Conditions:* As L1-GFL-05 with I_q steps *Harness:* inverter library alone in its own C-Block (not controlStep), with a relay model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GFL-07 | RUN: bus voltage variation | Current tracking holds while the DC bus moves within its operating range (e.g. 380–420 V) *Conditions:* As L1-GFL-05 with a bus ramp *Harness:* inverter library alone in its own C-Block (not controlStep), with a relay model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-GFL-08 | RUN: phase jump | Stays synchronized or faults cleanly on a grid phase jump; current peak INFO *Conditions:* As L1-GFL-05 with 10–60° jumps *Harness:* inverter library alone in its own C-Block (not controlStep), with a relay model |  | Planned: Defined 2026-11-06, not implemented |
+
+### 6.6 Application
+
+Do the objects work together in the real firmware sequence? L0 control step, then the application on the full model.
+
+The [switched DCDC results](switched-dcdc-results.md) preserve the current regulation failure, numerical refinement and remaining coverage. Grid-injection cases are defined now and stay blocked while the application is synchronization-only.
+
+| ID | Test | Criterion and conditions | Source | Status |
+|---|---|---|---|---|
+| L0-APP-01 | `controlInit` applies the app tuning; a mode change is flagged on its tick only and runs the cold loop on that tick; leg enables follow the controller |  | critical task, mode-change block | Implemented |
+| L0-APP-02 | Cold loop on the change tick, then every 10th tick; a new mode change restarts the phase |  | `cold_loop_divider` = 10 | Implemented |
+| L0-APP-03 | VAC stale for exactly 200 periods (20 ms) trips the observer with `InvalidMeasurement`; a fresh sample restarts the count; one sample missing at boot does not latch a trip |  | `grid_voltage_stale_ticks` = 200; `gridObserver.cpp` (no trip latched at startup) | Implemented: Implemented; .c FAIL, [#2](https://github.com/luizvilla/Core/issues/2) |
+| L0-APP-04 | Bridge PWM never enabled and the inverter never requests PWM or relay, in any mode, with or without a sync request |  | critical task, "Synchronization only" | Implemented |
+| L0-APP-05 | Synchronization only after observer qualification; an observer trip removes it on the trip tick; times to qualification and sync `INFO` |  | `setGridQuality(grid_observer.canOperate())` | Implemented |
+| L1-APP-01 | IDLE on a healthy grid | legs off; observer qualifies after 1 s ± 1 tick of continuously eligible estimates; PLL lock time `INFO` |  | Implemented: Implemented (.a–.b; .c INFO) |
+| L1-APP-02 | STARTUP from 0 V | bus reference follows `app::startup_ramp_rate` (200 V/s); physical ILow1 ≤ 1 A at electrical steps; leg 2 never enabled |  | Partly implemented: Implemented first 50 ms (.a–.c); full 2 s trajectory .d pending |
+| L1-APP-03 | BUSREG at 400 V | VDCBus within 395–405 V during 80–100 ms after load step at 50 ms; overshoot/current extrema `INFO` |  | Implemented: Implemented; preserve FAIL if outside band |
+| L1-APP-04 | Burst cycling at light load | start paused above 405 V, legs off, resume at 395 V; subsequent rising crossing and bus dip reported separately |  | Partly implemented: Initial pause/release implemented; repeated cycling pending if no later upper crossing |
+| L1-APP-05 | MPPT on the PV curve | settles near the maximum power point; tracking efficiency `INFO` |  | Blocked: BLOCKED (sustained MPPT fixture) |
+| L1-APP-06 | Synchronization only | inverter synchronized; bridge PWM never enabled |  | Partly implemented: Nominal integration runs; formal verdict gated by finding #1 |
+| L1-APP-07 | Grid steps out of window (UV, OV, UF, OF) | trip within 0.1 s + 1 tick; synchronization revoked |  | Partly implemented: Fault scenarios pending; finding #1 verdict gate |
+| L1-APP-08 | VAC samples lost for more than 20 ms | trip with reason `InvalidMeasurement` after age 200 |  | Implemented: Implemented (.a) |
+| L1-APP-09 | Every mode → every other mode | legs stopped on the switching tick; peak current `INFO` |  | Partly implemented: Switched transition scenarios pending |
+| L1-APP-10 | Turn-on to MPPT | IDLE → STARTUP → BUSREG → MPPT from a discharged bus on the PV panel: each mode reached in order, bus within its band, MPP reached; operator stop returns to IDLE with legs off *Conditions:* Lambert W panel; grid present; operator command sequence |  | Planned: Defined 2026-11-06, not implemented |
+| L1-APP-11 | Light changes in MPPT | Cloud step and recovery ramp: MPP recovered, bus stays within limits *Conditions:* As L1-APP-10, then light 100 → 30 → 100 % |  | Planned: Defined 2026-11-06, not implemented |
+| L1-APP-12 | Sundown and turn-off | Light ramps to dark: no fault, legs stop, return to IDLE on command *Conditions:* As L1-APP-10, then light ramp to 0 |  | Planned: Defined 2026-11-06, not implemented |
+| L1-APP-13 | Grid events while running | Grid fault in each operating mode: trip, synchronization revoked, return to service after recovery *Conditions:* Faults of L1-GOB-02 during STARTUP, BUSREG and MPPT |  | Planned: Defined 2026-11-06, not implemented |
+| L1-APP-14 | Fixed-power injection | Inject a commanded power into the grid; power, current THD and bus stability *Conditions:* Grid-connected operation |  | Blocked: BLOCKED: the application is synchronization-only and never injects into the grid |
+| L1-APP-15 | MPPT into the grid | PV power tracked and injected; overall efficiency INFO *Conditions:* Grid-connected operation on the PV panel |  | Blocked: BLOCKED: the application is synchronization-only and never injects into the grid |
+| L1-APP-16 | Anti-islanding | Stops injecting within the standard's time when the grid disappears *Conditions:* Grid loss during injection |  | Blocked: BLOCKED: the application is synchronization-only and never injects into the grid |
 
 ## 7. Running a campaign
 
@@ -371,6 +417,8 @@ Rules:
 
 ### 8.5 Reviewing a campaign
 
+**Where the validation stands: `tests/out/control-center.html`.** One tab per stage (Test bench, Model, Boost, Grid observer, Inverter, Application), built from the catalogue (§6) and every campaign under `tests/out/`. Each test shows its definition, its implementation state, and its newest result with a link to that campaign's review page; study runs are linked under the tests they inform and never set a verdict. Every campaign and study rewrites it; `python3 tests/common/control_center.py` rebuilds it by hand. A result whose criterion is not in the catalogue is listed at the bottom of the Runs tab.
+
 Every campaign writes `tests/out/<campaign>/report.html`. It is the **one file to open** after a run, by whoever ran it or whoever is asked to check it.
 
 **Every test result has the same four parts.** In the report, each L1 test case (one scenario run) is a section with, in this order:
@@ -393,6 +441,8 @@ The review is the same three steps every time:
 | 3 | **Changes since the previous campaign**: verdicts that changed, measured values that moved by more than 1 %, criteria added or not run | Each change has a known reason (a commit, a fix, a new test) |
 
 Then sign off in the record's front matter: `reviewed: <name>, <date>, OK` or `questions: <what>`. Records are local (§7), so a campaign that supports a decision (closing a finding, a production change, a release) is also quoted by ID in the issue or commit, with its review status.
+
+**Plots are interactive** (uPlot, vendored in `tests/common/vendor/`, inlined so the page works offline): drag across a plot to zoom in time, the value axis fits what is visible; double-click resets; hovering reads every signal's value at that instant (6 significant digits) in the legend. The panels of one figure zoom and hover together. The data is embedded at full resolution up to 200 000 points per trace; longer traces keep each interval's minimum and maximum, and the caption says so.
 
 **Plot conventions**, the same in every plot so they are learnt once:
 
@@ -456,6 +506,7 @@ flowchart LR
 | 1.5 | 2026-11-05 | §8.5: every test result has four parts (purpose + conditions and objectives, model snapshot, results, figures); the review page is organised per test case. Scenarios carry `title`, `purpose` and `criteria`. Each scenario folder keeps the exact model it ran on, its pictures and its changes from the accepted model (§8.3). The contract profile name follows the 200 V/s change (`Core-app-default-200Vps-sync-only`). |
 | 1.6 | 2026-11-06 | Lambert W panel (`pv_model: lambertw`) for long PV runs, about 4.5× faster than the diode panel, which also fails to converge under heavy load; validated by L1-INT-07 in every campaign. Scenarios may carry a `light` profile (irradiance over time, Lambert W panel only). Review plots can read electrical traces and compare with a reference run (difference panel). |
 | 1.7 | 2026-11-06 | §7.4 studies: exploratory parallel runs with no verdicts, launched detached overnight, one review page updated as runs finish (summary of every case, then the four parts). Runner options for studies: grid steps, open-loop duty, discharged PV bus. |
+| 1.8 | 2026-11-06 | §6 is generated from `tests/catalogue.json`, grouped by validation stage (Test bench, Model, Boost, Grid observer, Inverter, Application); new planned cases, defined with the user: L1-MOD-01…08 (boost and inverter in open loop, measurement chain; hardware comparison to be defined), L1-BST-01…08 and L1-GOB-01…07 (each object alone on the model, own harness), L1-GFL-04…08, L1-APP-10…16 (grid injection blocked while the application is synchronization-only). §8.5: control center (`tests/out/control-center.html`) and interactive plots. |
 
 ## 11. Findings register
 

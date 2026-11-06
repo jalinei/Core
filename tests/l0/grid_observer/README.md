@@ -1,6 +1,6 @@
 # L0-GOB: grid observer
 
-Open-loop tests of `GridObserver` ([src/grid_observer/](../../../src/grid_observer/)). Catalogue: [procedure §6.2](../../../docs/testing/test-procedure.md#62-l0-gob--grid-observer).
+Open-loop tests of `GridObserver` ([src/grid_observer/](../../../src/grid_observer/)). Catalogue: [procedure §6.4](../../../docs/testing/test-procedure.md#64-grid-observer).
 
 ## Run
 

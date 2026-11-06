@@ -98,4 +98,7 @@ if [ -x "$repo/.venv/bin/python" ]; then
 else
     echo "Review page skipped: no .venv (tests/l1/setup.sh creates it)."
 fi
+# Where the whole validation stands, across campaigns (standard library only).
+python3 "$repo/tests/common/control_center.py" --out "$(dirname "$out")" ||
+    echo "Control center not updated (see the error above)."
 exit $rc

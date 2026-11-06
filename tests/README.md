@@ -48,11 +48,12 @@ SINGLE_PHASE_INVERTER_DIR=~/code/single_phase_inverter tests/run_all.sh --l0
 | [`l0/grid_observer/`](l0/grid_observer/README.md) | L0-GOB: grid observer |
 | [`l0/inverter_following/`](l0/inverter_following/README.md) | L0-GFL: grid-following inverter library |
 | [`l1/`](l1/README.md) | Native Core C-Block integration checks; formal L1 cases explicitly BLOCKED where prerequisites remain |
-| `out/` | Generated test records (git-ignored) |
+| `catalogue.json` | Every test, defined once: procedure §6 and the control center are generated from it |
+| `out/` | Generated test records (git-ignored); `out/control-center.html` shows where the validation stands |
 
 ## Adding a test
 
-1. Add the test case to the catalogue in the [procedure](../docs/testing/test-procedure.md#6-test-catalogue), with its source and limit.
+1. Add the test case to [`catalogue.json`](catalogue.json) (its tab, criterion, conditions, source, status), then run `python3 tests/common/catalogue.py --procedure` to regenerate procedure §6. Never edit §6 by hand.
 2. Write it in the matching folder, one `tc::Criterion` per criterion ID (see [common/README.md](common/README.md)).
 3. Follow the documentation rules in procedure §7.3: README, license header, Doxygen comments, `@test` tag.
 4. A new test folder needs `run.sh` and `README.md`; `run_all.sh` picks it up automatically. Add its object code to `object_code()` in `run_all.sh`.

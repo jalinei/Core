@@ -63,6 +63,7 @@ def main():
     def report():
         r=subprocess.run([PY,str(REPO/'tests/common/review_report.py'),str(out)],capture_output=True,text=True)
         if r.returncode:print('report failed:',r.stderr.strip().splitlines()[-1:],flush=True)
+        subprocess.run([PY,str(REPO/'tests/common/control_center.py'),'--out',str(out.parent)],capture_output=True)
     def run(case):
         folder=out/case['folder']
         with lock:case.update(state='running',started=dt.datetime.now().isoformat(timespec='seconds'));save()

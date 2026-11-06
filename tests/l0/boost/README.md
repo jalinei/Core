@@ -1,6 +1,6 @@
 # L0-BST: boost converter controller
 
-Open-loop tests of `BoostConverter` ([src/boost_converter/](../../../src/boost_converter/)). Catalogue: [procedure §6.1](../../../docs/testing/test-procedure.md#61-l0-bst--boost-converter).
+Open-loop tests of `BoostConverter` ([src/boost_converter/](../../../src/boost_converter/)). Catalogue: [procedure §6.3](../../../docs/testing/test-procedure.md#63-boost).
 
 ## Run
 

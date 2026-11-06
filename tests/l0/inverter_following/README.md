@@ -1,6 +1,6 @@
 # L0-GFL: grid-following inverter controller (library)
 
-Open-loop tests of `singlePhaseInverterFollowing` from [jalinei/single_phase_inverter](https://github.com/jalinei/single_phase_inverter), branch `main`, not pinned. Catalogue: [procedure §6.3](../../../docs/testing/test-procedure.md#63-l0-gfl--grid-following-inverter-library).
+Open-loop tests of `singlePhaseInverterFollowing` from [jalinei/single_phase_inverter](https://github.com/jalinei/single_phase_inverter), branch `main`, not pinned. Catalogue: [procedure §6.5](../../../docs/testing/test-procedure.md#65-inverter).
 
 ## Run
 
