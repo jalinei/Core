@@ -1,6 +1,6 @@
 {
  "_doc": "The validation catalogue: every test, defined once. tests/common/control_center.py builds tests/out/control-center.html from it and from the campaign results; tests/common/catalogue.py --procedure writes procedure §6 from it. status: implemented | partial | planned | blocked (implementation state, not a verdict; verdicts come from campaign results). Amend here, then regenerate §6.",
- "version": "1.1",
+ "version": "1.2",
  "tabs": [
   {
    "id": "bench",
@@ -215,6 +215,17 @@
    "hardware": "not defined yet"
   },
   {
+   "id": "L1-MOD-09",
+   "tab": "model",
+   "level": "L1",
+   "title": "Boost plant identification for PID tuning",
+   "criterion": "INFO: linear models identified from small steps on the switched model: duty → input inductor current (current loop plant) and current → bus voltage (voltage loop plant), at 10 / 50 / 100 % of 400 W and 400 V, each leg and both; fitted first-order plus delay (for SIMC) and second-order transfer functions, with the fit error",
+   "conditions": "Open loop (firmware out of the loop), bus at 400 V with the load of each operating point, duty steps of ±0.01 around the operating duty",
+   "source": "tests/l1/plant/open_loop.py",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented"
+  },
+  {
    "id": "L0-BST-01",
    "tab": "boost",
    "level": "L0",
@@ -301,11 +312,11 @@
    "tab": "boost",
    "level": "L1",
    "title": "BUSREG load steps",
-   "criterion": "VDCBus within 395–405 V after each step settles; overshoot and settling time INFO",
+   "criterion": ".a VDCBus stays within 380–420 V (±5 %) during every step and is back within 395–405 V within 100 ms (PASS/FAIL); INFO: overshoot, undershoot, settling time, current-reference saturation",
    "source": "",
    "status": "planned",
-   "status_note": "Defined 2026-11-06, not implemented",
-   "conditions": "Bus at 400 V; load steps 10 → 50 → 100 → 10 % of 400 W",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented",
+   "conditions": "BUSREG at 400 V, real firmware on the switched model; steps up and down between 10, 50 and 100 % of 400 W (10→50→100→50→10 %); through the application until the boost-object harness exists",
    "harness": "boost object alone in its own C-Block, on the boost part of the model"
   },
   {
@@ -379,6 +390,17 @@
    "status_note": "Defined 2026-11-06, not implemented",
    "conditions": "All pairs of IDLE / STARTUP / BUSREG / MPPT at representative operating points",
    "harness": "boost object alone in its own C-Block, on the boost part of the model"
+  },
+  {
+   "id": "L1-BST-09",
+   "tab": "boost",
+   "level": "L1",
+   "title": "PID tuning comparison",
+   "criterion": "INFO: for each tuning, gain and phase margins and crossover on the identified plants (L1-MOD-09), then L1-BST-02 load steps, L1-BST-03 STARTUP → BUSREG hand-over (the #3 transition) and L1-BST-01 start-up on the switched model with the real firmware: overshoot, undershoot, settling, duty and reference saturation",
+   "conditions": "Tunings: today's firmware (voltage Kp 0.05, Ti 0.1 s; current Kp 0.000215, Ti 75.2 µs); Jean's AI fit (voltage Kp 0.18, Ti 60 ms; current Kp 0.0005, Ti 33.3 µs); Skogestad SIMC on the identified plants; a crossover / phase-margin tuner in two settings (robust, fast), as MATLAB's pidTuner slider. Same PID form and output bounds as the firmware; constants overridden in the test build only (production unchanged until one is chosen)",
+   "source": "src/app/control_step.h boost_voltage_params, boost_current_params",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented"
   },
   {
    "id": "L0-GOB-01",
@@ -617,6 +639,83 @@
    "status": "implemented",
    "status_note": "Implemented; .a, .b, .d, .e FAIL, [#1](https://github.com/luizvilla/Core/issues/1)",
    "verdict_type": "PASS/FAIL; worst lock time and transient `INFO`"
+  },
+  {
+   "id": "L0-GFL-09",
+   "tab": "inverter",
+   "level": "L0",
+   "title": "SOGI orthogonality on a clean grid",
+   "criterion": ".a |β|/|α| fundamental ratio 1 ± 2 % and .b phase α→β 90° ± 1° at every frequency, measured once the PLL has settled (PASS/FAIL); INFO: α amplitude and phase error against the input",
+   "conditions": "Clean 230 V sine at 47.5, 49, 50, 51, 52.5 Hz; 10 kHz sampling; SOGI tuned to the PLL estimate (as in bcb7e71)",
+   "source": "single_phase_inverter Sogi::calc and singlePhaseInverterFollowing (PLL), library alone",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented"
+  },
+  {
+   "id": "L0-GFL-10",
+   "tab": "inverter",
+   "level": "L0",
+   "title": "SOGI and PLL with grid harmonics",
+   "criterion": ".a synchronization holds and Vq ripple stays below the 0.1 V sync tolerance (PASS/FAIL); INFO: per-harmonic gain of α and β (3rd–13th) against the discrete transfer functions, THD of α and β, Vd ripple",
+   "conditions": "EN 50160-like distortion (3rd 5 %, 5th 6 %, 7th 5 %, 9th 1.5 %, 11th 3.5 %, 13th 3 %) and each harmonic alone",
+   "source": "single_phase_inverter Sogi::calc and singlePhaseInverterFollowing (PLL), library alone",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented"
+  },
+  {
+   "id": "L0-GFL-11",
+   "tab": "inverter",
+   "level": "L0",
+   "title": "SOGI and PLL with measurement noise and quantization",
+   "criterion": ".a synchronization holds and Vq stays below 0.1 V (PASS/FAIL); INFO: noise rms of α and β relative to the input noise (β is a scaled first difference of α, so wide-band noise reaches it almost unattenuated), θ jitter",
+   "conditions": "White noise 0.1–3 V rms on VAC, 12-bit quantization of a ±400 V range, PWM-frequency ripple aliased into the 10 kHz samples",
+   "source": "single_phase_inverter Sogi::calc and singlePhaseInverterFollowing (PLL), library alone",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented"
+  },
+  {
+   "id": "L0-GFL-12",
+   "tab": "inverter",
+   "level": "L0",
+   "title": "SOGI with held or irregular VAC samples",
+   "criterion": "INFO: β spikes and Vq transients when VAC repeats (held sample) every 2nd / 10th tick or is delivered with jitter; the sample rate the SOGI assumes (Ts) differs from the delivery rate",
+   "conditions": "Clean 50 Hz grid; VAC held as the sensor reader does when no fresh sample arrives",
+   "source": "single_phase_inverter Sogi::calc and singlePhaseInverterFollowing (PLL), library alone",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented"
+  },
+  {
+   "id": "L0-GFL-13",
+   "tab": "inverter",
+   "level": "L0",
+   "title": "SOGI with a DC offset on VAC",
+   "criterion": "INFO: DC in α and β, Vd ripple at 1ω, frequency estimate error, against offset 0.5–5 V",
+   "conditions": "Clean 50 Hz grid plus a constant offset",
+   "source": "single_phase_inverter Sogi::calc and singlePhaseInverterFollowing (PLL), library alone",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented"
+  },
+  {
+   "id": "L0-GFL-14",
+   "tab": "inverter",
+   "level": "L0",
+   "title": "PLL dynamics: phase jumps, frequency steps and ramps",
+   "criterion": "INFO: settling time (2 % band) and overshoot of θ error and ω after phase jumps of 10–60° and frequency steps of ±0.5/±1 Hz; steady phase error during ROCOF ramps of 0.5–2 Hz/s; small-signal bandwidth and damping from the step responses",
+   "conditions": "Clean 230 V grid, from synchronized",
+   "source": "single_phase_inverter Sogi::calc and singlePhaseInverterFollowing (PLL), library alone",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented"
+  },
+  {
+   "id": "L0-GFL-15",
+   "tab": "inverter",
+   "level": "L0",
+   "title": "Replay of board VAC logs",
+   "criterion": "INFO: α, β, Vd, Vq and θ computed by the library from logged board VAC samples, compared with the α and β the board logged at the same time (same code, same samples: any difference is in the logging or the sample delivery)",
+   "conditions": "Board logs of raw VAC and the firmware's α, β (to be provided by Jean)",
+   "source": "single_phase_inverter Sogi::calc and singlePhaseInverterFollowing (PLL), library alone",
+   "status": "planned",
+   "status_note": "Defined 2026-11-06; needs board logs"
   },
   {
    "id": "L1-GFL-01",
