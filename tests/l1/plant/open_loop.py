@@ -47,6 +47,10 @@ class Case:
         pr=accepted();c=pr.get_active_circuit();parts={a.name:a for a in c.components.values()}
         if spec['kind']=='boost':
             from plant.fixtures import apply
+            if 'vin_V' in spec:  # input source other than the accepted 40 V (board comparisons)
+                parts['Vsource'].parameters['waveform']['value']=spec['vin_V']
+                for n in ('DC1_C7','DC2_C7','DC1_C2','DC2_C2'):parts[n].parameters['initial_voltage']=spec['vin_V']
+                self.changes.append(f'input source {spec["vin_V"]:g} V')
             apply(pr,{'initial_bus_V':spec['initial_bus_V'],'load_ohm':spec['load_ohm']})
             self.changes+= [f'bus load {spec["load_ohm"]:.4g} Ω (DCDC_test_load), bus precharged to {spec["initial_bus_V"]:.4g} V '
                             '(converter capacitors initialized consistently, plant/fixtures.py)']
