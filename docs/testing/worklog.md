@@ -76,3 +76,17 @@ The leg enables are read before `scope.acquire()` instead of after; the scope do
 | Hardware check | Not done. Before relying on it: on the board, run STARTUP from a discharged bus and check that ILow1 stays under the 1 A ceiling and the bus reaches 400 V without overshoot |
 
 The `BoostConverter` class default stays 10 V/s (L0-BST-05 tests the class); only the application's value changes. L1 checks now read the rate from `control_step.h` (`tests/l1/app_constants.py`) instead of repeating it, so a later change is picked up by the tests. `tests/l1/scenarios/dcdc_startup_full.json` now runs 2.5 s instead of 40 s; it is still run on demand, so L1-APP-02.d stays `BLOCKED` in the default campaign.
+
+## 2026-11-06 — Build against jalinei/single_phase_inverter main again (#1 merged)
+
+| Field | Value |
+|---|---|
+| Commit | the `build(app): fetch single_phase_inverter from jalinei main again …` commit that adds this entry |
+| Files | `src/app.ini`, `tests/l1/dependencies.lock.json` |
+| Reason | Revert condition of the 2026-11-05 entry met: Jean Alinei merged the fix (jalinei/single_phase_inverter#1) into `main` as `bcb7e71` |
+| Behaviour change | None compared with the fix branch: `bcb7e71` has the same tree as `4378319` (squash merge, empty diff). `lib_deps` fetches `jalinei/single_phase_inverter` again; the test lock pins `bcb7e71` |
+| Evidence | L0 campaign on `bcb7e71`: 85 pass, 1 fail (known #2), 11 info; every #1 criterion passes (record lists #1 as ready to close). Campaign ID in the findings register (§11) |
+| Hardware check | Not needed for this revert (same source as the 2026-11-05 build) |
+
+The local checkout `owntech/lib/USB/single_phase_inverter` was moved to `bcb7e71` with its origin set to jalinei, instead of being deleted and re-fetched: same commit, same result.
+
