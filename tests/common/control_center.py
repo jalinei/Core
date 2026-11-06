@@ -191,14 +191,26 @@ table.crit{{margin:6px 0 10px;font-size:12px}} code{{font-size:12px}}
 .badge{{display:inline-block;padding:0 8px;border-radius:10px;font-size:12px;font-weight:600;border:1px solid var(--line);white-space:nowrap}}
 .b-pass,.b-info{{color:var(--good)}} .b-fail{{background:var(--bad);color:#fff;border-color:var(--bad)}} .b-known{{color:var(--bad);border-color:var(--bad)}}
 .b-blocked_run,.b-blocked{{color:var(--warn)}} .b-not_run,.b-planned{{color:var(--ink2)}}
-.wrap{{overflow-x:auto}} .note{{border-left:3px solid var(--line);padding:2px 12px;color:var(--ink2);font-size:13px;margin:8px 0}}
+.wrap{{overflow-x:auto}} .latest{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 14px;margin:12px 0}} .latest ul{{margin:4px 0;padding-left:18px}} .latest li{{margin:2px 0}} .note{{border-left:3px solid var(--line);padding:2px 12px;color:var(--ink2);font-size:13px;margin:8px 0}}
 @media (max-width:640px){{.ov{{grid-template-columns:1fr}} .ov .sub{{grid-column:1}}}}
 </style></head><body><main>
 <h1>Validation control center</h1>
 <div class="sub">Generated {e(now)} · repository at {e(head)} · catalogue {e(cat.get("version",""))} (<code>tests/catalogue.json</code>, procedure §6) ·
 regenerate: <code>python3 tests/common/control_center.py</code></div>
 <p class="q">Where the validation stands. Each tab is one stage: the test bench first, then the model, each object alone, then the application. A test's result is its newest campaign; study runs are linked as exploratory evidence and never set a verdict.</p>
-<div class="overview">''']
+''']
+    # Latest runs first: where the newest results are, without opening the Runs tab.
+    runs=[(c['when'],'campaign',c['dir'].name,f'{c["dir"].name}/report.html' if c['report'] else f'{c["dir"].name}/record.md',
+           ' · '.join(f'{sum(r["verdict"]==v for r in c["rows"])} {v}' for v in ('PASS','FAIL','INFO','BLOCKED'))) for c in camps[:4]]
+    for s_ in studs[:2]:
+        try:when=dt.datetime.fromisoformat(s_['started']).timestamp()
+        except ValueError:when=0
+        runs.append((when,'study',s_['name'],f'{s_["dir"].name}/report.html',f'{sum(c["state"]=="done" for c in s_["cases"])}/{len(s_["cases"])} cases done'))
+    runs.sort(reverse=True)
+    p.append('<div class="latest"><b>Latest runs</b> <span class="sub">(newest first; reload this page after a run)</span><ul>'+''.join(
+        f'<li><a href="{e(link)}">{e(name)}</a> <span class="sub">{e(kind)} · {dt.datetime.fromtimestamp(w).strftime("%Y-%m-%d %H:%M") if w else ""} · {ago(w) if w else ""} · {e(summary)}</span></li>'
+        for w,kind,name,link,summary in runs[:5])+'</ul></div>')
+    p.append('<div class="overview">')
     tabs=cat['tabs']
     for tab in tabs:
         tests=[t for t in cat['tests'] if t['tab']==tab['id']]
