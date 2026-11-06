@@ -40,11 +40,14 @@ int8_t controlInit(ControlState &state)
         return -1;
     }
     state.inverter.setGridQuality(state.grid_observer.canOperate());
-    state.boost.setStartupRampRate(app::startup_ramp_rate);
     state.boost.setStartupCurrentMax(app::startup_current_max);
     state.boost.setVBusRef(app::initial_voltage_reference);
-    if (state.boost.setVBusBurstBounds(app::v_dc_bus_burst_resume,
-                                       app::v_dc_bus_burst_pause) != 0)
+    if (state.boost.setBurst(app::boost_burst_period) != 0 ||
+        state.boost.setProtection(app::boost_full_burst_voltage, app::boost_trip_voltage,
+                                  app::boost_trip_current) != 0 ||
+        state.boost.setVoltageGainSchedule(app::boost_voltage_gain,
+                                           app::boost_schedule_vin_min, app::boost_schedule_vin_max,
+                                           app::boost_schedule_vbus_min, app::boost_schedule_vbus_max) != 0)
     {
         return -2;
     }
@@ -101,6 +104,9 @@ ControlOutputs controlStep(ControlState &state, const Measurements &meas,
     out.boost_pwm_update = requested_mode != IDLE;
     out.leg1_enable = state.boost.isLeg1Enabled();
     out.leg2_enable = state.boost.isLeg2Enabled();
+    out.burst_skip = state.boost.getBurstSkip();
+    out.burst_period = state.boost.getBurstPeriod();
+    out.boost_trip = state.boost.isTripped();
     /* Synchronization only: keep the inverter bridge disabled. */
     out.bridge_enable = false;
     return out;

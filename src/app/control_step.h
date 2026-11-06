@@ -58,23 +58,42 @@ inline constexpr float32_t hot_loop_period = control_task_period * 1e-6F;
 inline constexpr float32_t cold_loop_period = hot_loop_period * cold_loop_divider;
 /** @brief Initial VDCBus reference, in V (shared boost output capacitor feeding the DC/AC stage). */
 inline constexpr float32_t initial_voltage_reference = 400.0F;
-/** @brief VDCBus burst resume boundary, in V. */
-inline constexpr float32_t v_dc_bus_burst_resume = 395.0F;
-/** @brief VDCBus burst pause boundary, in V. */
-inline constexpr float32_t v_dc_bus_burst_pause = 405.0F;
-/** @brief STARTUP bus reference slew rate, in V/s. */
-inline constexpr float32_t startup_ramp_rate = 200.0F;
-/** @brief STARTUP current ceiling, in A, converter 1 only. */
-inline constexpr float32_t startup_current_max = 1.0F;
+/*
+ * Boost control from Andres Vazquez Sieber's bench-tested controller
+ * (core-micro-verter-boost 43e249e), adopted by ADR 0003; values confirmed with
+ * Andres on 2026-11-06 (worklog).
+ */
+/** @brief Maximum PWM duty cycle of the boost legs (Andres's bench value). */
+inline constexpr float32_t duty_cycle_max = 0.60F;
+/** @brief STARTUP total current ceiling, in A, converter 1 only (gentle bus charge). */
+inline constexpr float32_t startup_current_max = 0.25F;
+/** @brief Rated total input current, in A (400 W at about 36 V). */
+inline constexpr float32_t rated_input_current = 11.0F;
 /** @brief Leg 1 current limit, in A; leg 2 takes the excess. */
-inline constexpr float32_t leg1_current_limit = 1.0F;
-/** @brief Boost voltage PID: Ts, Kp, Ti, Td, N, lower and upper current bound (A). */
+inline constexpr float32_t leg1_current_limit = 5.5F;
+/** @brief Burst period on leg 1, in PWM periods (200 = 1 ms at 200 kHz). */
+inline constexpr uint16_t boost_burst_period = 200U;
+/** @brief Bus voltage above which leg 1 skips every period, in V. */
+inline constexpr float32_t boost_full_burst_voltage = 440.0F;
+/** @brief Bus voltage above which the boost trips (latched until IDLE), in V. */
+inline constexpr float32_t boost_trip_voltage = 460.0F;
+/** @brief Leg current above which the boost trips (latched until IDLE), in A. */
+inline constexpr float32_t boost_trip_current = 8.0F;
+/** @brief Voltage PID gain schedule: Kp = gain · VBusRef / VLow, in A/V. */
+inline constexpr float32_t boost_voltage_gain = 2.6F / 6.0F;
+/** @brief Input voltage range of the gain schedule, in V. */
+inline constexpr float32_t boost_schedule_vin_min = 24.0F;
+inline constexpr float32_t boost_schedule_vin_max = 48.0F;
+/** @brief Bus voltage range of the gain schedule, in V. */
+inline constexpr float32_t boost_schedule_vbus_min = 390.0F;
+inline constexpr float32_t boost_schedule_vbus_max = 410.0F;
+/** @brief Boost voltage PID: Ts, Kp (scheduled at run time; nominal 400 V / 36 V), Ti, Td, N, current bounds (A). */
 inline constexpr PidParams boost_voltage_params = {
-    cold_loop_period, 0.05F, 0.1F, 0.0F, 0.0F, 0.0F, 2.0F
+    cold_loop_period, boost_voltage_gain * 400.0F / 36.0F, 4.57e-3F, 0.0F, 0.0F, 0.0F, rated_input_current
 };
 /** @brief Boost current PID: Ts, Kp, Ti, Td, N, lower and upper duty bound. */
 inline constexpr PidParams boost_current_params = {
-    hot_loop_period, 0.000215F, 7.5175e-5F, 0.0F, 0.0F, duty_cycle_min, 0.95F
+    hot_loop_period, 0.002712F, 3.413e-4F, 0.0F, 0.0F, duty_cycle_min, duty_cycle_max
 };
 
 /** @brief Nominal grid frequency, in Hz. */
@@ -126,6 +145,9 @@ struct ControlOutputs {
     BoostDutyCycles boost_duty;       ///< Boost leg duties.
     bool leg1_enable = false;         ///< Boost leg 1 PWM enable (when boost_pwm_update).
     bool leg2_enable = false;         ///< Boost leg 2 PWM enable (when boost_pwm_update).
+    uint16_t burst_skip = 0U;         ///< Leg 1 PWM periods off per burst period; 0: burst generator stopped.
+    uint16_t burst_period = 0U;       ///< Burst period, in PWM periods.
+    bool boost_trip = false;          ///< Boost protection tripped (latched until IDLE).
     float32_t bridge_duty = 0.5F;     ///< Inverter duty computed by the controller (not applied).
     bool bridge_enable = false;       ///< Inverter bridge PWM enable; always false in this application.
     float32_t grid_angle = 0.0F;      ///< PLL grid angle (rad).
@@ -145,7 +167,7 @@ struct ControlState {
  * @brief Initializes and configures every controller with the application's tuning.
  * @param state Control state to initialize.
  * @return 0 on success, -1 if a controller rejected its configuration,
- * -2 if the burst boundaries were rejected.
+ * -2 if the boost burst, protection or gain schedule was rejected.
  */
 int8_t controlInit(ControlState &state);
 

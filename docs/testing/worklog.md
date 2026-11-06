@@ -90,3 +90,16 @@ The `BoostConverter` class default stays 10 V/s (L0-BST-05 tests the class); onl
 
 The local checkout `owntech/lib/USB/single_phase_inverter` was moved to `bcb7e71` with its origin set to jalinei, instead of being deleted and re-fetched: same commit, same result.
 
+## 2026-11-06 — Boost control from Andres Vazquez Sieber's bench controller (ADR 0003)
+
+| Field | Value |
+|---|---|
+| Commit | the `feat(boost): current-driven burst …` commit that adds this entry |
+| Files | `src/boost_converter/boost.h`, `src/boost_converter/boost.cpp`, `src/app/control_step.h`, `src/app/control_step.cpp`, `src/main.cpp`, `src/app.ini`, `tests/l1/dependencies.lock.json` |
+| Reason | Luiz decided to ship Andres's bench-tested boost control ([ADR 0003](../adr/0003-boost-adopts-current-driven-burst.md)); values confirmed with Andres on 2026-11-06 |
+| Behaviour change | **Yes, intended.** Light load: current-driven pulse skipping on leg 1 (HRTIM burst, period 200 PWM periods, ±1 per tick) instead of the 395/405 V pause of both legs. PIDs never reset by burst; STARTUP → BUSREG resets nothing. STARTUP: no ramp, total current clamped to 0.25 A, leg 1 only. Current reference bounds 0–11 A, leg 1 up to 5.5 A. Current PI Kp 0.002712, Ti 341.3 µs, duty 0.05–0.60; voltage PI Kp = 2.6/6 · VBusRef / VLow (clamped 390–410 V, 24–48 V) every cold loop, Ti 4.57 ms. Full burst above 440 V; trip above 460 V or 8 A per leg, latched until IDLE. Leg 1 PWM runs in every active mode (burst gates its periods); leg 2 only with demand. `control_library` now from luizvilla `PID_update` (`ba1d12d`, adds `setKp`/`setTi`/`setKi`; same PID otherwise) |
+| Evidence | L0 written first and failing on the previous object (40 compile errors: the new API is missing). With the change: L0-BST 26/26 pass (05–08 new; three checks of 02.c and 04.b updated to the intended "leg 1 runs at zero demand"); L0-APP-01.a checks the new tuning, 02.a uses a bus 0.2 V below the reference so the stiffer voltage PID does not saturate; full L0: 83 pass, 1 known fail (#2). Firmware builds (`pio run -e USB`) |
+| Hardware check | Not done. Repeat Andres's three bench captures (`docs/testing/bench/2026-11-06_andres-boost/`) with this firmware: start-up without load, load above the STARTUP clamp, load removed; then a load step in BUSREG |
+
+The 100 Hz PR of Andres's code is not adopted (it is always on there, which looks unintended). Leg 1's PID is no longer reset when its reference reaches zero: at zero demand it runs at minimum duty and burst skips its periods.
+

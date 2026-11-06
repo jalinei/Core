@@ -102,6 +102,8 @@ static bool is_scope_downloading;
 /* Mode requests are applied to the controllers by the critical task. */
 static boost_mode mode = IDLE;
 static bool inverter_sync_requested;
+/* The burst generator is running on leg 1. */
+static bool burst_running = false;
 
 bool scope_trigger()
 {
@@ -144,6 +146,10 @@ void setup_routine()
         return;
     }
     shield.power.setDutyCycleMin(ALL, app::duty_cycle_min);
+    shield.power.setDutyCycleMax(LEG1_LOW, app::duty_cycle_max);
+    shield.power.setDutyCycleMax(LEG2_LOW, app::duty_cycle_max);
+    /* Current-driven burst on boost leg 1 only (ADR 0003). */
+    shield.power.initBurstMode(LEG1_LOW);
     shield.sensors.enableSensor(VLow, ADC_1);
     shield.sensors.enableSensor(VAC, ADC_1);
     shield.sensors.enableSensor(VDCBus, ADC_1);
@@ -160,7 +166,7 @@ void setup_routine()
     }
     if (init_result != 0)
     {
-        printk("invalid VDCBus burst boundaries\n");
+        printk("invalid boost burst, protection or gain schedule\n");
         return;
     }
     scope.connectChannel(v_ac_value, "VAC");
@@ -196,7 +202,7 @@ void loop_communication_task()
         printk(" ________________________________________ \n"
                "|     ---- MENU microinverter ----       |\n"
                "|     press i : idle mode                |\n"
-               "|     press p : startup voltage ramp     |\n"
+               "|     press p : startup (0.25 A clamp)   |\n"
                "|     press b : bus regulation mode      |\n"
                "|     press m : MPPT mode                |\n"
                "|     press c : inverter sync only       |\n"
@@ -215,7 +221,7 @@ void loop_communication_task()
         inverter_sync_requested = false;
         break;
     case 'p':
-        printk("startup: converter 1 voltage ramp\n");
+        printk("startup: converter 1, current clamped\n");
         mode = STARTUP;
         inverter_sync_requested = false;
         break;
@@ -234,8 +240,8 @@ void loop_communication_task()
         inverter_sync_requested = true;
         break;
     case 'u':
-        // Keep the bus target below the configured burst cutoff.
-        if (voltage_reference + 1.0F < app::v_dc_bus_burst_pause) voltage_reference += 1.0F;
+        // Keep the bus target inside the gain schedule's range, well below the full-burst level.
+        if (voltage_reference + 1.0F <= app::boost_schedule_vbus_max) voltage_reference += 1.0F;
         break;
     case 'd':
         voltage_reference -= 1.0F;
@@ -290,7 +296,8 @@ void loop_application_task()
     if (mode == IDLE && !inverter_sync_requested) spin.led.turnOff();
     else spin.led.turnOn();
 
-    /* ILow1, ILow2, VLow, duty1, duty2, VAC, VACrms, angle, IAC, VDCBus, mode, burst. */
+    if (control.boost.isTripped()) printk("boost tripped: press i (idle) to clear\n");
+    /* ILow1, ILow2, VLow, duty1, duty2, VAC, VACrms, angle, IAC, VDCBus, mode, burst skip. */
     printk("%7.3f:", (double)i_low_1_value);
     printk("%7.3f:", (double)i_low_2_value);
     printk("%7.3f:", (double)v_low_value);
@@ -302,7 +309,7 @@ void loop_application_task()
     printk("%7.3f:", (double)i_ac_value);
     printk("%7.3f:", (double)v_dc_bus_value);
     printk("%u:%u\n", static_cast<unsigned int>(mode),
-           static_cast<unsigned int>(control.boost.isBurstPaused()));
+           static_cast<unsigned int>(control.boost.getBurstSkip()));
     task.suspendBackgroundMs(100);
 }
 
@@ -312,7 +319,7 @@ void loop_application_task()
  *  - It retrieves sensors values
  *  - It runs inverter control and the boost hot loop every tick
  *  - It runs the boost voltage/ramp or MPPT cold loop every tenth tick
- *  - Boost enable flags stop the corresponding PWM during a VDCBus burst pause
+ *  - Boost leg 1 skips PWM periods with the burst generator when the controller asks
  *  - It updates the PWM signals
  */
 void loop_critical_task()
@@ -383,6 +390,22 @@ void loop_critical_task()
         else shield.power.stop(LEG1_LOW);
         if (out.leg2_enable) shield.power.start(LEG2_LOW);
         else shield.power.stop(LEG2_LOW);
+    }
+
+    /* Leg 1 burst: skip out.burst_skip of every out.burst_period PWM periods. */
+    if (out.boost_pwm_update && out.leg1_enable && out.burst_skip > 0U)
+    {
+        shield.power.setBurstMode(out.burst_skip, out.burst_period);
+        if (!burst_running)
+        {
+            shield.power.startBurstMode();
+            burst_running = true;
+        }
+    }
+    else if (burst_running)
+    {
+        shield.power.stopBurstMode();
+        burst_running = false;
     }
 
     /* Synchronization only: keep the inverter bridge disabled. */

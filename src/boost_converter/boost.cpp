@@ -20,7 +20,8 @@
 
 /**
  * @file boost.cpp
- * @brief Cascaded voltage/current control for a boost converter.
+ * @brief Cascaded voltage/current control for a boost converter, with current-driven
+ *        burst on leg 1 (docs/adr/0003-boost-adopts-current-driven-burst.md).
  */
 #include "boost.h"
 
@@ -28,31 +29,14 @@
 #include <errno.h>
 
 namespace {
-/**
- * @brief Limit a scalar to an inclusive interval.
- * @param value Value to constrain.
- * @param lower Minimum allowed value.
- * @param upper Maximum allowed value; must be at least lower.
- * @return Constrained value.
- */
 float32_t clamp(float32_t value, float32_t lower, float32_t upper) {
     return value < lower ? lower : (value > upper ? upper : value);
 }
 
-/**
- * @brief Check whether a mode is supported by the boost controller.
- * @param mode Mode to validate.
- * @return true for IDLE, STARTUP, BUSREG, or MPPT; false otherwise.
- */
 bool validMode(boost_mode mode) {
     return mode == IDLE || mode == STARTUP || mode == BUSREG || mode == MPPT;
 }
 
-/**
- * @brief Validate finite PID parameters before initializing either controller.
- * @param params PID tuning, sampling period, and output bounds.
- * @return true when parameters satisfy the PID implementation requirements.
- */
 bool validPidParams(const PidParams& params) {
     return isfinite(params.Ts) && params.Ts > 0.0F &&
            isfinite(params.Kp) && params.Kp != 0.0F &&
@@ -69,7 +53,6 @@ int8_t BoostConverter::init(boost_mode mode, float32_t V_bus,
                             const PidParams& currentParams,
                             float32_t leg1CurrentLimit) {
     _initialized = false;
-    _burst_paused = false;
     _mode = IDLE;
     _ILow_ref = 0.0F;
     _ILow1_ref = 0.0F;
@@ -77,6 +60,7 @@ int8_t BoostConverter::init(boost_mode mode, float32_t V_bus,
     _duty = {};
     _current_ref_min = 0.0F;
     _current_ref_max = 0.0F;
+    _tripped = false;
     if (!validMode(mode) || !isfinite(V_bus) || V_bus <= 0.0F ||
         !validPidParams(voltageParams) || !validPidParams(currentParams) ||
         voltageParams.Ts < currentParams.Ts || voltageParams.lower_bound < 0.0F ||
@@ -92,10 +76,10 @@ int8_t BoostConverter::init(boost_mode mode, float32_t V_bus,
     result = _current2_pid.init(currentParams);
     if (result != 0) return result;
 
-    _TsCold = voltageParams.Ts;
     _leg1_current_limit = leg1CurrentLimit;
     _current_ref_min = voltageParams.lower_bound;
     _current_ref_max = voltageParams.upper_bound;
+    _duty_min = currentParams.lower_bound;
     _startup_current_max = clamp(leg1CurrentLimit, 0.0F, _current_ref_max);
     _VBus = V_bus;
     _VBus_ref = V_bus;
@@ -119,12 +103,11 @@ void BoostConverter::clearControlOutputs() {
 
 void BoostConverter::reset() {
     clearControlOutputs();
-    _startup_VBus_ref = _VBus;
-    _startup_ramp_pending = true;
+    _burst_skip = _burst_period;  // an active mode starts with every period skipped
+    _tripped = false;
     _mppt_previous_power = 0.0F;
     _mppt_direction = 1.0F;
     _mppt_has_previous_power = false;
-    updateBurstState();
 }
 
 float32_t BoostConverter::coldLoop() {
@@ -132,30 +115,50 @@ float32_t BoostConverter::coldLoop() {
         reset();
         return _ILow_ref;
     }
-
-    updateBurstState();
-    if (_burst_paused) return 0.0F;
+    if (_tripped) return 0.0F;
 
     if (_mode == MPPT) {
         Mppt();
         return _ILow_ref;
-    } else if (_mode == STARTUP) {
-        if (_startup_ramp_pending) {
-            _startup_VBus_ref = _VBus;
-            _startup_ramp_pending = false;
-        }
-        const float32_t step = _startup_ramp_rate * _TsCold;
-        if (_startup_VBus_ref < _VBus_ref) {
-            _startup_VBus_ref += clamp(_VBus_ref - _startup_VBus_ref, 0.0F, step);
-        } else {
-            _startup_VBus_ref -= clamp(_startup_VBus_ref - _VBus_ref, 0.0F, step);
-        }
-        _ILow_ref = calculateVoltageCurrent(_startup_VBus_ref, _VBus);
-    } else {
-        _ILow_ref = calculateVoltageCurrent(_VBus_ref, _VBus);
     }
+    scheduleVoltageGain();
+    _ILow_ref = calculateVoltageCurrent(_VBus_ref, _VBus);
     splitCurrentReference();
     return _ILow_ref;
+}
+
+bool BoostConverter::checkProtection() {
+    if (_tripped) return true;
+    if (_protection_enabled &&
+        (_VBus > _trip_V || _ILow1 > _trip_A || _ILow2 > _trip_A)) {
+        _tripped = true;
+        clearControlOutputs();
+        _burst_skip = _burst_period;
+    }
+    return _tripped;
+}
+
+void BoostConverter::runLeg1() {
+    const bool burst = _burst_period > 0U;
+    if (burst && _ILow2_ref > 0.0F) _burst_skip = 0U;  // no burst while leg 2 has demand
+    if (burst && _protection_enabled && _VBus > _full_burst_V) {
+        _burst_skip = _burst_period;  // over-voltage: skip every period, PID held
+        return;
+    }
+    if (!burst || _burst_skip == 0U) {
+        _duty.leg1 = _current1_pid.calculateWithReturn(_ILow1_ref, _ILow1);
+        // At the lower duty bound and still above the reference: start skipping periods.
+        if (burst && _ILow2_ref <= 0.0F && _duty.leg1 <= _duty_min && _ILow1 > _ILow1_ref) {
+            _burst_skip = 1U;
+        }
+        return;
+    }
+    // Skipping periods: the PID and the duty are held; the skip count follows the current error.
+    if (_ILow1_ref > _ILow1) {
+        --_burst_skip;
+    } else if (_ILow1_ref < _ILow1 && _burst_skip < _burst_period) {
+        ++_burst_skip;
+    }
 }
 
 BoostDutyCycles BoostConverter::hotLoop() {
@@ -163,15 +166,9 @@ BoostDutyCycles BoostConverter::hotLoop() {
         reset();
         return _duty;
     }
-    updateBurstState();
-    if (_burst_paused) return _duty;
+    if (checkProtection()) return _duty;
 
-    if (isLeg1Enabled()) {
-        _duty.leg1 = _current1_pid.calculateWithReturn(_ILow1_ref, _ILow1);
-    } else {
-        _current1_pid.reset();
-        _duty.leg1 = 0.0F;
-    }
+    runLeg1();
     if (isLeg2Enabled()) {
         _duty.leg2 = _current2_pid.calculateWithReturn(_ILow2_ref, _ILow2);
     } else {
@@ -182,7 +179,7 @@ BoostDutyCycles BoostConverter::hotLoop() {
 }
 
 void BoostConverter::Mppt() {
-    if (!_initialized || _mode != MPPT || _VLow <= 0.0F) return;
+    if (!_initialized || _mode != MPPT || _VLow <= 0.0F || _tripped) return;
 
     const float32_t power = getPower();
     if (!isfinite(power)) return;
@@ -223,22 +220,64 @@ void BoostConverter::setVBus(float32_t VBus) {
     if (isfinite(VBus) && VBus >= 0.0F) _VBus = VBus;
 }
 
+int8_t BoostConverter::setBurst(uint16_t period) {
+    if (period == 0U) return -EINVAL;
+    _burst_period = period;
+    if (_mode == IDLE || _burst_skip > period) _burst_skip = period;
+    return 0;
+}
+bool BoostConverter::isBurstEnabled() const { return _burst_period > 0U; }
+uint16_t BoostConverter::getBurstPeriod() const { return _burst_period; }
+uint16_t BoostConverter::getBurstSkip() const { return _burst_skip; }
+bool BoostConverter::isBurstActive() const { return _burst_skip > 0U; }
+
+int8_t BoostConverter::setProtection(float32_t fullBurstV, float32_t tripV, float32_t tripA) {
+    if (!isfinite(fullBurstV) || !isfinite(tripV) || !isfinite(tripA) ||
+        fullBurstV <= 0.0F || tripV <= fullBurstV || tripA <= 0.0F) {
+        return -EINVAL;
+    }
+    _full_burst_V = fullBurstV;
+    _trip_V = tripV;
+    _trip_A = tripA;
+    _protection_enabled = true;
+    return 0;
+}
+bool BoostConverter::isTripped() const { return _tripped; }
+
+int8_t BoostConverter::setVoltageGainSchedule(float32_t gain, float32_t vinMin, float32_t vinMax,
+                                              float32_t vbusMin, float32_t vbusMax) {
+    if (!isfinite(gain) || !isfinite(vinMin) || !isfinite(vinMax) ||
+        !isfinite(vbusMin) || !isfinite(vbusMax) || gain <= 0.0F ||
+        vinMin <= 0.0F || vinMin > vinMax || vbusMin <= 0.0F || vbusMin > vbusMax) {
+        return -EINVAL;
+    }
+    _gain = gain;
+    _vin_min = vinMin;
+    _vin_max = vinMax;
+    _vbus_min = vbusMin;
+    _vbus_max = vbusMax;
+    _gain_schedule_enabled = true;
+    return 0;
+}
+float32_t BoostConverter::getVoltageKp() const { return _voltage_pid.getKp(); }
+
+void BoostConverter::scheduleVoltageGain() {
+    if (!_gain_schedule_enabled) return;
+    _voltage_pid.setKp(_gain * clamp(_VBus_ref, _vbus_min, _vbus_max) /
+                       clamp(_VLow, _vin_min, _vin_max));
+}
+
 float32_t BoostConverter::getILowRef() const { return _ILow_ref; }
 float32_t BoostConverter::getILow1Ref() const { return _ILow1_ref; }
 float32_t BoostConverter::getILow2Ref() const { return _ILow2_ref; }
 float32_t BoostConverter::getLeg1CurrentLimit() const { return _leg1_current_limit; }
 bool BoostConverter::isLeg1Enabled() const {
-    return _initialized && _mode != IDLE && !_burst_paused && _ILow1_ref > 0.0F;
+    return _initialized && _mode != IDLE && !_tripped;
 }
 bool BoostConverter::isLeg2Enabled() const {
-    return _initialized && _mode != IDLE && !_burst_paused && _ILow2_ref > 0.0F;
+    return _initialized && _mode != IDLE && !_tripped && _ILow2_ref > 0.0F;
 }
 float32_t BoostConverter::getVBusRef() const { return _VBus_ref; }
-void BoostConverter::setStartupRampRate(float32_t rate) {
-    if (isfinite(rate) && rate > 0.0F) _startup_ramp_rate = rate;
-}
-float32_t BoostConverter::getStartupRampRate() const { return _startup_ramp_rate; }
-float32_t BoostConverter::getStartupVBusRef() const { return _startup_VBus_ref; }
 void BoostConverter::setStartupCurrentMax(float32_t currentMax) {
     if (!_initialized || !isfinite(currentMax) || currentMax < 0.0F) return;
     _startup_current_max = clamp(currentMax, 0.0F,
@@ -265,15 +304,22 @@ float32_t BoostConverter::getDutyLeg2() const { return _duty.leg2; }
 float32_t BoostConverter::getPower() const { return _VLow * getILowTotal(); }
 boost_mode BoostConverter::getMode() const { return _mode; }
 void BoostConverter::setMode(boost_mode mode) {
-    _mode = validMode(mode) ? mode : IDLE;
-    reset();
+    const boost_mode next = validMode(mode) ? mode : IDLE;
+    const boost_mode previous = _mode;
+    _mode = next;
+    if (next == IDLE || previous == IDLE) {
+        reset();
+        return;
+    }
+    // Between active modes nothing is reset: only the new mode's bounds apply.
+    if (next == MPPT && previous != MPPT) {
+        _mppt_has_previous_power = false;
+        _mppt_direction = 1.0F;
+    }
+    splitCurrentReference();
 }
 
 void BoostConverter::splitCurrentReference() {
-    if (_burst_paused) {
-        clearControlOutputs();
-        return;
-    }
     if (_mode == STARTUP) {
         _ILow_ref = clamp(_ILow_ref, 0.0F, _startup_current_max);
         _ILow1_ref = _ILow_ref;
@@ -282,11 +328,8 @@ void BoostConverter::splitCurrentReference() {
         _ILow1_ref = clamp(_ILow_ref, 0.0F, _leg1_current_limit);
         _ILow2_ref = _ILow_ref - _ILow1_ref;
     }
-    // Stop and clear an unused leg immediately, including its integral state.
-    if (_ILow1_ref <= 0.0F) {
-        if (_initialized) _current1_pid.reset();
-        _duty.leg1 = 0.0F;
-    }
+    // Stop and clear leg 2 immediately when it has no demand. Leg 1 keeps its PID:
+    // at zero reference it runs at minimum duty and burst skips its periods.
     if (_ILow2_ref <= 0.0F) {
         if (_initialized) _current2_pid.reset();
         _duty.leg2 = 0.0F;
@@ -303,35 +346,4 @@ float32_t BoostConverter::calculateVoltageCurrent(float32_t reference, float32_t
     }
     _voltage_pid.setBounds(lower, upper);
     return _voltage_pid.calculateWithReturn(reference, measurement);
-}
-
-int8_t BoostConverter::setVBusBurstBounds(float32_t lower, float32_t upper) {
-    if (!isfinite(lower) || !isfinite(upper) || lower < 0.0F || lower >= upper) {
-        return -EINVAL;
-    }
-    _burst_VBus_min = lower;
-    _burst_VBus_max = upper;
-    _burst_enabled = true;
-    updateBurstState();
-    return 0;
-}
-
-float32_t BoostConverter::getVBusBurstMin() const { return _burst_VBus_min; }
-float32_t BoostConverter::getVBusBurstMax() const { return _burst_VBus_max; }
-bool BoostConverter::isBurstEnabled() const { return _burst_enabled; }
-bool BoostConverter::isBurstPaused() const { return _burst_paused; }
-
-void BoostConverter::updateBurstState() {
-    if (!_initialized || !_burst_enabled || (_mode != STARTUP && _mode != BUSREG)) {
-        _burst_paused = false;
-        return;
-    }
-    if (_VBus >= _burst_VBus_max) {
-        if (!_burst_paused) {
-            _burst_paused = true;
-            clearControlOutputs();
-        }
-    } else if (_VBus <= _burst_VBus_min) {
-        _burst_paused = false;
-    }
 }

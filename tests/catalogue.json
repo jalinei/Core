@@ -1,6 +1,6 @@
 {
  "_doc": "The validation catalogue: every test, defined once. tests/common/control_center.py builds tests/out/control-center.html from it and from the campaign results; tests/common/catalogue.py --procedure writes procedure §6 from it. status: implemented | partial | planned | blocked (implementation state, not a verdict; verdicts come from campaign results). Amend here, then regenerate §6.",
- "version": "1.2",
+ "version": "1.3",
  "tabs": [
   {
    "id": "bench",
@@ -229,7 +229,7 @@
    "id": "L0-BST-01",
    "tab": "boost",
    "level": "L0",
-   "title": "Invalid init, measurements or burst bounds never enable a leg",
+   "title": "Invalid init or measurements never enable a leg",
    "criterion": "",
    "source": "`BoostConverter::init`, `isLeg1Enabled`, `isLeg2Enabled`",
    "status": "implemented",
@@ -269,31 +269,41 @@
    "id": "L0-BST-05",
    "tab": "boost",
    "level": "L0",
-   "title": "STARTUP ramp starts from the measured voltage, follows the rate, does not overshoot, restarts from the measurement on re-entry",
-   "criterion": "",
-   "source": "`setStartupRampRate` (class default 10 V/s); the application sets `app::startup_ramp_rate` = 200 V/s in `control_step.h`",
+   "title": "STARTUP current clamp; STARTUP to BUSREG resets nothing; IDLE resets all",
+   "criterion": ".a STARTUP regulates toward VBusRef with the total current clamped to startupCurrentMax, leg 1 only; .b STARTUP → BUSREG keeps PID states, references and burst (leg 1 duty = an uninterrupted mirror PID); .c IDLE, and an active mode entered from IDLE, reset everything and start burst fully skipped",
+   "source": "`setStartupCurrentMax`, `setMode`; `startup_current_max` = 0.25 A",
    "status": "implemented",
-   "status_note": "Migrated"
+   "status_note": "Implemented 2026-11-06 (ADR 0003)"
   },
   {
    "id": "L0-BST-06",
    "tab": "boost",
    "level": "L0",
-   "title": "STARTUP current ceiling; converter 2 never enabled in STARTUP",
-   "criterion": "",
-   "source": "`setStartupCurrentMax`; `startup_current_max` = 1 A",
+   "title": "Current-driven burst on leg 1",
+   "criterion": ".a from full skipping the skip count falls by one per hot loop while ILow1 < reference, then the PID runs; .b at minimum duty with ILow1 > reference skipping starts and follows the current error within [0, period]; .c the PID keeps its state across burst (duty held while skipping; continuous duty = an uninterrupted mirror PID); .d no burst while leg 2 has demand; .e a zero period is rejected and without burst leg 1 never skips",
+   "source": "`setBurst`, `hotLoop`; `boost_burst_period` = 200",
    "status": "implemented",
-   "status_note": "Migrated"
+   "status_note": "Implemented 2026-11-06 (ADR 0003)"
   },
   {
    "id": "L0-BST-07",
    "tab": "boost",
    "level": "L0",
-   "title": "Burst hysteresis: pause at ≥ upper bound, resume at ≤ lower bound, ramp frozen, no bypass, MPPT exempt",
-   "criterion": "",
-   "source": "`updateBurstState`; 395 / 405 V in `main.cpp`",
+   "title": "Over-voltage full burst; over-voltage and over-current trip",
+   "criterion": ".a above 440 V every period is skipped and the PID held, below it the current error drives burst again; .b above 460 V the boost trips (legs off, outputs cleared), latched until IDLE; .c a leg current above 8 A trips, exactly 8 A does not; .d inconsistent settings are rejected, unconfigured protection never trips",
+   "source": "`setProtection`; 440 V, 460 V, 8 A",
    "status": "implemented",
-   "status_note": "Migrated"
+   "status_note": "Implemented 2026-11-06 (ADR 0003)"
+  },
+  {
+   "id": "L0-BST-08",
+   "tab": "boost",
+   "level": "L0",
+   "title": "Voltage PID gain scheduled with VBusRef / VLow",
+   "criterion": ".a Kp = gain · clamp(VBusRef, 390, 410) / clamp(VLow, 24, 48) at each STARTUP/BUSREG cold loop, not in MPPT; .b scheduling does not reset the PID (total reference = an uninterrupted mirror PID with the scheduled Kp); .c inconsistent schedules are rejected",
+   "source": "`setVoltageGainSchedule`; gain 2.6/6 (Andres)",
+   "status": "implemented",
+   "status_note": "Implemented 2026-11-06 (ADR 0003)"
   },
   {
    "id": "L1-BST-01",
@@ -1047,6 +1057,7 @@
   }
  ],
  "retired": {
-  "L1-FWB-01": "superseded by L1-INT-01/-02 (procedure 1.3)"
+  "L1-FWB-01": "superseded by L1-INT-01/-02 (procedure 1.3)",
+  "L0-BST-05 (ramp)": "STARTUP ramp removed by ADR 0003; L0-BST-05 now tests the STARTUP clamp"
  }
 }

@@ -110,7 +110,7 @@ bool qualifyGrid(tc::Criterion &c, ControlState &state, Grid &grid, const Operat
 
 /**
  * @brief Measurements for boost tests: bus below its reference, no grid.
- * @return Bus at 390 V (inside the burst band, below the 400 V reference), PV side 30 V.
+ * @return Bus at 390 V (below the 400 V reference), PV side 30 V.
  */
 Measurements boostMeasurements() {
     Measurements m;
@@ -134,10 +134,16 @@ int main() {
         c.check("returns 0", controlInit(state) == 0);
         c.check("boost starts in IDLE", state.boost.getMode() == IDLE);
         c.near("leg 1 current limit (A)", state.boost.getLeg1CurrentLimit(), app::leg1_current_limit, 1e-6);
-        c.near("startup ramp rate (V/s)", state.boost.getStartupRampRate(), app::startup_ramp_rate, 1e-6);
         c.near("startup current ceiling (A)", state.boost.getStartupCurrentMax(), app::startup_current_max, 1e-6);
-        c.near("burst resume (V)", state.boost.getVBusBurstMin(), app::v_dc_bus_burst_resume, 1e-6);
-        c.near("burst pause (V)", state.boost.getVBusBurstMax(), app::v_dc_bus_burst_pause, 1e-6);
+        c.check("burst period (PWM periods)", state.boost.isBurstEnabled() &&
+                state.boost.getBurstPeriod() == app::boost_burst_period);
+        state.boost.setVLow(36.0F);
+        state.boost.setVBus(399.0F);
+        state.boost.setMode(BUSREG);
+        state.boost.coldLoop();
+        c.near("voltage Kp scheduled (A/V)", state.boost.getVoltageKp(),
+               app::boost_voltage_gain * app::initial_voltage_reference / 36.0F, 1e-4);
+        state.boost.setMode(IDLE);
         c.check("observer not yet operable", !state.grid_observer.canOperate());
         c.check("inverter OFF", state.inverter.getMode() == VSI_OFF);
     }
@@ -201,7 +207,10 @@ int main() {
         tc::Criterion c("L0-APP-02.a", "The cold loop runs on the mode-change tick, then every 10th tick");
         ControlState state;
         controlInit(state);
-        const Measurements m = boostMeasurements();
+        Measurements m = boostMeasurements();
+        // 0.2 V below the reference: with the scheduled Kp (about 5.8 A/V at 30 V,
+        // ADR 0003) the voltage PID stays below its 11 A bound over the 20 cold loops.
+        m.v_dc_bus = app::initial_voltage_reference - 0.2F;
         OperatorCommands cmd;
         cmd.mode = BUSREG;
         // In BUSREG below the reference, the voltage PID output (total current

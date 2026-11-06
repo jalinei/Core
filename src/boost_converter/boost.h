@@ -1,5 +1,4 @@
 /*
- *
  * Copyright (c) 2021-2026 OWNTECH TECHNOLOGIES
  *
  *   This program is free software: you can redistribute it and/or modify
@@ -20,17 +19,19 @@
 
 /**
  * @file boost.h
- * @brief Minimal cascaded controller for two parallel unidirectional boost legs.
+ * @brief Cascaded controller for two parallel unidirectional boost legs, with
+ *        current-driven burst on leg 1 (docs/adr/0003-boost-adopts-current-driven-burst.md).
  */
 #ifndef BOOST_H
 #define BOOST_H
 
+#include <stdint.h>
 #include "pid.h"
 
 /** @brief Operating modes of the boost controller. */
 typedef enum {
-    IDLE = 0,    ///< Disable control and clear current reference and duty cycle.
-    STARTUP = 1, ///< Ramp bus voltage using converter 1 only, with a startup current limit.
+    IDLE = 0,    ///< Disable control and clear every state.
+    STARTUP = 1, ///< Regulate the bus like BUSREG, converter 1 only, current reference clamped to startupCurrentMax.
     BUSREG = 2,  ///< Regulate bus voltage with the voltage/current cascade.
     MPPT = 3     ///< Track maximum input power by adjusting the total input current reference.
 } boost_mode;
@@ -46,16 +47,28 @@ struct BoostDutyCycles {
  * @brief Cascaded voltage and current control for two parallel unidirectional boost legs.
  * @details Update measurements through the setters before calling the loops.
  * Call coldLoop() at the configured cold-loop period and hotLoop() at the
- * configured hot-loop period. STARTUP/BUSREG use a voltage PID to supply the current
- * reference. MPPT directly supplies the total current reference without voltage control.
- * In MPPT, the VSI is responsible for balancing DC-bus power to maintain bus voltage.
- * In BUSREG/MPPT, leg 1 receives up to leg1CurrentLimit; leg 2 receives the excess.
- * STARTUP uses converter 1 only, capped by startupCurrentMax. Both legs
- * share VLow and VBus and have independent input current measurements and PIDs.
- * Use isLeg1Enabled()/isLeg2Enabled() to start or stop the corresponding PWM;
- * a zero duty command alone does not disable the hardware. Optional bus-voltage
- * hysteresis pauses STARTUP/BUSREG at an upper boundary and resumes at a lower
- * boundary without changing mode. MPPT does not use these burst boundaries.
+ * configured hot-loop period. STARTUP/BUSREG use a voltage PID to supply the total
+ * current reference; MPPT supplies it directly. Leg 1 receives up to leg1CurrentLimit,
+ * leg 2 the excess; STARTUP uses leg 1 only, clamped to startupCurrentMax.
+ *
+ * **Burst (current-driven pulse skipping, leg 1).** Once configured with setBurst(),
+ * light load is handled by skipping PWM periods on leg 1, out of a burst period of N
+ * PWM periods. While the skip count is zero, leg 1's current PID runs; when its duty
+ * sits at the lower bound and the current is still above its reference, the skip
+ * count goes up by one per hot-loop call. While skipping, the PID is held (state kept,
+ * duty held) and the skip count goes down by one per call while the current is below
+ * its reference and up by one while above, within [0, N]. The PIDs are never reset by
+ * burst. Entering an active mode from IDLE starts fully skipped (N). While leg 2 has
+ * demand, burst is off. The caller applies getBurstSkip() and getBurstPeriod() with
+ * the hardware burst generator on leg 1 only.
+ *
+ * **Protection.** Once configured with setProtection(): above fullBurstV the skip count
+ * is forced to N; above tripV, or with either leg current above tripA, the controller
+ * trips: legs disabled, outputs cleared, latched until setMode(IDLE).
+ *
+ * **Mode changes.** IDLE clears every state. From IDLE to an active mode, every state is
+ * cleared and burst starts at N. Between active modes nothing is reset: PID states, the
+ * total reference and the burst state carry over; only the bounds of the new mode apply.
  */
 class BoostConverter {
 public:
@@ -68,51 +81,42 @@ public:
      * @param V_bus Initial bus measurement and bus voltage reference, in V; must be positive.
      * @param voltageParams Voltage PID tuning; Ts is the cold-loop period in s.
      * Output bounds define the allowed nonnegative total current reference in A,
-     * including the MPPT search limits. MPPT bypasses the voltage PID itself.
+     * including the MPPT search limits.
      * @param currentParams Current PID tuning shared by both legs; Ts is the hot-loop period in s.
      * Output bounds define the duty-cycle range and must lie within [0, 1].
      * @param leg1CurrentLimit Positive current threshold in A. Leg 1 receives
      * min(total reference, threshold); leg 2 receives the remaining reference.
-     * Set voltageParams.upper_bound to the permitted total current of both legs.
      * Initialization sets startupCurrentMax to min(leg1CurrentLimit, voltageParams.upper_bound).
      * @return 0 on success, or -EINVAL for invalid arguments or PID parameters.
      * @note Values must be finite. Failure leaves the controller disabled.
      * Both sampling periods must be positive, with voltageParams.Ts >= currentParams.Ts.
-     * Tune the supplied gains for the converter hardware.
+     * Burst, protection and gain-schedule settings are kept across init().
      */
     int8_t init(boost_mode mode, float32_t V_bus,
                 const PidParams& voltageParams, const PidParams& currentParams,
                 float32_t leg1CurrentLimit);
 
     /**
-     * @brief Clear PID states, total and per-leg current references, both duties, and MPPT history.
-     * @details Preserve the mode, measurements, target voltage references, and ramp rate.
-     * Restart the startup ramp from the latest VBus on the next startup cold-loop call.
-     * Preserve configured burst boundaries and an applicable burst pause.
+     * @brief Clear PID states, total and per-leg current references, both duties,
+     * MPPT history and the trip; start burst fully skipped.
+     * @details Preserve the mode, measurements, target voltage reference and settings.
      */
     void reset();
 
     /**
      * @brief Update and distribute the total input current reference.
-     * @details STARTUP and BUSREG regulate VBus. MPPT only calls Mppt(), which
-     * directly perturbs total current demand using measured input power; it runs
-     * no voltage PID and does not use VBus or VBusRef.
-     * STARTUP ramps its internal bus reference from measured VBus toward VBusRef
-     * at startupRampRate V/s, advancing by startupRampRate * voltageParams.Ts per call.
-     * Only converter 1 runs in STARTUP, limited to startupCurrentMax A. Converter 2
-     * remains disabled. Once the target is reached, hold it in STARTUP until the caller changes mode.
-     * @return Total current reference in A within voltageParams output bounds;
-     * STARTUP additionally limits it to startupCurrentMax, overriding a higher lower bound.
-     * Returns zero if idle, uninitialized, or burst-paused. The startup ramp and
-     * voltage PID do not advance while burst-paused.
+     * @details STARTUP and BUSREG regulate VBus toward VBusRef with the voltage PID
+     * (its Kp first updated by the gain schedule when configured); MPPT calls Mppt().
+     * @return Total current reference in A within the voltage PID bounds, STARTUP
+     * additionally clamped to startupCurrentMax. Zero if idle, uninitialized or tripped.
      */
     float32_t coldLoop();
 
     /**
-     * @brief Run both current PIDs using their own references and measurements.
+     * @brief Check protection, update burst and run the current PIDs.
      * @return Per-leg duty cycles within currentParams output bounds when enabled.
-     * Disabled legs return zero and have their current PID reset. Check bus burst
-     * hysteresis before running either PID, independently of the cold-loop period.
+     * Leg 2 is cleared (output and PID) when it has no demand. While burst skips
+     * periods, leg 1's duty and PID are held.
      */
     BoostDutyCycles hotLoop();
 
@@ -120,11 +124,9 @@ public:
      * @brief Update total input current demand using perturb-and-observe MPPT.
      * @details Compare VLow * (ILow1 + ILow2) with the previous power sample and reverse
      * the current perturbation direction when power decreases. Perturb by 0.1 A per call,
-     * within voltageParams current bounds; reverse direction at either bound.
-     * Distribute the resulting reference to both current loops. No voltage PID runs.
+     * within the voltage PID current bounds; reverse direction at either bound.
      * Has no effect outside MPPT mode, before initialization, or when VLow <= 0.
-     * @note coldLoop() calls this method automatically in MPPT mode. Allow the
-     * converter to settle between cold-loop calls before evaluating power changes.
+     * @note coldLoop() calls this method automatically in MPPT mode.
      */
     void Mppt();
 
@@ -134,68 +136,59 @@ public:
     float32_t getILow2() const;
     /** @brief Get total input current. @return ILow1 + ILow2 in A. */
     float32_t getILowTotal() const;
-
-    /**
-     * @brief Get the stored input voltage measurement.
-     * @return Low-side voltage in V.
-     */
+    /** @brief Get the stored input voltage measurement. @return Low-side voltage in V. */
     float32_t getVLow() const;
-
-    /**
-     * @brief Get the stored bus voltage measurement.
-     * @return Bus voltage in V.
-     */
+    /** @brief Get the stored bus voltage measurement. @return Bus voltage in V. */
     float32_t getVBus() const;
-
-    /**
-     * @brief Update leg 1 input current measurement.
-     * @param ILow1 Current in A; non-finite values are ignored.
-     */
+    /** @brief Update leg 1 input current. @param ILow1 Current in A; non-finite values are ignored. */
     void setILow1(float32_t ILow1);
-    /**
-     * @brief Update leg 2 input current measurement.
-     * @param ILow2 Current in A; non-finite values are ignored.
-     */
+    /** @brief Update leg 2 input current. @param ILow2 Current in A; non-finite values are ignored. */
     void setILow2(float32_t ILow2);
-
-    /**
-     * @brief Update the input voltage measurement.
-     * @param VLow Voltage in V; negative or non-finite values are ignored.
-     */
+    /** @brief Update the input voltage. @param VLow Voltage in V; negative or non-finite values are ignored. */
     void setVLow(float32_t VLow);
-
-    /**
-     * @brief Update the bus voltage measurement.
-     * @param VBus Voltage in V; negative or non-finite values are ignored.
-     */
+    /** @brief Update the bus voltage. @param VBus Voltage in V; negative or non-finite values are ignored. */
     void setVBus(float32_t VBus);
 
     /**
-     * @brief Configure and enable bus-voltage burst hysteresis for STARTUP/BUSREG.
-     * @param lower Lower bus boundary in V; switching may resume at VBus <= lower.
-     * @param upper Upper bus boundary in V; pause switching at VBus >= upper.
-     * @return 0 on success, -EINVAL unless values are finite and 0 <= lower < upper.
-     * @details Disabled until configured. Preserve boundaries across reset(), init(),
-     * and mode changes. Check immediately on configuration and in both loops.
-     * Between boundaries, retain the previous state. MPPT is unaffected.
-     * Pausing clears current references, duties, and all PID states, and freezes
-     * the startup ramp. On release, the next cold loop regenerates current demand.
-     * The caller must stop PWM when the leg enable flags are false.
+     * @brief Configure and enable current-driven burst on leg 1.
+     * @param period Burst period, in PWM periods (positive).
+     * @return 0 on success, -EINVAL for a zero period (burst stays as it was).
+     * @details Kept across init() and mode changes. Takes effect at the next hot loop;
+     * an active mode entered from IDLE starts with all periods skipped.
      */
-    int8_t setVBusBurstBounds(float32_t lower, float32_t upper);
-    /** @brief Get the burst resume boundary. @return Lower boundary in V. */
-    float32_t getVBusBurstMin() const;
-    /** @brief Get the burst pause boundary. @return Upper boundary in V. */
-    float32_t getVBusBurstMax() const;
-    /** @brief Check whether burst boundaries were configured. @return true when configured. */
+    int8_t setBurst(uint16_t period);
+    /** @brief Check whether burst is configured. @return true when configured. */
     bool isBurstEnabled() const;
-    /** @brief Inspect the last evaluated burst state. @return true while switching is paused. */
-    bool isBurstPaused() const;
+    /** @brief Get the burst period. @return PWM periods per burst period (0 when not configured). */
+    uint16_t getBurstPeriod() const;
+    /** @brief Get the skipped PWM periods per burst period. @return 0 (continuous) to the period. */
+    uint16_t getBurstSkip() const;
+    /** @brief Check whether leg 1 is skipping periods. @return true when the skip count is positive. */
+    bool isBurstActive() const;
 
     /**
-     * @brief Get the total current reference distributed between both legs.
-     * @return Total input current reference in A.
+     * @brief Configure over-voltage and over-current protection.
+     * @param fullBurstV Bus voltage above which every period is skipped, in V.
+     * @param tripV Bus voltage above which the controller trips, in V (> fullBurstV).
+     * @param tripA Leg current above which the controller trips, in A (positive).
+     * @return 0 on success, -EINVAL for non-finite or inconsistent values.
      */
+    int8_t setProtection(float32_t fullBurstV, float32_t tripV, float32_t tripA);
+    /** @brief Check whether protection tripped. @return true until setMode(IDLE). */
+    bool isTripped() const;
+
+    /**
+     * @brief Schedule the voltage PID's Kp with the operating point.
+     * @details At each STARTUP/BUSREG cold loop, Kp = gain · clamp(VBusRef, vbusMin, vbusMax) /
+     * clamp(VLow, vinMin, vinMax), applied without resetting the PID.
+     * @return 0 on success, -EINVAL for non-positive or inconsistent values.
+     */
+    int8_t setVoltageGainSchedule(float32_t gain, float32_t vinMin, float32_t vinMax,
+                                  float32_t vbusMin, float32_t vbusMax);
+    /** @brief Get the voltage PID's current Kp. @return Kp in A/V. */
+    float32_t getVoltageKp() const;
+
+    /** @brief Get the total current reference. @return Total input current reference in A. */
     float32_t getILowRef() const;
     /** @brief Get leg 1 current reference. @return Reference in A. */
     float32_t getILow1Ref() const;
@@ -203,38 +196,19 @@ public:
     float32_t getILow2Ref() const;
     /** @brief Get the leg 1 current threshold. @return Threshold in A. */
     float32_t getLeg1CurrentLimit() const;
-    /** @brief Check whether leg 1 PWM is needed. @return true for an active positive reference outside a burst pause. */
+    /** @brief Check whether leg 1 PWM must run. @return true in an active mode, not tripped (burst gates its periods). */
     bool isLeg1Enabled() const;
-    /** @brief Check whether leg 2 PWM is needed. @return true when total demand exceeds the threshold outside a burst pause. */
+    /** @brief Check whether leg 2 PWM must run. @return true when total demand exceeds the leg 1 threshold, not tripped. */
     bool isLeg2Enabled() const;
 
-    /**
-     * @brief Get the target bus voltage reference for STARTUP and BUSREG modes.
-     * @return Bus voltage reference in V.
-     */
+    /** @brief Get the target bus voltage. @return Bus voltage reference in V. */
     float32_t getVBusRef() const;
 
     /**
-     * @brief Set the startup voltage reference slew rate.
-     * @param rate Positive finite rate in V/s; invalid values are ignored.
-     * @details Default is 10 V/s. Changing the rate does not restart the ramp.
-     */
-    void setStartupRampRate(float32_t rate);
-    /** @brief Get the startup ramp rate. @return Rate in V/s. */
-    float32_t getStartupRampRate() const;
-    /**
-     * @brief Get the internal bus voltage reference used during STARTUP.
-     * @return Ramp reference in V. Updated by startup cold-loop calls.
-     */
-    float32_t getStartupVBusRef() const;
-
-    /**
-     * @brief Set the maximum converter 1 current reference during STARTUP.
+     * @brief Set the maximum total current reference during STARTUP (converter 1 only).
      * @param currentMax Nonnegative finite limit in A; invalid values are ignored.
-     * @details Call after init(). Clamp to leg1CurrentLimit and the voltage PID upper
-     * bound. Zero disables startup current. Apply immediately to the stored startup
-     * reference; the voltage PID uses this bound at the next cold-loop call.
-     * Preserve the limit across reset() and mode changes; init() restores its default.
+     * @details Call after init(). Clamped to leg1CurrentLimit and the voltage PID upper
+     * bound. Preserved across reset() and mode changes; init() restores its default.
      */
     void setStartupCurrentMax(float32_t currentMax);
     /** @brief Get the startup current limit. @return Effective maximum in A. */
@@ -242,64 +216,45 @@ public:
 
     /**
      * @brief Set and distribute the total current reference directly until the next cold-loop update.
-     * @param ILowRef Total current reference in A, clamped to voltageParams output bounds.
-     * STARTUP additionally clamps to startupCurrentMax and supplies converter 1 only.
-     * In MPPT, restart the power comparison after a manual reference change.
-     * A burst pause forces the reference to zero, including manual changes.
-     * Non-finite values are ignored; before initialization the reference is zero.
+     * @param ILowRef Total current reference in A, clamped to the voltage PID bounds
+     * (STARTUP: also to startupCurrentMax). Non-finite values are ignored.
      */
     void setILowRef(float32_t ILowRef);
 
-    /**
-     * @brief Set the target bus voltage.
-     * @details In STARTUP the internal reference slews toward the new target without
-     * restarting the ramp. In BUSREG the PID uses the new target directly.
-     * @param VBusRef Voltage reference in V; negative or non-finite values are ignored.
-     */
+    /** @brief Set the target bus voltage. @param VBusRef Voltage in V; negative or non-finite values are ignored. */
     void setVBusRef(float32_t VBusRef);
 
     /** @brief Get leg 1 duty. @return Last duty command, or zero when disabled/reset. */
     float32_t getDutyLeg1() const;
     /** @brief Get leg 2 duty. @return Last duty command, or zero when disabled/reset. */
     float32_t getDutyLeg2() const;
-
-    /**
-     * @brief Compute input power from the stored measurements.
-     * @return VLow * (ILow1 + ILow2) in W.
-     */
+    /** @brief Compute input power. @return VLow * (ILow1 + ILow2) in W. */
     float32_t getPower() const;
-
-    /**
-     * @brief Get the selected operating mode.
-     * @return Current boost controller mode.
-     */
+    /** @brief Get the selected operating mode. @return Current boost controller mode. */
     boost_mode getMode() const;
 
     /**
-     * @brief Select a mode and reset controller and MPPT states.
+     * @brief Select a mode.
      * @param mode Requested operating mode; invalid values select IDLE.
-     * @details Preserve measurements and voltage references; clear the current
-     * reference and duty cycle, even when selecting the current mode again.
-     * Entering STARTUP restarts the ramp from measured VBus on the next cold-loop call.
+     * @details IDLE, or an active mode entered from IDLE, resets every state (reset()).
+     * Between active modes nothing is reset; a trip is cleared only by IDLE, and while
+     * tripped an active mode stays disabled.
      */
     void setMode(boost_mode mode);
 
 private:
-    /** @brief Evaluate burst hysteresis and clear PID states/outputs on pause entry. */
-    void updateBurstState();
-    /** @brief Clear all PID states, current references, and duties without resetting the ramp. */
+    /** @brief Clear all PID states, current references and duties. */
     void clearControlOutputs();
-
-    /**
-     * @brief Run the voltage PID with mode-specific current bounds and anti-windup.
-     * @param reference Voltage reference in V.
-     * @param measurement Voltage measurement in V.
-     * @return Bounded current reference in A.
-     */
+    /** @brief Trip on over-voltage or over-current. @return true when tripped. */
+    bool checkProtection();
+    /** @brief Run leg 1: burst bookkeeping or its current PID. */
+    void runLeg1();
+    /** @brief Run the voltage PID with mode-specific current bounds. @return Current reference in A. */
     float32_t calculateVoltageCurrent(float32_t reference, float32_t measurement);
-
     /** @brief Use converter 1 only in STARTUP; otherwise allocate excess demand to leg 2. */
     void splitCurrentReference();
+    /** @brief Apply the voltage gain schedule to the voltage PID. */
+    void scheduleVoltageGain();
 
     boost_mode _mode = IDLE;
     bool _initialized = false;
@@ -309,19 +264,25 @@ private:
     float32_t _VBus = 0.0F;
     float32_t _ILow_ref = 0.0F;
     float32_t _VBus_ref = 0.0F;
-    float32_t _burst_VBus_min = 0.0F; ///< Resume boundary, in V.
-    float32_t _burst_VBus_max = 0.0F; ///< Pause boundary, in V.
-    bool _burst_enabled = false; ///< Bounds have been configured.
-    bool _burst_paused = false; ///< Hysteresis currently inhibits switching.
-    float32_t _TsCold = 0.0F; ///< Voltage PID sampling period, in s.
-    float32_t _startup_current_max = 0.0F; ///< Converter 1 current reference ceiling in STARTUP, in A.
-    float32_t _startup_ramp_rate = 10.0F; ///< Bus reference slew rate, in V/s.
-    float32_t _startup_VBus_ref = 0.0F; ///< Internal startup bus reference, in V.
-    bool _startup_ramp_pending = true; ///< Seed the ramp from the next VBus sample.
     float32_t _ILow1_ref = 0.0F;
     float32_t _ILow2_ref = 0.0F;
     float32_t _leg1_current_limit = 0.0F;
+    float32_t _startup_current_max = 0.0F; ///< Total current reference ceiling in STARTUP, in A.
+    float32_t _duty_min = 0.0F;            ///< Current PID lower output bound (duty).
     BoostDutyCycles _duty;
+
+    uint16_t _burst_period = 0U;  ///< PWM periods per burst period; 0 = burst not configured.
+    uint16_t _burst_skip = 0U;    ///< Skipped PWM periods per burst period.
+
+    bool _protection_enabled = false;
+    float32_t _full_burst_V = 0.0F;
+    float32_t _trip_V = 0.0F;
+    float32_t _trip_A = 0.0F;
+    bool _tripped = false;
+
+    bool _gain_schedule_enabled = false;
+    float32_t _gain = 0.0F;
+    float32_t _vin_min = 0.0F, _vin_max = 0.0F, _vbus_min = 0.0F, _vbus_max = 0.0F;
 
     Pid _voltage_pid;
     Pid _current1_pid;

@@ -22,18 +22,19 @@
  * @file test_boost.cpp
  * @brief L0-BST: open-loop tests of the boost converter controller (src/boost_converter).
  *
- * Test cases are defined in docs/testing/test-procedure.md §6.1; how to run
+ * Test cases are defined in tests/catalogue.json (procedure §6.3); how to run
  * them is in the README next to this file.
  *
  * | Test case | Behaviour |
  * |---|---|
- * | L0-BST-01 | Invalid init, measurements or burst bounds never enable a leg |
+ * | L0-BST-01 | Invalid init or measurements never enable a leg |
  * | L0-BST-02 | Leg 1 priority up to its current limit, leg 2 takes the excess |
  * | L0-BST-03 | Cold-loop saturation sets the total current reference |
  * | L0-BST-04 | MPPT perturb and observe |
- * | L0-BST-05 | STARTUP voltage ramp |
- * | L0-BST-06 | STARTUP current ceiling, converter 2 never enabled |
- * | L0-BST-07 | Burst hysteresis |
+ * | L0-BST-05 | STARTUP current clamp; STARTUP to BUSREG resets nothing; IDLE resets all |
+ * | L0-BST-06 | Current-driven burst on leg 1, PID state kept, none while leg 2 runs |
+ * | L0-BST-07 | Over-voltage full burst; over-voltage and over-current trip |
+ * | L0-BST-08 | Voltage PID gain scheduled with VBusRef / VLow, without reset |
  *
  * @warning The sections share one BoostConverter and run in order: each one
  * starts from the state the previous one left. Do not reorder them, and keep
@@ -116,8 +117,10 @@ int main() {
         duty = boost.hotLoop();
         c.near("leg 2 duty restarts from zero integral", duty.leg2, 0.1F * (2 + 2 * current.Ts), tol);
         boost.setILowRef(0);
-        c.check("zero demand: no leg on", !boost.isLeg1Enabled() && !boost.isLeg2Enabled());
-        c.check("zero demand: duties 0", boost.getDutyLeg1() == 0 && boost.getDutyLeg2() == 0);
+        // ADR 0003: leg 1 runs in every active mode (burst skips its periods at light load); leg 2 stops.
+        c.check("zero demand: leg 2 off, leg 1 left to burst", boost.isLeg1Enabled() && !boost.isLeg2Enabled());
+        c.check("zero demand: leg 2 duty 0, leg 1's PID not reset (its duty is kept)",
+                boost.getDutyLeg2() == 0 && boost.getDutyLeg1() == duty.leg1);
     }
 
     {
@@ -176,7 +179,7 @@ int main() {
         c.near("step up from zero", boost.coldLoop(), 0.1F, tol);
         boost.setILow2(0.5F);  // Power decrease directs the search down to zero.
         c.near("search down to zero", boost.coldLoop(), 0, tol);
-        c.check("no leg on at zero", !boost.isLeg1Enabled() && !boost.isLeg2Enabled());
+        c.check("at zero: leg 2 off, leg 1 left to burst (ADR 0003)", boost.isLeg1Enabled() && !boost.isLeg2Enabled());
         c.near("turns back from lower bound", boost.coldLoop(), 0.1F, tol);
         boost.setILow2(1);
     }
@@ -223,250 +226,332 @@ int main() {
         c.near("Mppt() in IDLE leaves zero reference", comparison.getILowRef(), 0, tol);
     }
 
+    // ------------------------------------------------------------------
+    // L0-BST-05 to L0-BST-08: control adopted from Andres Vazquez Sieber's bench
+    // controller (ADR 0003). They use their own controller with the
+    // application's structure: rated current 11 A, leg 1 up to 5.5 A, STARTUP
+    // clamp 0.25 A, duty 0.05-0.60, burst period 200, full burst above 440 V,
+    // trip above 460 V or 8 A.
+    // ------------------------------------------------------------------
+    const PidParams v_app = {0.001F, 0.4333F * 400.0F / 36.0F, 4.57e-3F, 0, 0, 0, 11.0F};
+    const PidParams i_app = {0.0001F, 0.002712F, 3.413e-4F, 0, 0, 0.05F, 0.60F};
+    const uint16_t period = 200U;
+    auto fresh = [&](BoostConverter &b) {
+        bool ok = b.init(IDLE, 400, v_app, i_app, 5.5F) == 0;
+        b.setStartupCurrentMax(0.25F);
+        ok = ok && b.setBurst(period) == 0 && b.setProtection(440, 460, 8) == 0;
+        b.setVLow(36);
+        b.setVBusRef(400);
+        return ok;
+    };
+
     {
-        /** @test L0-BST-05.a: STARTUP ramp starts from the latest bus sample and follows the rate */
-        tc::Criterion c("L0-BST-05.a", "STARTUP ramp starts from the latest bus sample and follows the rate");
-        c.check("init(STARTUP)", boost.init(STARTUP, 48, voltage, current, 5) == 0);
-        c.near("default ramp rate 10 V/s", boost.getStartupRampRate(), 10, tol);
-        boost.setStartupRampRate(1000);  // With Ts = 1 ms, advance 1 V per call.
-        boost.setVBus(24);               // Updated after init; first ramp step must start here.
-        boost.setVBusRef(26.5F);
-        c.near("first cold-loop output", boost.coldLoop(), 0.1F * (1 + voltage.Ts), tol);
-        c.near("ramp seeded at 24 V + 1 V", boost.getStartupVBusRef(), 25, tol);
-        boost.setVBus(24.5F);  // Feedback changes must not reseed the ramp.
-        boost.coldLoop();
-        c.near("not reseeded by feedback", boost.getStartupVBusRef(), 26, tol);
-        boost.coldLoop();
-        c.near("reaches target", boost.getStartupVBusRef(), 26.5F, tol);
-        boost.coldLoop();
-        c.near("no overshoot", boost.getStartupVBusRef(), 26.5F, tol);
-        c.check("mode stays STARTUP", boost.getMode() == STARTUP);
-        c.near("target distinct from ramp state", boost.getVBusRef(), 26.5F, tol);
-        c.near("total = leg 1 + leg 2", boost.getILowRef(), boost.getILow1Ref() + boost.getILow2Ref(), tol);
+        /** @test L0-BST-05.a: STARTUP regulates toward the bus reference with the current clamped, leg 1 only */
+        tc::Criterion c("L0-BST-05.a", "STARTUP regulates toward the bus reference with the current clamped, leg 1 only");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(0);
+        b.setMode(STARTUP);
+        c.near("total reference clamped to 0.25 A", b.coldLoop(), 0.25, tol);
+        c.near("leg 1 takes it", b.getILow1Ref(), 0.25, tol);
+        c.check("leg 2 never", b.getILow2Ref() == 0 && !b.isLeg2Enabled());
+        b.setILowRef(3);
+        c.near("manual reference clamped too", b.getILowRef(), 0.25, tol);
+        b.setVBus(399.9F);
+        c.range("near the reference the demand falls below the clamp", b.coldLoop(), 0, 0.25F);
     }
 
     {
-        /** @test L0-BST-05.b: Target and rate changes continue the ramp without reset or overshoot */
-        tc::Criterion c("L0-BST-05.b", "Target and rate changes continue the ramp without reset or overshoot");
-        boost.setVBusRef(30);
-        boost.setStartupRampRate(500);
-        boost.coldLoop();
-        c.near("continues at new rate", boost.getStartupVBusRef(), 27, tol);
-        boost.setVBusRef(26.75F);
-        boost.coldLoop();
-        c.near("no downward overshoot", boost.getStartupVBusRef(), 26.75F, tol);
-        for (float rate : {0.0F, -1.0F, std::numeric_limits<float>::infinity(),
-                           std::numeric_limits<float>::quiet_NaN()}) {
-            boost.setStartupRampRate(rate);
-            c.near("invalid rate rejected", boost.getStartupRampRate(), 500, tol);
+        /** @test L0-BST-05.b: STARTUP to BUSREG resets nothing: PID states, references and burst carry over */
+        tc::Criterion c("L0-BST-05.b", "STARTUP to BUSREG resets nothing: PID states, references and burst carry over");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(300);
+        b.setMode(STARTUP);
+        Pid mirror;  // leg 1's current PID, fed the same inputs: proves its state is never reset
+        mirror.init(i_app);
+        b.setILow1(0.1F);
+        b.coldLoop();
+        for (int i = 0; i < 400; ++i) {
+            const bool continuous = b.getBurstSkip() == 0;
+            const float32_t d = b.hotLoop().leg1;
+            if (continuous) c.near("leg 1 duty follows its PID", d, mirror.calculateWithReturn(b.getILow1Ref(), 0.1F), 1e-6);
         }
+        c.check("burst left by then", b.getBurstSkip() == 0);
+        const float32_t ref = b.getILowRef();
+        const float32_t duty = b.getDutyLeg1();
+        b.setMode(BUSREG);
+        c.near("total reference kept", b.getILowRef(), ref, tol);
+        c.near("duty kept", b.getDutyLeg1(), duty, tol);
+        c.check("burst not restarted", b.getBurstSkip() == 0);
+        c.near("first BUSREG duty continues the same PID", b.hotLoop().leg1,
+               mirror.calculateWithReturn(b.getILow1Ref(), 0.1F), 1e-6);
+        c.range("BUSREG allows more than the startup clamp", b.coldLoop(), 0.25F, 11);
     }
 
     {
-        /** @test L0-BST-05.c: Reset and re-entry restart from the measured voltage, keeping target and rate */
-        tc::Criterion c("L0-BST-05.c", "Reset and re-entry restart from the measured voltage, keeping target and rate");
-        boost.setVBus(20);
-        boost.reset();
-        c.near("reset reseeds at 20 V", boost.getStartupVBusRef(), 20, tol);
-        boost.coldLoop();
-        c.near("ramp continues", boost.getStartupVBusRef(), 20.5F, tol);
-        boost.setMode(IDLE);
-        boost.setVBus(21);
-        boost.setMode(STARTUP);
-        boost.coldLoop();
-        c.near("re-entry reseeds at 21 V", boost.getStartupVBusRef(), 21.5F, tol);
-        c.near("rate kept", boost.getStartupRampRate(), 500, tol);
-        boost.setMode(BUSREG);
-        boost.setVBusRef(1000);
-        c.near("BUSREG applies target directly", boost.coldLoop(), 12, tol);
-        c.near("no ramp advance outside STARTUP", boost.getStartupVBusRef(), 21, tol);
+        /** @test L0-BST-05.c: IDLE, and an active mode entered from IDLE, reset every state; burst starts fully skipped */
+        tc::Criterion c("L0-BST-05.c", "IDLE, and an active mode entered from IDLE, reset every state; burst starts fully skipped");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(300);
+        b.setMode(BUSREG);
+        b.coldLoop();
+        for (int i = 0; i < 300; ++i) b.hotLoop();
+        b.setMode(IDLE);
+        c.check("IDLE: references, duties 0, legs off", b.getILowRef() == 0 && b.getDutyLeg1() == 0 &&
+                b.getDutyLeg2() == 0 && !b.isLeg1Enabled() && !b.isLeg2Enabled());
+        b.setMode(BUSREG);
+        c.check("re-entry: all periods skipped", b.getBurstSkip() == period);
+        c.check("re-entry: leg 1 runs (burst gates it)", b.isLeg1Enabled());
     }
 
     {
-        /** @test L0-BST-06.a: STARTUP never enables converter 2 and respects the current ceiling */
-        tc::Criterion c("L0-BST-06.a", "STARTUP never enables converter 2 and respects the current ceiling");
-        boost.setMode(STARTUP);
-        c.near("default ceiling = leg 1 limit", boost.getStartupCurrentMax(), 5, tol);
-        boost.setStartupCurrentMax(2);
-        c.near("ceiling set to 2 A", boost.getStartupCurrentMax(), 2, tol);
-        boost.setILowRef(12);
-        c.near("manual ref clamped", boost.getILowRef(), 2, tol);
-        c.near("ILow1 ref clamped", boost.getILow1Ref(), 2, tol);
-        c.check("leg 2 off", boost.getILow2Ref() == 0 && !boost.isLeg2Enabled());
-        boost.setStartupRampRate(1000000);
-        for (int i = 0; i < 100; ++i) {
-            c.check("coldLoop <= 2 A", boost.coldLoop() <= 2);
-            c.check("ILow1 ref <= 2 A", boost.getILow1Ref() <= 2);
-            c.check("ILow2 ref == 0", boost.getILow2Ref() == 0);
-            c.check("leg 2 duty == 0", boost.hotLoop().leg2 == 0);
+        /** @test L0-BST-06.a: From full skipping, the skip count falls by one per hot loop while the current is below its reference, then leg 1's PID runs */
+        tc::Criterion c("L0-BST-06.a", "From full skipping, the skip count falls by one per hot loop while the current is below its reference, then the PID runs");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(395);
+        b.setMode(BUSREG);
+        b.setILowRef(1);
+        b.setILow1(0);
+        for (uint16_t i = 1; i <= period; ++i) {
+            const float32_t d = b.hotLoop().leg1;
+            c.check("skip count falls by one", b.getBurstSkip() == period - i);
+            c.near("duty held while skipping", d, 0, tol);
         }
+        c.check("continuous", !b.isBurstActive());
+        c.range("then the PID drives leg 1", b.hotLoop().leg1, 0.05F, 0.60F);
     }
 
     {
-        /** @test L0-BST-06.b: Ceiling updates apply immediately, reject invalid values, never exceed the leg 1 limit */
-        tc::Criterion c("L0-BST-06.b", "Ceiling updates apply immediately, reject invalid values, never exceed the leg 1 limit");
-        boost.setStartupCurrentMax(1);  // Tighten the stored reference immediately.
-        c.near("ref tightened to 1 A", boost.getILowRef(), 1, tol);
-        c.near("ILow1 ref tightened", boost.getILow1Ref(), 1, tol);
-        boost.reset();
-        c.near("ceiling survives reset", boost.getStartupCurrentMax(), 1, tol);
-        boost.setStartupCurrentMax(0);
-        c.check("zero ceiling: coldLoop 0", boost.coldLoop() == 0);
-        duty = boost.hotLoop();
-        c.check("zero ceiling: duties 0", duty.leg1 == 0 && duty.leg2 == 0);
-        c.check("zero ceiling: no leg on", !boost.isLeg1Enabled() && !boost.isLeg2Enabled());
-        for (float limit : {-1.0F, std::numeric_limits<float>::infinity(),
-                            std::numeric_limits<float>::quiet_NaN()}) {
-            boost.setStartupCurrentMax(limit);
-            c.near("invalid ceiling rejected", boost.getStartupCurrentMax(), 0, tol);
-        }
-        boost.setStartupCurrentMax(100);
-        c.near("ceiling capped at leg 1 limit", boost.getStartupCurrentMax(), 5, tol);
-        boost.setStartupCurrentMax(1);
-        boost.setMode(BUSREG);
-        c.near("BUSREG restores PID bounds", boost.coldLoop(), 12, tol);
-        c.near("BUSREG uses leg 2", boost.getILow2Ref(), 7, tol);
-        boost.setMode(STARTUP);
-        c.near("ceiling kept across modes", boost.getStartupCurrentMax(), 1, tol);
-        c.check("STARTUP again: <= 1 A, leg 2 off", boost.coldLoop() <= 1 && !boost.isLeg2Enabled());
+        /** @test L0-BST-06.b: At minimum duty with the current above its reference, skipping starts and follows the current error within [0, period] */
+        tc::Criterion c("L0-BST-06.b", "At minimum duty with the current above its reference, skipping starts and follows the current error within [0, period]");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(395);
+        b.setMode(BUSREG);
+        b.setILowRef(1);
+        b.setILow1(0);
+        for (int i = 0; i < period; ++i) b.hotLoop();
+        c.check("continuous after the start", b.getBurstSkip() == 0);
+        b.setILowRef(0);
+        b.setILow1(0.3F);  // more current than asked for: the PID goes to its lower bound
+        int ticks = 0;
+        while (b.getBurstSkip() == 0 && ticks < 1000) { b.hotLoop(); ++ticks; }
+        c.near("duty at its lower bound", b.getDutyLeg1(), 0.05, tol);
+        c.check("skipping started", b.getBurstSkip() == 1);
+        for (int i = 0; i < 500; ++i) b.hotLoop();
+        c.check("skip count saturates at the period", b.getBurstSkip() == period);
+        b.setILowRef(1);
+        b.hotLoop();
+        c.check("current below reference: one less", b.getBurstSkip() == period - 1);
+        b.setILow1(1);
+        b.hotLoop();
+        c.check("current equal to reference: held", b.getBurstSkip() == period - 1);
     }
 
     {
-        /** @test L0-BST-06.c: A ceiling below the PID lower bound is still respected */
-        tc::Criterion c("L0-BST-06.c", "A ceiling below the PID lower bound is still respected");
-        voltage.lower_bound = 3;
-        c.check("init with lower bound 3", boost.init(STARTUP, 48, voltage, current, 5) == 0);
-        boost.setStartupCurrentMax(1);
-        c.near("clamped to 1 A", boost.coldLoop(), 1, tol);
-        boost.setILowRef(0);
-        c.near("manual 0 held at ceiling", boost.getILowRef(), 1, tol);
-        boost.setStartupCurrentMax(0);
-        c.near("zero ceiling wins", boost.coldLoop(), 0, tol);
-        boost.setMode(BUSREG);
-        boost.setVBusRef(1000);
-        c.near("BUSREG unaffected", boost.coldLoop(), 12, tol);
-        voltage.lower_bound = 0;
-    }
-
-    // Burst hysteresis pauses switching in STARTUP and BUSREG, preserving mode.
-    for (boost_mode mode : {STARTUP, BUSREG}) {
-        const char *suffix = mode == STARTUP ? " (STARTUP)" : " (BUSREG)";
-        const char *letter = mode == STARTUP ? "-startup" : "-busreg";
-        BoostConverter burst;
-        {
-            /** @test L0-BST-07.a-startup, L0-BST-07.a-busreg: burst pauses at the upper bound without a cold-loop call */
-            tc::Criterion c(std::string("L0-BST-07.a") + letter,
-                            std::string("Burst pauses at the upper bound without a cold-loop call") + suffix);
-            c.check("disabled before config", !burst.isBurstEnabled() && !burst.isBurstPaused());
-            c.check("init", burst.init(mode, 48, voltage, current, 5) == 0);
-            c.check("bounds 50/52 accepted", burst.setVBusBurstBounds(50, 52) == 0);
-            c.check("burst enabled", burst.isBurstEnabled());
-            c.near("lower bound", burst.getVBusBurstMin(), 50, tol);
-            c.near("upper bound", burst.getVBusBurstMax(), 52, tol);
-            burst.setVBusRef(60);
-            burst.setStartupRampRate(1000);
-            c.check("active: coldLoop > 0", burst.coldLoop() > 0);
-            c.check("active: leg 1 duty > 0", burst.hotLoop().leg1 > 0);
-            c.check("active: leg 1 on", burst.isLeg1Enabled());
-            c.check("STARTUP keeps leg 2 off", mode == BUSREG || !burst.isLeg2Enabled());
-            const float ramp = burst.getStartupVBusRef();
-            burst.setVBus(52);
-            auto pausedDuty = burst.hotLoop();
-            c.check("paused, mode kept", burst.isBurstPaused() && burst.getMode() == mode);
-            c.check("paused: duties 0", pausedDuty.leg1 == 0 && pausedDuty.leg2 == 0);
-            c.check("paused: no leg on", !burst.isLeg1Enabled() && !burst.isLeg2Enabled());
-            c.near("paused: total ref 0", burst.getILowRef(), 0, tol);
-            c.near("paused: ILow1 ref 0", burst.getILow1Ref(), 0, tol);
-            c.near("paused: ILow2 ref 0", burst.getILow2Ref(), 0, tol);
-            burst.setILowRef(12);  // Manual references cannot bypass a burst pause.
-            c.check("manual ref cannot bypass", burst.getILowRef() == 0);
-            for (float bus : {51.9F, 50.1F, 51.0F}) {
-                burst.setVBus(bus);
-                c.check("inside band: coldLoop 0", burst.coldLoop() == 0);
-                c.check("inside band: leg 1 duty 0", burst.hotLoop().leg1 == 0);
-                c.check("inside band: still paused", burst.isBurstPaused());
-                c.near("ramp frozen", burst.getStartupVBusRef(), ramp, tol);
+        /** @test L0-BST-06.c: Leg 1's PID keeps its state across burst: duty held while skipping, resumes where it left */
+        tc::Criterion c("L0-BST-06.c", "Leg 1's PID keeps its state across burst: duty held while skipping, resumes where it left");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(395);
+        b.setMode(BUSREG);
+        Pid mirror;
+        mirror.init(i_app);
+        float32_t i1 = 0.0F, ref = 0.5F;
+        b.setILowRef(ref);
+        int continuous_ticks = 0, burst_ticks = 0;
+        for (int i = 0; i < 3000; ++i) {
+            // the current alternates around the reference, slowly, to drive the burst in and out
+            i1 = (i / 400) % 2 ? 0.0F : 2.0F;
+            b.setILow1(i1);
+            const bool continuous = b.getBurstSkip() == 0;
+            const float32_t held = b.getDutyLeg1();
+            const float32_t d = b.hotLoop().leg1;
+            if (continuous) {
+                ++continuous_ticks;
+                c.near("continuous duty = uninterrupted PID", d, mirror.calculateWithReturn(ref, i1), 1e-6);
+            } else {
+                ++burst_ticks;
+                c.near("duty held while skipping", d, held, 1e-7);
             }
         }
-        {
-            /** @test L0-BST-07.b-startup, L0-BST-07.b-busreg: burst resumes at the lower bound; demand regenerated by the cold loop */
-            tc::Criterion c(std::string("L0-BST-07.b") + letter,
-                            std::string("Burst resumes at the lower bound; demand regenerated by the cold loop") + suffix);
-            burst.setVBus(50);
-            auto pausedDuty = burst.hotLoop();
-            c.check("released at 50 V", !burst.isBurstPaused());
-            c.check("no duty until cold loop", pausedDuty.leg1 == 0 && pausedDuty.leg2 == 0);
-            burst.coldLoop();
-            burst.coldLoop();
-            c.check("leg 1 on after cold loop", burst.isLeg1Enabled());
-            c.check("STARTUP keeps leg 2 off", mode == BUSREG || !burst.isLeg2Enabled());
-            burst.setVBus(51);  // Stay active inside the band after release.
-            burst.hotLoop();
-            c.check("stays active inside band", !burst.isBurstPaused());
+        c.check("both regimes exercised", continuous_ticks > 100 && burst_ticks > 100);
+    }
+
+    {
+        /** @test L0-BST-06.d: No burst while leg 2 has demand */
+        tc::Criterion c("L0-BST-06.d", "No burst while leg 2 has demand");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(395);
+        b.setMode(BUSREG);
+        b.setILowRef(8);  // leg 1 5.5 A, leg 2 2.5 A
+        c.check("leg 2 has demand", b.isLeg2Enabled());
+        b.setILow1(7);  // above leg 1's 5.5 A reference, below the 8 A trip
+        b.setILow2(0);
+        b.hotLoop();
+        c.check("full skipping cancelled", b.getBurstSkip() == 0);
+        for (int i = 0; i < 2000; ++i) b.hotLoop();
+        c.near("leg 1 at minimum duty", b.getDutyLeg1(), 0.05, tol);
+        c.check("still no burst", b.getBurstSkip() == 0);
+    }
+
+    {
+        /** @test L0-BST-06.e: A zero burst period is rejected; without burst configured, leg 1 never skips */
+        tc::Criterion c("L0-BST-06.e", "A zero burst period is rejected; without burst configured, leg 1 never skips");
+        BoostConverter b;
+        c.check("init", b.init(BUSREG, 400, v_app, i_app, 5.5F) == 0);
+        c.check("period 0 rejected", b.setBurst(0) < 0 && !b.isBurstEnabled());
+        b.setVBus(395);
+        b.setILowRef(0);
+        b.setILow1(1);
+        for (int i = 0; i < 2000; ++i) b.hotLoop();
+        c.check("never skips", b.getBurstSkip() == 0);
+        c.near("stays at minimum duty", b.getDutyLeg1(), 0.05, tol);
+    }
+
+    {
+        /** @test L0-BST-07.a: Above 440 V every period is skipped and the PID is held; below, the current error drives the burst again */
+        tc::Criterion c("L0-BST-07.a", "Above 440 V every period is skipped and the PID is held; below, the current error drives the burst again");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(395);
+        b.setMode(BUSREG);
+        b.setILowRef(1);
+        b.setILow1(0);
+        for (int i = 0; i < period + 50; ++i) b.hotLoop();
+        const float32_t duty = b.getDutyLeg1();
+        b.setVBus(441);
+        b.hotLoop();
+        c.check("full skipping", b.getBurstSkip() == period);
+        c.near("duty held", b.getDutyLeg1(), duty, 1e-7);
+        c.check("not tripped", !b.isTripped() && b.isLeg1Enabled());
+        b.setVBus(439);
+        b.hotLoop();
+        c.check("below 440 V the skip count falls again", b.getBurstSkip() == period - 1);
+    }
+
+    {
+        /** @test L0-BST-07.b: Above 460 V the boost trips: legs off, outputs cleared, latched until IDLE */
+        tc::Criterion c("L0-BST-07.b", "Above 460 V the boost trips: legs off, outputs cleared, latched until IDLE");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(395);
+        b.setMode(BUSREG);
+        b.coldLoop();
+        b.setVBus(461);
+        duty = b.hotLoop();
+        c.check("tripped", b.isTripped());
+        c.check("legs off, duties 0", !b.isLeg1Enabled() && !b.isLeg2Enabled() && duty.leg1 == 0 && duty.leg2 == 0);
+        b.setVBus(400);
+        c.near("cold loop gives no demand", b.coldLoop(), 0, tol);
+        b.hotLoop();
+        b.setMode(STARTUP);
+        c.check("still tripped after a voltage drop and an active mode change", b.isTripped() && !b.isLeg1Enabled());
+        b.setMode(IDLE);
+        c.check("IDLE clears the trip", !b.isTripped());
+        b.setMode(BUSREG);
+        c.check("runs again", b.isLeg1Enabled());
+    }
+
+    {
+        /** @test L0-BST-07.c: A leg current above 8 A trips the boost */
+        tc::Criterion c("L0-BST-07.c", "A leg current above 8 A trips the boost");
+        for (int leg = 1; leg <= 2; ++leg) {
+            BoostConverter b;
+            c.check("configured", fresh(b));
+            b.setVBus(395);
+            b.setMode(BUSREG);
+            b.hotLoop();
+            if (leg == 1) b.setILow1(8.1F); else b.setILow2(8.1F);
+            b.hotLoop();
+            c.check(leg == 1 ? "leg 1 over-current trips" : "leg 2 over-current trips", b.isTripped() && !b.isLeg1Enabled());
         }
-        {
-            /** @test L0-BST-07.c-startup, L0-BST-07.c-busreg: cold loop detects overvoltage; reset and mode change cannot bypass a pause */
-            tc::Criterion c(std::string("L0-BST-07.c") + letter,
-                            std::string("Cold loop detects overvoltage; reset and mode change cannot bypass a pause") + suffix);
-            burst.setVBus(53);
-            c.check("cold loop: 0 at 53 V", burst.coldLoop() == 0);
-            c.check("paused", burst.isBurstPaused());
-            burst.setVBus(51);
-            burst.reset();
-            c.check("reset keeps pause", burst.isBurstPaused());
-            burst.setMode(mode == STARTUP ? BUSREG : STARTUP);
-            c.check("mode change keeps pause", burst.isBurstPaused());
-            c.check("leg 1 duty 0", burst.hotLoop().leg1 == 0);
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setVBus(395);
+        b.setMode(BUSREG);
+        b.setILow1(8.0F);
+        b.hotLoop();
+        c.check("exactly 8 A does not trip", !b.isTripped());
+    }
+
+    {
+        /** @test L0-BST-07.d: Inconsistent protection settings are rejected */
+        tc::Criterion c("L0-BST-07.d", "Inconsistent protection settings are rejected");
+        BoostConverter b;
+        c.check("init", b.init(BUSREG, 400, v_app, i_app, 5.5F) == 0);
+        c.check("trip voltage not above full burst", b.setProtection(440, 440, 8) < 0);
+        c.check("zero current", b.setProtection(440, 460, 0) < 0);
+        c.check("NaN", b.setProtection(std::numeric_limits<float>::quiet_NaN(), 460, 8) < 0);
+        b.setVBus(1000);
+        b.hotLoop();
+        c.check("unconfigured protection never trips", !b.isTripped());
+    }
+
+    {
+        /** @test L0-BST-08.a: The voltage PID's Kp follows gain x VBusRef / VLow, both clamped, at each STARTUP/BUSREG cold loop */
+        tc::Criterion c("L0-BST-08.a", "The voltage PID's Kp follows gain x VBusRef / VLow, both clamped, at each STARTUP/BUSREG cold loop");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        c.check("schedule accepted", b.setVoltageGainSchedule(0.4333F, 24, 48, 390, 410) == 0);
+        b.setVBus(395);
+        b.setMode(BUSREG);
+        struct { float vin, vref, kp; } cases[] = {
+            {36, 400, 0.4333F * 400 / 36}, {24, 400, 0.4333F * 400 / 24}, {48, 400, 0.4333F * 400 / 48},
+            {12, 400, 0.4333F * 400 / 24}, {60, 400, 0.4333F * 400 / 48},
+            {36, 380, 0.4333F * 390 / 36}, {36, 420, 0.4333F * 410 / 36}};
+        for (auto k : cases) {
+            b.setVLow(k.vin);
+            b.setVBusRef(k.vref);
+            b.coldLoop();
+            c.near("Kp (A/V)", b.getVoltageKp(), k.kp, 1e-4);
         }
-        {
-            /** @test L0-BST-07.d-startup, L0-BST-07.d-busreg: bounds persist across init; MPPT and IDLE are exempt */
-            tc::Criterion c(std::string("L0-BST-07.d") + letter,
-                            std::string("Bounds persist across init; MPPT and IDLE are exempt from burst") + suffix);
-            c.check("re-init at 53 V", burst.init(mode, 53, voltage, current, 5) == 0);
-            c.check("starts enabled and paused", burst.isBurstEnabled() && burst.isBurstPaused());
-            c.check("coldLoop 0", burst.coldLoop() == 0);
-            burst.setMode(MPPT);
-            c.check("MPPT not paused", !burst.isBurstPaused());
-            burst.setVLow(24);
-            burst.setILowRef(8);
-            c.check("MPPT ignores bounds", burst.coldLoop() > 8);
-            c.check("MPPT uses leg 2", burst.isLeg2Enabled() && burst.hotLoop().leg2 > 0);
-            burst.setMode(IDLE);
-            c.check("IDLE: not paused, leg 1 off", !burst.isBurstPaused() && !burst.isLeg1Enabled());
-        }
-        {
-            /** @test L0-BST-01.b-startup, L0-BST-01.b-busreg: invalid burst bounds are rejected and keep the configured ones */
-            tc::Criterion c(std::string("L0-BST-01.b") + letter,
-                            std::string("Invalid burst bounds are rejected and keep the configured ones") + suffix);
-            c.check("upper < lower", burst.setVBusBurstBounds(52, 50) < 0);
-            c.check("upper == lower", burst.setVBusBurstBounds(50, 50) < 0);
-            c.check("negative", burst.setVBusBurstBounds(-1, 52) < 0);
-            c.check("infinite", burst.setVBusBurstBounds(50, std::numeric_limits<float>::infinity()) < 0);
-            c.check("NaN", burst.setVBusBurstBounds(std::numeric_limits<float>::quiet_NaN(), 52) < 0);
-            c.near("lower bound kept", burst.getVBusBurstMin(), 50, tol);
-            c.near("upper bound kept", burst.getVBusBurstMax(), 52, tol);
+        b.setMode(STARTUP);
+        b.setVLow(30);
+        b.setVBusRef(400);
+        b.coldLoop();
+        c.near("STARTUP schedules too", b.getVoltageKp(), 0.4333F * 400 / 30, 1e-4);
+        b.setMode(MPPT);
+        b.setVLow(40);
+        b.coldLoop();
+        c.near("MPPT does not touch it", b.getVoltageKp(), 0.4333F * 400 / 30, 1e-4);
+    }
+
+    {
+        /** @test L0-BST-08.b: Scheduling does not reset the voltage PID */
+        tc::Criterion c("L0-BST-08.b", "Scheduling does not reset the voltage PID");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        c.check("schedule accepted", b.setVoltageGainSchedule(0.4333F, 24, 48, 390, 410) == 0);
+        b.setVBus(399.95F);
+        b.setMode(BUSREG);
+        Pid mirror;
+        mirror.init(v_app);
+        for (int i = 0; i < 40; ++i) {
+            const float vin = i < 20 ? 36.0F : 30.0F;  // input voltage change mid-run
+            b.setVLow(vin);
+            b.setVBus(399.95F + 0.001F * i);
+            mirror.setKp(0.4333F * 400 / vin);
+            mirror.setBounds(0, 11);
+            c.near("total reference = uninterrupted PID with the scheduled Kp", b.coldLoop(),
+                   mirror.calculateWithReturn(400, 399.95F + 0.001F * i), 1e-5);
         }
     }
 
     {
-        /** @test L0-BST-07.e: Configuring bounds while active pauses immediately with no PI windup kept */
-        tc::Criterion c("L0-BST-07.e", "Configuring bounds while active pauses immediately with no PI windup kept");
-        BoostConverter burst;
-        c.check("init(BUSREG) at 53 V", burst.init(BUSREG, 53, voltage, current, 5) == 0);
-        burst.setVBusRef(1000);
-        for (int i = 0; i < 100; ++i) {
-            burst.coldLoop();
-            burst.hotLoop();
-        }
-        c.check("bounds accepted", burst.setVBusBurstBounds(50, 52) == 0);
-        c.check("paused, duties 0",
-                burst.isBurstPaused() && burst.getDutyLeg1() == 0 && burst.getDutyLeg2() == 0);
-        burst.setVBusRef(50);
-        burst.setVBus(50);
-        c.near("zero error gives zero demand", burst.coldLoop(), 0, tol);
-        c.check("released, leg 1 off", !burst.isBurstPaused() && !burst.isLeg1Enabled());
+        /** @test L0-BST-08.c: Inconsistent gain schedules are rejected */
+        tc::Criterion c("L0-BST-08.c", "Inconsistent gain schedules are rejected");
+        BoostConverter b;
+        c.check("init", b.init(BUSREG, 400, v_app, i_app, 5.5F) == 0);
+        c.check("zero gain", b.setVoltageGainSchedule(0, 24, 48, 390, 410) < 0);
+        c.check("inverted Vin range", b.setVoltageGainSchedule(0.4F, 48, 24, 390, 410) < 0);
+        c.check("zero Vin", b.setVoltageGainSchedule(0.4F, 0, 48, 390, 410) < 0);
+        c.check("NaN", b.setVoltageGainSchedule(std::numeric_limits<float>::quiet_NaN(), 24, 48, 390, 410) < 0);
     }
-
     {
         /** @test L0-BST-01.c: Invalid measurements and configuration cannot enable a leg */
         tc::Criterion c("L0-BST-01.c", "Invalid measurements and configuration cannot enable a leg");
