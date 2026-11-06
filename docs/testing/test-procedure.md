@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Procedure version | 1.10 (draft) |
+| Procedure version | 1.11 (draft) |
 | Firmware under test | Core2 branch `test/microinverter-validation`, application in `src/` |
 | Hardware target | Spin 1.2.0 + uSolarVerter 0.9.0 |
 | Owner | Luiz Villa |
@@ -74,9 +74,9 @@ ControlOutputs controlStep(ControlState&, const Measurements&, const OperatorCom
 
 `main.cpp` keeps reading sensors and writing PWM through the shield API. On the host, L0 calls `controlStep` directly. For L1, `controlStep` and the controller sources are compiled into a shared library that exports the Pulsim C-Block ABI (`pulsim_cblock_step`) and runs every 100 µs. Pulsim holds the outputs (zero-order hold) between steps.
 
-## 3. Model ↔ firmware block contract (app-v1)
+## 3. Model ↔ firmware block contract (app-v2)
 
-> **app-v1 implemented for integration bring-up.** `tests/l1/contract.json` is the machine-readable index/actuator contract. It supersedes the initial v0 sketch for the application path. Relay lifecycle inputs belong to a future separate library-only harness; the current application has no relay command. Changes are recorded in the [changelog](#10-changelog).
+> **app-v2** (2026-11-06, [ADR 0003](../adr/0003-boost-adopts-current-driven-burst.md)): the boost burst command (`burst_skip`, `burst_period`) and `boost_trip` replace app-v1's `burst_paused` and `startup_ref`; the PWM adapter models the HRTIM burst on leg 1 (a new skip count takes effect at the next burst period) and shifts the carrier so the control ticks, where the block samples, fall at the board's ADC instant (`adc_trigger_phase` 0.53, finding #3 H2, L1-MOD-08.b). `tests/l1/contract.json` is the machine-readable index/actuator contract. It supersedes the initial v0 sketch for the application path. Relay lifecycle inputs belong to a future separate library-only harness; the current application has no relay command. Changes are recorded in the [changelog](#10-changelog).
 
 All values are physical units, sampled every 100 µs (control-task period).
 
@@ -98,8 +98,10 @@ All values are physical units, sampled every 100 µs (control-task period).
 | Block → model | `en_bridge` | 0/1 | Always false in this application |
 | Block → model | `boost_mode_changed` | 0/1 | Stop both boost legs on that tick before applying updates |
 | Block → model | `boost_pwm_update` | 0/1 | Apply new duties/enables only when true; otherwise hold applied state |
+| Block → model | `burst_skip`, `burst_period` | PWM periods | Leg 1 skips the first `burst_skip` of every `burst_period` PWM periods; 0: burst generator stopped |
+| Block → log | `boost_trip` | 0/1 | Boost protection tripped (460 V or 8 A), latched until IDLE |
 | Block → log | `relay_requested` | 0/1 | Library diagnostic only; remains false in application tests |
-| Block → log | `theta`, `w`, observer RMS, observer frequency, trip reason, inverter mode, burst paused | — | Logged, not fed back |
+| Block → log | `theta`, `w`, observer RMS, observer frequency, trip reason, inverter mode | — | Logged, not fed back |
 
 ## 4. Test case identification
 
@@ -147,7 +149,7 @@ Contract **app-v1**, in `tests/l1/contract.json`, binds six physical probes plus
 | L1-INT-00 | Build/runner failure before a reported criterion must fail the campaign | Reported only when a build or runner fails before its criteria; its absence from a campaign of its level means that campaign ran. | campaign runner | Implemented: Infrastructure fallback |
 | L1-INT-01 | Wrapper matches direct controlStep; independent state; invalid ABI/timing rejected |  | `controlStep`, app-v1 contract | Implemented: Implemented (.a–.c) |
 | L1-INT-02 | Pulsim actually loads native C-Block, executes once per 100 us, closes an RC loop and resets independently |  | `pulsim.add_c_block`, application period | Implemented: Implemented (.a–.c) |
-| L1-INT-03 | Refined switched model, nominal 50 Hz sync with inverter off, exact current-probe binding and tick-aligned short STARTUP at `app::startup_ramp_rate` |  | accepted plant, `controlStep`, `app::startup_ramp_rate` | Implemented: Implemented (.a–.d) |
+| L1-INT-03 | Refined switched model, nominal 50 Hz sync with inverter off, exact current-probe binding and tick-aligned STARTUP with the current clamp |  | accepted plant, `controlStep`, `app::startup_ramp_rate` | Implemented: Implemented (.a–.d) |
 | L1-INT-04 | Missing VAC delivery holds last sample and invalidates at age 200; physical grid stays present |  | sensor hold contract, `grid_voltage_stale_ticks` | Implemented: Implemented (.a–.b) |
 | L1-INT-05 | Native PV passive MPP load; actual Core MPPT coupling; initial 2 ms step refinement; short-run power ratio INFO |  | synthetic single-diode variant | Implemented: Implemented (.a–.c PASS checks, .d INFO) |
 | L1-INT-07 | Lambert W panel equals the diode panel: explicit current vs implicit solution; same switched circuit loaded through the MPP at a fixed duty (10 mV / 10 mA); speed ratio INFO |  | `plant/pv.py` `current_lambertw`, [PV guide](pv-model-run.md#lambert-w-panel-for-long-runs) | Implemented: Implemented (.a–.b; .c INFO) |
@@ -184,10 +186,10 @@ Does the boost object do what it should, alone? L0 logic, then the object alone 
 | L0-BST-06 | Current-driven burst on leg 1 | .a from full skipping the skip count falls by one per hot loop while ILow1 < reference, then the PID runs; .b at minimum duty with ILow1 > reference skipping starts and follows the current error within [0, period]; .c the PID keeps its state across burst (duty held while skipping; continuous duty = an uninterrupted mirror PID); .d no burst while leg 2 has demand; .e a zero period is rejected and without burst leg 1 never skips | `setBurst`, `hotLoop`; `boost_burst_period` = 200 | Implemented: Implemented 2026-11-06 (ADR 0003) |
 | L0-BST-07 | Over-voltage full burst; over-voltage and over-current trip | .a above 440 V every period is skipped and the PID held, below it the current error drives burst again; .b above 460 V the boost trips (legs off, outputs cleared), latched until IDLE; .c a leg current above 8 A trips, exactly 8 A does not; .d inconsistent settings are rejected, unconfigured protection never trips | `setProtection`; 440 V, 460 V, 8 A | Implemented: Implemented 2026-11-06 (ADR 0003) |
 | L0-BST-08 | Voltage PID gain scheduled with VBusRef / VLow | .a Kp = gain · clamp(VBusRef, 390, 410) / clamp(VLow, 24, 48) at each STARTUP/BUSREG cold loop, not in MPPT; .b scheduling does not reset the PID (total reference = an uninterrupted mirror PID with the scheduled Kp); .c inconsistent schedules are rejected | `setVoltageGainSchedule`; gain 2.6/6 (Andres) | Implemented: Implemented 2026-11-06 (ADR 0003) |
-| L1-BST-01 | STARTUP from 0 V to 400 V | Bus reference follows app::startup_ramp_rate (200 V/s) to 400 V; ILow1 ≤ 1 A at every electrical step; leg 2 never enabled *Conditions:* Ideal 40 V source; bus discharged; light bus load *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-01 | STARTUP from 0 V to 400 V | Bus rises from 0 to 400 V with the total current reference within the 0.25 A STARTUP clamp; leg 2 never enabled; physical current below the 8 A trip *Conditions:* Ideal 40 V source; bus discharged; light bus load *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
 | L1-BST-02 | BUSREG load steps | .a VDCBus stays within 380–420 V (±5 %) during every step and is back within 395–405 V within 100 ms (PASS/FAIL); INFO: overshoot, undershoot, settling time, current-reference saturation *Conditions:* BUSREG at 400 V, real firmware on the switched model; steps up and down between 10, 50 and 100 % of 400 W (10→50→100→50→10 %); through the application until the boost-object harness exists *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06 with Luiz (after discussion with Jean), not implemented |
-| L1-BST-03 | STARTUP → BUSREG hand-over | No bus sag below 395 V when BUSREG takes over at 400 V under load (the #3 transition) *Conditions:* Real sequence from 0 V, BUSREG commanded once the ramp reaches 400 V; 50 % load *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
-| L1-BST-04 | Burst cycling at light load | Repeated pause above 405 V and resume at 395 V; legs off while paused; cycle period INFO *Conditions:* Bus at 400 V; load 1–2 % of rated; 1 s or more *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-03 | STARTUP → BUSREG hand-over | No bus sag below 395 V when BUSREG takes over at 400 V under load; nothing reset at the switch (the #3 transition, ADR 0003) *Conditions:* Real sequence from 0 V, BUSREG commanded once the ramp reaches 400 V; 50 % load *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
+| L1-BST-04 | Light load: current-driven burst over a long run | Burst keeps the bus within 395–405 V at 1–10 % load over 1 s; skip count and bus ripple INFO *Conditions:* Bus at 400 V; load 1–2 % of rated; 1 s or more *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
 | L1-BST-05 | Current split between legs | Leg 1 takes the demand up to its limit, leg 2 the excess; leg 2 off when its demand stops *Conditions:* BUSREG at 400 V; load ramp 0 → 400 W → 0 *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
 | L1-BST-06 | MPPT on the PV panel | Settles within 2 % of the panel's maximum power; tracking efficiency and settling time INFO *Conditions:* Lambert W panel at 100 % light; bus load sized for the MPP *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
 | L1-BST-07 | MPPT under light changes | Recovers the MPP within 2 % after a cloud step (100 → 30 %) and a recovery ramp; INFO: energy lost during the transient *Conditions:* Lambert W panel; light step and ramp *Harness:* boost object alone in its own C-Block, on the boost part of the model |  | Planned: Defined 2026-11-06, not implemented |
@@ -260,9 +262,9 @@ The [switched DCDC results](switched-dcdc-results.md) preserve the current regul
 | L0-APP-04 | Bridge PWM never enabled and the inverter never requests PWM or relay, in any mode, with or without a sync request |  | critical task, "Synchronization only" | Implemented |
 | L0-APP-05 | Synchronization only after observer qualification; an observer trip removes it on the trip tick; times to qualification and sync `INFO` |  | `setGridQuality(grid_observer.canOperate())` | Implemented |
 | L1-APP-01 | IDLE on a healthy grid | legs off; observer qualifies after 1 s ± 1 tick of continuously eligible estimates; PLL lock time `INFO` |  | Implemented: Implemented (.a–.b; .c INFO) |
-| L1-APP-02 | STARTUP from 0 V | bus reference follows `app::startup_ramp_rate` (200 V/s); physical ILow1 ≤ 1 A at electrical steps; leg 2 never enabled |  | Partly implemented: Implemented first 50 ms (.a–.c); full 2 s trajectory .d pending |
+| L1-APP-02 | STARTUP from 0 V | .a total current reference within the 0.25 A STARTUP clamp, .b physical leg-1 current below the 8 A trip at every electrical step, .c leg 2 never enabled (first 50 ms); .d full start-up (about 1 s) BLOCKED until run |  | Partly implemented: Rewritten 2026-11-06 for ADR 0003 (was: 200 V/s ramp, 1 A) |
 | L1-APP-03 | BUSREG at 400 V | VDCBus within 395–405 V during 80–100 ms after load step at 50 ms; overshoot/current extrema `INFO` |  | Implemented: Implemented; preserve FAIL if outside band |
-| L1-APP-04 | Burst cycling at light load | start paused above 405 V, legs off, resume at 395 V; subsequent rising crossing and bus dip reported separately |  | Partly implemented: Initial pause/release implemented; repeated cycling pending if no later upper crossing |
+| L1-APP-04 | Light load: current-driven burst | .a BUSREG entered from IDLE starts fully skipped, .b leg 2 stays off, .c bus within 380–420 V over the run, .d the skip count leaves full skipping once current is needed; .e skip range, fraction bursting and bus range INFO |  | Implemented: Rewritten 2026-11-06 for ADR 0003 (was: 395/405 V pause and release) |
 | L1-APP-05 | MPPT on the PV curve | settles near the maximum power point; tracking efficiency `INFO` |  | Blocked: BLOCKED (sustained MPPT fixture) |
 | L1-APP-06 | Synchronization only | inverter synchronized; bridge PWM never enabled |  | Partly implemented: Nominal integration runs; formal verdict gated by finding #1 |
 | L1-APP-07 | Grid steps out of window (UV, OV, UF, OF) | trip within 0.1 s + 1 tick; synchronization revoked |  | Partly implemented: Fault scenarios pending; finding #1 verdict gate |
@@ -519,6 +521,7 @@ flowchart LR
 | 1.8 | 2026-11-06 | §6 is generated from `tests/catalogue.json`, grouped by validation stage (Test bench, Model, Boost, Grid observer, Inverter, Application); new planned cases, defined with the user: L1-MOD-01…08 (boost and inverter in open loop, measurement chain; hardware comparison to be defined), L1-BST-01…08 and L1-GOB-01…07 (each object alone on the model, own harness), L1-GFL-04…08, L1-APP-10…16 (grid injection blocked while the application is synchronization-only). §8.5: control center (`tests/out/control-center.html`) and interactive plots. |
 | 1.9 | 2026-11-06 | L1-MOD-01…08 implemented (`tests/l1/model_validation/`, firmware out of the loop, `tests/l1/plant/open_loop.py`); criteria made precise: the boost gain uses the effective duty (dead time and step grid), the inverter reference includes the first-order dead-time loss, the grid check is driven by the applied bridge voltage at zero dead time. Run on demand, not part of the default campaign. |
 | 1.10 | 2026-11-06 | New planned cases, defined with Luiz after discussion with Jean: L0-GFL-09…15 (SOGI orthogonality, harmonics, noise, held samples, DC offset, PLL dynamics, replay of board logs), L1-MOD-09 (boost plant identification), L1-BST-02 made precise (load steps 10↔50↔100 %, ±5 % band, back in 395–405 V within 100 ms), L1-BST-09 (PID tuning comparison: firmware, Jean's fit, SIMC, crossover/phase-margin tuner). |
+| 1.11 | 2026-11-06 | Boost control from Andres Vazquez Sieber's bench controller ([ADR 0003](../adr/0003-boost-adopts-current-driven-burst.md), worklog): L0-BST-05…08 rewritten (STARTUP clamp, current-driven burst, protection, gain schedule). Contract app-v2 (§3): burst command and trip, HRTIM burst and ADC-instant carrier in the PWM adapter. L1-APP-02 checks the 0.25 A STARTUP clamp and the 8 A trip level instead of the ramp and 1 A; L1-APP-04 checks the current-driven burst at light load instead of the 395/405 V pause. `control_library` from luizvilla `PID_update`. |
 
 ## 11. Findings register
 

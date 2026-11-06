@@ -11,12 +11,14 @@ HEADER = Path(__file__).resolve().parents[2] / 'src/app/control_step.h'
 
 def app_constant(name):
     """@brief Value of `app::<name>` as declared in control_step.h.
-    @param name Constant name, e.g. `startup_ramp_rate`.
+    @param name Constant name, e.g. `startup_current_max`.
     @return The value as a float; raises if the declaration is missing."""
-    m = re.search(rf'\b{name}\s*=\s*([-+0-9.eE]+)F?\s*;', HEADER.read_text())
+    m = re.search(rf'\b{name}\s*=\s*([-+0-9.eE]+)[FU]?\s*;', HEADER.read_text())
     if not m:
         raise SystemExit(f'{HEADER}: app::{name} not found')
     return float(m.group(1))
 
 
-STARTUP_RAMP_RATE = app_constant('startup_ramp_rate')  ##< STARTUP bus reference slew rate, V/s.
+STARTUP_CURRENT_MAX = app_constant('startup_current_max')  ##< STARTUP total current clamp, A (ADR 0003).
+BOOST_TRIP_CURRENT = app_constant('boost_trip_current')    ##< Leg current that trips the boost, A.
+BURST_PERIOD = app_constant('boost_burst_period')          ##< Burst period, PWM periods.

@@ -1,7 +1,7 @@
 {
   "name": "switched-startup-from-zero",
   "title": "DC/DC startup from an empty bus",
-  "purpose": "Bus discharged (0 V), 20 k\u03a9 test load, STARTUP from t = 0. Checks the first 50 ms: the bus reference ramps at the production rate, leg-1 current stays within 1 A at every electrical step, and leg 2 stays off.",
+  "purpose": "Bus discharged (0 V), 20 kΩ test load, STARTUP from t = 0. Checks the first 50 ms: the total current reference stays within the 0.25 A STARTUP clamp (ADR 0003), leg-1 current stays below the 8 A trip at every electrical step, and leg 2 stays off.",
   "criteria": [
     "L1-APP-02"
   ],

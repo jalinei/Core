@@ -192,8 +192,13 @@ def metrics(spec,c,t,k,det):
         m['probe_VLow_vs_node']=float(np.mean(det['V(measurement_DC1_Vin)'])/np.mean(det['V(N2)']))
         if 1 in spec['legs']:
             T=1/PWM_HZ;ph=((det['time']+1e-12)%T)/T;il=det['Is(probe_DC1_Iin)']
-            sim=il[np.abs(ph-0.0)<0.011].mean() if np.any(np.abs(ph)<0.011) else il[ph<0.02].mean()
-            board=il[np.abs(ph-0.53)<0.011].mean()  # board: 0.06·PER on the up-count = 3 % after the middle of the low switch's on-time
+            # Simulation instant: the firmware block samples at the control ticks, which the PWM adapter
+            # places at adc_trigger_phase of the carrier (contract app-v2; app-v1 had no shift: phase 0).
+            from plant.open_loop import CONTRACT
+            sp=CONTRACT['actuators'].get('adc_trigger_phase',0.)
+            near=lambda x:np.abs(((ph-x+0.5)%1)-0.5)<0.011
+            sim=il[near(sp)].mean()
+            board=il[near(0.53)].mean()  # board: 0.06·PER on the up-count = 3 % after the middle of the low switch's on-time
             m.update(sample_sim_A=float(sim),sample_board_A=float(board),sample_mean_A=float(np.mean(il)))
         if spec.get('startup'):
             il=np.abs(sum(k[f'I(DC{leg}_L3)'] for leg in spec['legs']));vb=k['V(Vout)']
@@ -302,7 +307,7 @@ def judge(results):
         R('L1-MOD-08.a','PASS' if ok else 'FAIL','Measurement chain: each boost measurement equals the physical quantity in scale and sign','ratio 1 ± 1 %',
           ', '.join(f'{k} {v:.4f}' for k,v in ratios.items()))
         d=mb['sample_sim_A']-mb['sample_board_A'];rel=abs(d)/max(abs(mb['sample_mean_A']),1e-9)
-        R('L1-MOD-08.b','PASS' if rel<=0.02 else 'FAIL','Measurement chain: ILow1 sampled at the simulation instant equals the board\'s ADC instant','difference ≤ 2 % of the mean',
+        R('L1-MOD-08.b','PASS' if rel<=0.02 else 'FAIL','Measurement chain: ILow1 sampled at the simulation instant (contract adc_trigger_phase) equals the board\'s ADC instant','difference ≤ 2 % of the mean',
           f'simulation instant {mb["sample_sim_A"]:.3f} A, board instant {mb["sample_board_A"]:.3f} A, mean {mb["sample_mean_A"]:.3f} A ({100*rel:.1f} %)')
         R('L1-MOD-08.c','INFO','Measurement chain: inverter output measurements at m=0.8 into the resistor','',f'VAC {mi["V_out_rms"]:.1f} V rms, IAC {mi["I_out_rms"]:.3f} A rms (load {R_AC:.1f} Ω)')
     for r in results:

@@ -37,12 +37,12 @@ def create(pv=False,scenario=None,dest=None):
         else:label='command_'+logical
         input_labels.append(label)
     p=Component(type=T.C_BLOCK,name='Core_controlStep',x=center,y=bottom,
-        parameters={'n_inputs':10,'n_outputs':32,'implementation':'library','lib_path':str(LIB),
-            'sample_time':.0001,'inputs':input_labels,'contract':'app-v1',
+        parameters={'n_inputs':10,'n_outputs':len(NAMES),'implementation':'library','lib_path':str(LIB),
+            'sample_time':.0001,'inputs':input_labels,'contract':CONTRACT['version'],
             'scenario_timeline':scenario['commands'] if scenario else [],
             'scenario_name':scenario['name'] if scenario else 'gui-core-app',
             'source_code':(HERE/'firmware_block/wrapper.cpp').read_text()},
-        pins=[Pin(i,'IN'+str(i),-80,(i-4.5)*36) for i in range(10)]+[Pin(i+10,'OUT'+str(i),80,(i-15.5)*28) for i in range(32)])
+        pins=[Pin(i,'IN'+str(i),-80,(i-4.5)*36) for i in range(10)]+[Pin(i+10,'OUT'+str(i),80,(i-(len(NAMES)-1)/2)*28) for i in range(len(NAMES))])
     c.add_component(p)
     def port(component,pin,label,incoming):
         x,y=component.get_pin_position(pin)

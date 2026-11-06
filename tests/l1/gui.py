@@ -11,11 +11,11 @@ from PySide6.QtWidgets import QApplication
 from pulsimgui.services.backend_adapter import BackendLoader,BackendInfo,BackendRunResult,PlaceholderBackend
 from pulsimgui.models.project import Project
 from runtime import HERE,CONTRACT
-from app_constants import STARTUP_RAMP_RATE
+from app_constants import STARTUP_CURRENT_MAX
 from runner import run,save
 from plant.create_gui import create
 
-INFO=BackendInfo(identifier='core-controlstep',name='Core controlStep C-Block',version='2.0.0',status='available',capabilities={'transient'},message=f'Actual Core app-v1 / {STARTUP_RAMP_RATE:g} V/s / synchronization only')
+INFO=BackendInfo(identifier='core-controlstep',name='Core controlStep C-Block',version='2.0.0',status='available',capabilities={'transient'},message=f'Actual Core {CONTRACT["version"]} / STARTUP clamp {STARTUP_CURRENT_MAX:g} A / synchronization only')
 class Backend(PlaceholderBackend):
     """GUI adapter delegates execution to the same runner as command-line checks."""
     def __init__(self):super().__init__(INFO)
@@ -73,7 +73,7 @@ def main():
             viewer=window._waveform_viewer
             viewer.clear_traces()
             for n in list(viewer._signal_list_panel.get_visible_signals()):viewer._signal_list_panel.set_signal_visible(n,False)
-            selected=['pv_power','pv_mpp_power'] if args.pv else ['VDCBus','startup_ref'] if 'fixture' in meta and meta['scenario']['commands'][0]['mode']==1 else ['VDCBus'] if 'fixture' in meta else ['VAC']
+            selected=['pv_power','pv_mpp_power'] if args.pv else ['VDCBus','i_ref1','burst_skip'] if 'fixture' in meta and meta['scenario']['commands'][0]['mode']==1 else ['VDCBus'] if 'fixture' in meta else ['VAC']
             for n in selected:
                 viewer.add_trace(n)
                 viewer._signal_list_panel.set_signal_visible(n,True)

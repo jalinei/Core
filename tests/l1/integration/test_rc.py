@@ -20,7 +20,7 @@ def experiment():
     for i,value in enumerate(values):
         if value is None:wires.append(('v','bus'));continue
         node='input'+str(i);b.add_voltage_source('input_source'+str(i),node,'0',value);wires.append(('v',node))
-    b.add_resistor('R','core_duty_leg1','bus',1000);b.add_capacitor('C','bus','0',1e-6)
+    b.add_resistor('R','core_i_ref1','bus',1000)  # leg-1 current reference: nonzero from the first STARTUP tick (ADR 0003 starts fully skipped, duty 0);b.add_capacitor('C','bus','0',1e-6)
     cb=attach(b,wires,20e-6);rows=[];previous=0;native=cb.step_observer
     def observer(t,x):
         nonlocal previous

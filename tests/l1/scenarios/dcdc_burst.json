@@ -1,7 +1,7 @@
 {
   "name": "switched-burst-release",
-  "title": "DC/DC burst pause and release",
-  "purpose": "Bus PRECHARGED to 406 V, above the 405 V pause threshold, 10 k\u03a9 load, BUSREG from t = 0. Checks that the converter starts paused with both legs off, and releases when the load has drained the bus to 395 V. Repeated cycles need the bus to rise to 405 V again.",
+  "title": "DC/DC light load: current-driven burst",
+  "purpose": "Bus PRECHARGED to 406 V, 10 kΩ load (light load, about 16 W), BUSREG entered from IDLE at t = 0. Current-driven burst (ADR 0003): the converter starts with every PWM period skipped; once the bus falls below the reference, the skip count follows the current demand. Checks the bus stays within ±5 % and leg 2 stays off.",
   "criteria": [
     "L1-APP-04"
   ],

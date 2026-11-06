@@ -54,7 +54,7 @@ class Model:
             elif kind=='VOLTAGE_PROBE':
                 out='measurement_'+name;b.add_vcvs('measure_'+name,*ns[:2],out,'0',1);self.probes[name]=('v',out)
             elif kind=='C_BLOCK':
-                if name!='Core_controlStep' or q['n_inputs']!=10 or q['n_outputs']!=32 or q.get('contract')!='app-v1':raise ValueError('Unexpected firmware block contract '+name)
+                if name!='Core_controlStep' or q['n_inputs']!=10 or q['n_outputs']!=len(json.loads((HERE.parent/'contract.json').read_text())['outputs']) or q.get('contract')!=json.loads((HERE.parent/'contract.json').read_text())['version']:raise ValueError('Unexpected firmware block contract '+name)
                 expected=HERE.parent/'firmware_block/build/libcore_control.so'
                 if Path(q['lib_path']).resolve()!=expected.resolve():raise ValueError('GUI block library is not the verified Core build')
             elif kind=='CONSTANT':

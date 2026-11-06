@@ -33,7 +33,7 @@ Pulsim 2.0.0 and PulsimGUI 1.1.1 are pinned in `plant/requirements.txt`. Compile
 | L1-INT-03.a | Refined switched model and real application run at the declared cadence |
 | L1-INT-03.b | Nominal 50 Hz qualification/synchronization without PWM/relay requests |
 | L1-INT-03.c | Current-probe offsets remain correct when C-Block outputs add nodes |
-| L1-INT-03.d | STARTUP command lands at 1 ms, cold update occurs on that tick, ramp at the production `app::startup_ramp_rate` (200 V/s) |
+| L1-INT-03.d | STARTUP command lands at 1 ms, cold update occurs on that tick, current reference clamped to `app::startup_current_max` (0.25 A, ADR 0003) on leg 1 |
 | L1-INT-04.a | VAC delivery loss trips InvalidMeasurement at age 200 (20 ms after last fresh sample) |
 | L1-INT-04.b | Physical grid continues during the delivery loss |
 
@@ -44,7 +44,7 @@ At the reviewed dependency revision, the L0 baseline has 80 PASS, five known FAI
 ## Code map
 
 - `firmware_block/`: documented ABI wrapper, strict/UBSan shared-library build, source manifest.
-- `contract.json`: app-v1 input/output indices and explicit actuator assumptions.
+- `contract.json`: app-v2 input/output indices and explicit actuator assumptions (HRTIM burst on leg 1, ADC-instant carrier phase).
 - `runtime.py`: native C-Block attachment and target-style stop/update/hold precedence.
 - `plant/`: imported, hash-checked switched model, parameter/provenance manifest, native translation, derived GUI view; `snapshot.py` saves the exact model each scenario ran on (model.pulsim, pictures, changes from the accepted model) for the review page.
 - `review_plots.json`: the review-page figure of each waveform criterion (procedure §8.5).
@@ -55,7 +55,7 @@ At the reviewed dependency revision, the L0 baseline has 80 PASS, five known FAI
 - `integration/`: direct-reference, RC and switched-model integration checks.
 - `gui.py`: same runner/native block, with an editable GUI project.
 
-Production source under `src/` and target setup remain unchanged. The 5–95% inverter policy from the earlier workspace experiment is not imported. The 200 V/s startup slew rate is now the production value itself (worklog, 2026-11-05), not a simulation-only profile.
+Production source under `src/` and target setup remain unchanged. The 5–95% inverter policy from the earlier workspace experiment is not imported. The boost control follows ADR 0003 (Andres Vazquez Sieber's controller: current-driven burst, STARTUP current clamp 0.25 A, no ramp); the 200 V/s ramp of 2026-11-05 is gone.
 
 ## Timing, sampling and scope
 

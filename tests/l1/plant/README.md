@@ -8,7 +8,7 @@
 
 The output-filter reference image is in `reference/output_filter.png`. Input/DC/DC values were supplied by the original current-fed half-bridge model. Choke coupling 0.999 is assumed, device/contact parameters are placeholders, and physical DCR/saturation/calibration remain TBD. Tests depending on unavailable physical parameters must not be declared validated.
 
-`create_gui.py` appends signal-only native firmware-block, scenario-source and timer-adapter representations to a disposable GUI view under `derived/`. It never rewrites the accepted snapshot. The main controller block has ten inputs and 32 command/telemetry outputs. It is executed via Pulsim's native C-Block API in the same runner used for tests. Power paths stay explicitly wired; only signal/control routing uses Goto/From.
+`create_gui.py` appends signal-only native firmware-block, scenario-source and timer-adapter representations to a disposable GUI view under `derived/`. It never rewrites the accepted snapshot. The main controller block has ten inputs and the command/telemetry outputs of `contract.json` (33 in app-v2). It is executed via Pulsim's native C-Block API in the same runner used for tests. Power paths stay explicitly wired; only signal/control routing uses Goto/From.
 
 The user selected switching only; an averaged variant is not a prerequisite or planned deliverable. The full 2 s startup, sustained PV MPPT and repeated burst cycling still need coverage. Standalone commands are in `../README.md`.
 

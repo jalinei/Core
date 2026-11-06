@@ -32,7 +32,7 @@ static void error(double* out,int size) {
 }
 extern "C" {
 /** @brief Contract version for loader preflight. @return ABI version. */
-unsigned core_contract_version() {return 1;}
+unsigned core_contract_version() {return 2;}
 /** @brief Compiled input count. @return Required input-buffer length. */
 unsigned core_input_count() {return INPUT_COUNT;}
 /** @brief Compiled output count. @return Required output-buffer length. */
@@ -87,10 +87,10 @@ void pulsim_cblock_step(const double* in,int n_in,double* out,int n_out,
         result.bridge_duty,double(result.bridge_enable),result.grid_angle,ctrl.inverter.getw(),
         ctrl.grid_observer.getVoltageRms(),ctrl.grid_observer.getFrequencyHz(),double(ctrl.grid_observer.getTripReason()),
         double(ctrl.inverter.getMode()),double(ctrl.inverter.getSync()),double(ctrl.grid_observer.canOperate()),
-        double(ctrl.boost.isBurstPaused()),ctrl.boost.getStartupVBusRef(),ctrl.boost.getILow1Ref(),ctrl.boost.getILow2Ref(),
+        double(result.burst_skip),double(result.burst_period),ctrl.boost.getILow1Ref(),ctrl.boost.getILow2Ref(),
         ab.alpha,ab.beta,dq.d,dq.q,double(ctrl.grid_voltage_age_ticks),double(ctrl.cold_loop_tick),
         double(ctrl.boost.getMode()),double(c->calls),0.,double(ctrl.inverter.isPwmRequested()),
-        double(ctrl.inverter.isGridConnectionRequested()),double(ctrl.inverter.getFaultReason())};
+        double(ctrl.inverter.isGridConnectionRequested()),double(ctrl.inverter.getFaultReason()),double(result.boost_trip)};
     std::copy(values,values+OUTPUT_COUNT,out);
 }
 }

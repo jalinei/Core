@@ -1,7 +1,7 @@
 {
   "name": "switched-startup-full",
   "title": "DC/DC full startup (on demand)",
-  "purpose": "Bus discharged, 20 k\u03a9 load, STARTUP for 2.5 s: the whole 0 \u2192 400 V ramp at 200 V/s. About 1.3 h of computing on a laptop (30 min on a fast desktop); not part of the default campaign.",
+  "purpose": "Bus discharged, 20 kΩ load, STARTUP for 2.5 s: the whole 0 → 400 V start-up at the 0.25 A STARTUP clamp (ADR 0003), about 1 s. About 1.3 h of computing on a laptop; not part of the default campaign.",
   "criteria": [
     "L1-APP-02.d"
   ],

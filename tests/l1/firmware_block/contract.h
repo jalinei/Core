@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: LGPL-2.1
  */
 /** @file contract.h
- * @brief Version app-v1 of the Pulsim application firmware-block buffer contract.
+ * @brief Version app-v2 of the Pulsim application firmware-block buffer contract (ADR 0003 boost: burst command and trip).
  * @note Matches tests/l1/contract.json; checked by the native metadata smoke test.
  */
 #pragma once
@@ -15,8 +15,8 @@ enum Input {
 enum Output {
     DUTY1, DUTY2, ENABLE1, ENABLE2, MODE_CHANGED, PWM_UPDATE, BRIDGE_DUTY,
     BRIDGE_ENABLE, THETA, OMEGA, OBSERVER_RMS, OBSERVER_HZ, OBSERVER_TRIP,
-    INVERTER_MODE, SYNCHRONIZED, GRID_QUALIFIED, BURST_PAUSED, STARTUP_REF,
+    INVERTER_MODE, SYNCHRONIZED, GRID_QUALIFIED, BURST_SKIP, BURST_PERIOD,
     IREF1, IREF2, VALPHA, VBETA, VD, VQ, VAC_AGE, COLD_TICK, BOOST_MODE,
-    INVOCATIONS, BLOCK_ERROR, INV_PWM_REQUEST, RELAY_REQUEST, INVERTER_FAULT,
+    INVOCATIONS, BLOCK_ERROR, INV_PWM_REQUEST, RELAY_REQUEST, INVERTER_FAULT, BOOST_TRIP,
     OUTPUT_COUNT ///< Number of required outputs.
 };

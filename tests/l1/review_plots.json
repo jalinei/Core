@@ -1,37 +1,184 @@
 {
   "_doc": "Review plots for tests/common/review_report.py (procedure §8.5). One entry per criterion that has a waveform. scenario: campaign subfolder; signal: control.csv column judged; limits: [low, high] the signal must stay within (null = none), or an 'acceptance' key path in the scenario JSON; thresholds: crossing levels drawn without judging; window: [t0, t1] s judged (null = whole run); reference: thin line; reference_run: the same signal from another run folder of the campaign, dashed; events: vertical markers; panels: what drives the signal, one unit per panel. Keep the limits equal to the test's own (the report states where they come from).",
   "L1-APP-01.b": {
-    "scenario": "idle_healthy", "signal": "grid_qualified", "unit": "flag (0/1)", "limits": null,
-    "events": [{"t": 1.0, "label": "t = 1 s"}],
-    "panels": [{"unit": "Hz", "signals": ["observer_hz"]}, {"unit": "flag (0/1)", "signals": ["synchronized"]}]
+    "scenario": "idle_healthy",
+    "signal": "grid_qualified",
+    "unit": "flag (0/1)",
+    "limits": null,
+    "events": [
+      {
+        "t": 1.0,
+        "label": "t = 1 s"
+      }
+    ],
+    "panels": [
+      {
+        "unit": "Hz",
+        "signals": [
+          "observer_hz"
+        ]
+      },
+      {
+        "unit": "flag (0/1)",
+        "signals": [
+          "synchronized"
+        ]
+      }
+    ]
   },
   "L1-APP-08.a": {
-    "scenario": "vac_dropout", "signal": "vac_age_ticks", "unit": "ticks", "limits": [null, 200],
-    "events": [{"t": 0.01, "label": "VAC delivery stops"}],
-    "panels": [{"unit": "flag (0/1)", "signals": ["vac_updated", "observer_trip"]}]
+    "scenario": "vac_dropout",
+    "signal": "vac_age_ticks",
+    "unit": "ticks",
+    "limits": [
+      null,
+      200
+    ],
+    "events": [
+      {
+        "t": 0.01,
+        "label": "VAC delivery stops"
+      }
+    ],
+    "panels": [
+      {
+        "unit": "flag (0/1)",
+        "signals": [
+          "vac_updated",
+          "observer_trip"
+        ]
+      }
+    ]
   },
   "L1-APP-02.a": {
-    "scenario": "dcdc_startup", "signal": "startup_ref", "unit": "V", "limits": null, "reference": "VDCBus",
-    "panels": [{"unit": "A", "signals": ["i_ref1", "ILow1"]}, {"unit": "duty", "signals": ["duty_leg1", "duty_leg2"]}]
+    "scenario": "dcdc_startup",
+    "signal": "i_ref1",
+    "unit": "A",
+    "limits": [
+      null,
+      0.25
+    ],
+    "reference": "ILow1",
+    "panels": [
+      {
+        "unit": "V",
+        "signals": [
+          "VDCBus"
+        ]
+      },
+      {
+        "unit": "duty",
+        "signals": [
+          "duty_leg1",
+          "duty_leg2"
+        ]
+      }
+    ]
   },
   "L1-APP-02.b": {
-    "scenario": "dcdc_startup", "signal": "ILow1", "unit": "A (sampled)", "limits": [null, 1.0],
+    "scenario": "dcdc_startup",
+    "signal": "ILow1",
+    "unit": "A (sampled)",
+    "limits": [
+      null,
+      8.0
+    ],
     "peak_from_manifest": "ILow1",
-    "panels": [{"unit": "duty", "signals": ["duty_leg1", "duty_leg2"]}]
+    "panels": [
+      {
+        "unit": "duty",
+        "signals": [
+          "duty_leg1",
+          "duty_leg2"
+        ]
+      }
+    ]
   },
   "L1-APP-03.a": {
-    "scenario": "dcdc_busreg", "signal": "VDCBus", "unit": "V",
-    "limits": "acceptance:bus_min_V,bus_max_V", "window": "acceptance:settled_window_s",
-    "reference": "v_bus_ref", "events": [{"t": 0.05, "label": "load step"}],
-    "panels": [{"unit": "A", "signals": ["i_ref1", "i_ref2", "ILow1", "ILow2"]}, {"unit": "duty", "signals": ["duty_leg1", "duty_leg2"]}]
-  },
-  "L1-APP-04.c": {
-    "scenario": "dcdc_burst", "signal": "VDCBus", "unit": "V", "limits": null, "thresholds": [395, 405],
-    "panels": [{"unit": "flag (0/1)", "signals": ["burst_paused", "en_leg1"]}, {"unit": "duty", "signals": ["duty_leg1", "duty_leg2"]}]
+    "scenario": "dcdc_busreg",
+    "signal": "VDCBus",
+    "unit": "V",
+    "limits": "acceptance:bus_min_V,bus_max_V",
+    "window": "acceptance:settled_window_s",
+    "reference": "v_bus_ref",
+    "events": [
+      {
+        "t": 0.05,
+        "label": "load step"
+      }
+    ],
+    "panels": [
+      {
+        "unit": "A",
+        "signals": [
+          "i_ref1",
+          "i_ref2",
+          "ILow1",
+          "ILow2"
+        ]
+      },
+      {
+        "unit": "duty",
+        "signals": [
+          "duty_leg1",
+          "duty_leg2"
+        ]
+      }
+    ]
   },
   "L1-INT-07.b": {
-    "scenario": "pv-lambertw-fixed-duty", "signal": "pv_voltage", "unit": "V", "limits": null,
+    "scenario": "pv-lambertw-fixed-duty",
+    "signal": "pv_voltage",
+    "unit": "V",
+    "limits": null,
     "reference_run": "pv-diode-fixed-duty",
-    "panels": [{"unit": "A", "signals": ["pv_current"]}, {"unit": "W", "signals": ["pv_power", "pv_mpp_power"]}]
+    "panels": [
+      {
+        "unit": "A",
+        "signals": [
+          "pv_current"
+        ]
+      },
+      {
+        "unit": "W",
+        "signals": [
+          "pv_power",
+          "pv_mpp_power"
+        ]
+      }
+    ]
+  },
+  "L1-APP-04.c": {
+    "scenario": "dcdc_burst",
+    "signal": "VDCBus",
+    "unit": "V",
+    "limits": [
+      380,
+      420
+    ],
+    "thresholds": [
+      400
+    ],
+    "panels": [
+      {
+        "unit": "PWM periods",
+        "signals": [
+          "burst_skip"
+        ]
+      },
+      {
+        "unit": "A",
+        "signals": [
+          "i_ref1",
+          "ILow1"
+        ]
+      },
+      {
+        "unit": "duty",
+        "signals": [
+          "duty_leg1"
+        ]
+      }
+    ]
   }
 }
