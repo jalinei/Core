@@ -1,6 +1,6 @@
 # Board measurement "Test 11" (Luiz Villa and Jean Alinei, received 2026-11-06): boost in open loop,
 # Rload 3000 ohm, Vin 32 V, fsw 200 kHz, dead time 100 ns. D = D_set - 0.02 (dead time).
-# Legs used: to be confirmed. Iin measured at three points only.
+# Leg 1 only (confirmed by Luiz 2026-11-06). Iin measured at three points only.
 D_set,D,Vin_V,Vout_meas_V,Iin_A
 0.1,0.080,32,178.5,0.385
 0.2,0.180,32,239.6,0.662
