@@ -102,7 +102,7 @@ list(APPEND BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 # board_shield_version is concatenated to board_shield. 
 
 set(BOARD spin@1_2_0)
-set(SHIELD twist_v1_4_1)
+set(SHIELD uSolarVerter_v0_9_0)
 
 set(CMAKE_VERBOSE_MAKEFILE ON CACHE BOOL "")
 # Configure Zephyr
@@ -113,6 +113,9 @@ project(owntech_power_api)
 target_sources(app PRIVATE
   ../src/main.cpp
   ../src/boost_converter/boost.cpp
+  ../src/single_phase_inverter/src/singlePhaseInverterFollowing.cpp
+  ../src/single_phase_inverter/src/singlePhaseInverterForming.cpp
+  ../src/single_phase_inverter/src/sogi.cpp
   ../src/grid_observer/gridObserver.cpp
 )
-zephyr_include_directories(../src)
+zephyr_include_directories(../src ../src/single_phase_inverter/src)

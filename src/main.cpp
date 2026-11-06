@@ -105,6 +105,11 @@ static BoostConverter boost_converter;
 static singlePhaseInverterFollowing inverter;
 static GridObserver grid_observer;
 
+/* Neutral-to-waveform handover window, and settling periods before relay closure.
+ * A settling count of 0 holds PWM_SETTLE indefinitely.
+ * Used when a connection is requested; the current application is sync-only. */
+static constexpr float32_t inverter_pwm_start_duty_tolerance = 0.01F;
+static constexpr uint16_t inverter_pwm_settle_cycles = 10U;
 static constexpr float32_t grid_frequency_hz = 50.0F;
 static constexpr float32_t grid_angular_frequency = 2.0F * PI * grid_frequency_hz;
 static constexpr float32_t grid_voltage_peak = 230.0F * 1.41421356F;
@@ -197,6 +202,8 @@ void setup_routine()
         printk("controller initialization failed\n");
         return;
     }
+    inverter.setPwmStartDutyTolerance(inverter_pwm_start_duty_tolerance);
+    inverter.setPwmSettleCycles(inverter_pwm_settle_cycles);
     inverter.setGridQuality(grid_observer.canOperate());
     boost_converter.setStartupRampRate(startup_ramp_rate);
     boost_converter.setStartupCurrentMax(startup_current_max);
