@@ -15,12 +15,13 @@
 ## @return 0; a missing scenario folder or plot library is reported on the page, not fatal.
 """Reads the campaign's *.log result lines and scenario folders; never changes a verdict."""
 from pathlib import Path
-import base64,csv,html,io,json,re,sys
+import csv,html,json,re,sys
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 from make_record import parse, findings_register, finding_for, sort_key  # noqa: E402
+from interactive_plot import Figure, MAX_POINTS, assets  # noqa: E402
 
 SPECS = REPO / 'tests/l1/review_plots.json'
 SCENARIOS = REPO / 'tests/l1/scenarios'
@@ -65,7 +66,7 @@ def load_csv(path):
 
 class Signals:
     """@brief Signals of a scenario folder: control.csv columns (per control tick), else
-    waveforms.npz traces (electrical, decimated to at most 6000 points), each on its own time base."""
+    waveforms.npz traces (electrical, full resolution), each on its own time base."""
     def __init__(self, folder):
         self.csv = load_csv(folder / 'control.csv')
         self.npz = folder / 'waveforms.npz'
@@ -78,16 +79,13 @@ class Signals:
         if self._wave is None:
             import numpy as np
             self._wave = np.load(self.npz)
-        t = self._wave['time']
-        step = max(1, len(t) // 6000)
-        return list(t[::step]), list(self._wave[name][::step])
+        return self._wave['time'], self._wave[name]
 
 
 def plot(cid, spec, row, folder):
-    """@brief Draw one review figure. @return (png_base64, notes) or (None, reason)."""
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+    """@brief Build one interactive review figure (tests/common/interactive_plot.py).
+    @return (html, notes) or (None, reason)."""
+    import numpy as np
     if not (folder / 'control.csv').exists():
         return None, f'no saved run in `{folder.name}/`'
     sig = Signals(folder)
@@ -97,91 +95,62 @@ def plot(cid, spec, row, folder):
     limits, limit_src = resolve(spec.get('limits'), scenario)
     window, window_src = resolve(spec.get('window'), scenario)
     t_s, y = sig.get(spec['signal'])
+    t_s, y = np.asarray(t_s, float), np.asarray(y, float)
     k = 1.0 if (t_s[-1] if len(t_s) else 0) > 2.0 else 1e3   # seconds for long runs, else ms
     unit_t = 's' if k == 1.0 else 'ms'
-    t = [k * x for x in t_s]
-    panels = list(spec.get('panels', []))
-    ref_run = folder.parent / spec['reference_run'] if spec.get('reference_run') else None
-    if ref_run and (ref_run / 'control.csv').exists():
-        panels.insert(0, {'unit': f"{spec['unit']}, this − reference", 'difference': True})
-    fig, axes = plt.subplots(1 + len(panels), 1, sharex=True, figsize=(9, 3.2 + 1.5 * len(panels)),
-                             gridspec_kw={'height_ratios': [2.2] + [1] * len(panels)}, facecolor=SURFACE)
-    axes = list(axes) if panels else [axes]
-    for ax in axes:
-        ax.set_facecolor(SURFACE)
-        ax.grid(True, color=GRID, linewidth=0.6)
-        for s in ax.spines.values():
-            s.set_visible(False)
-        ax.tick_params(colors=INK2, labelsize=8)
-        if window:
-            ax.axvspan(k * window[0], k * window[1], color=WINDOW_FILL, zorder=0)
-        for ev in spec.get('events', []):
-            ax.axvline(k * ev['t'], color=MUTED, linewidth=1, linestyle=':')
-    ax = axes[0]
+    fig = Figure(unit_t)
     notes = []
+    win = [k * window[0], k * window[1]] if window else None
+    events = [{'t': k * ev['t'], 'label': ev['label']} for ev in spec.get('events', [])]
+    main = fig.chart(spec['unit'], 280)
     if spec.get('reference'):
         rt, rv = sig.get(spec['reference'])
-        ax.plot([k * x for x in rt], rv, color=INK2, linewidth=1, label=spec['reference'])
-    if spec.get('reference_run'):
-        # Same signal from another run of the campaign, e.g. the reference model.
-        other = folder.parent / spec['reference_run']
-        if (other / 'control.csv').exists():
-            rt, rv = Signals(other).get(spec['signal'])
-            ax.plot([k * x for x in rt], rv, color=INK2, linewidth=1, linestyle='--', label=f'{spec["signal"]} ({spec["reference_run"]})')
-            notes.append(f'Dashed grey: the same signal in {spec["reference_run"]}/, for comparison.')
-    ax.plot(t, y, color=SERIES[0], linewidth=2, label=spec['signal'])
+        fig.line(main, spec['reference'], k * np.asarray(rt, float), rv, INK2, 1)
+    ref_run = folder.parent / spec['reference_run'] if spec.get('reference_run') else None
+    if ref_run and (ref_run / 'control.csv').exists():
+        rt, rv = Signals(ref_run).get(spec['signal'])
+        fig.line(main, f'{spec["signal"]} ({spec["reference_run"]})', k * np.asarray(rt, float), rv, INK2, 1, dash=[6, 4])
+        notes.append(f'Dashed grey: the same signal in {spec["reference_run"]}/, for comparison.')
+    fig.line(main, spec['signal'], k * t_s, y, SERIES[0], 2)
     for v in spec.get('thresholds', []):
-        ax.axhline(v, color=MUTED, linewidth=1, linestyle='-.')
+        main['hlines'].append({'v': v, 'dash': [7, 3, 1, 3], 'color': MUTED})
     if spec.get('thresholds'):
         notes.append(f'Thresholds {", ".join(f"{v:g}" for v in spec["thresholds"])} {spec["unit"]} (dash-dot): '
                      'crossing points, not a band the signal must stay in.')
     if limits:
         lo, hi = limits
-        for v in (lo, hi):
-            if v is not None:
-                ax.axhline(v, color=INK2, linewidth=1, linestyle='--')
-        inside = [(window is None or k * window[0] <= ti <= k * window[1]) for ti in t]
-        bad = [(ti, yi) for ti, yi, w in zip(t, y, inside)
-               if w and ((lo is not None and yi < lo) or (hi is not None and yi > hi))]
-        if bad:
-            ax.scatter(*zip(*bad), s=10, color=CRITICAL, zorder=3, label='outside limit')
+        main['hlines'] += [{'v': v, 'dash': [6, 4], 'color': INK2} for v in (lo, hi) if v is not None]
+        inside = np.ones(len(t_s), bool) if window is None else (t_s >= window[0]) & (t_s <= window[1])
+        out = inside & (((y < lo) if lo is not None else False) | ((y > hi) if hi is not None else False))
+        if out.any():
+            fig.line(main, 'outside limit', k * t_s, np.where(out, y, np.nan), CRITICAL, 1, points=True)
+            notes.append(f'{int(out.sum())} samples outside the limit (red dots).')
         notes.append(f'Limit {lo if lo is not None else "−∞"} … {hi if hi is not None else "+∞"} '
                      f'{spec["unit"]} (dashed), from {limit_src}.')
     if window:
         notes.append(f'Judged window {k*window[0]:g}–{k*window[1]:g} {unit_t} (shaded), from {window_src}.')
-    for i, ev in enumerate(spec.get('events', [])):
-        ax.annotate(ev['label'], (k * ev['t'], 1), xycoords=('data', 'axes fraction'),
-                    xytext=(3, -12 - 11 * (i % 2)), textcoords='offset points', fontsize=8, color=INK2)
-    if spec.get('peak_from_manifest') and (folder / 'manifest.json').exists():
-        ext = json.loads((folder / 'manifest.json').read_text()).get('electrical_step_extrema', {})
+    if spec.get('peak_from_manifest') and man.exists():
+        ext = json.loads(man.read_text()).get('electrical_step_extrema', {})
         peak = ext.get(spec['peak_from_manifest'], {}).get('max')
         if peak is not None:
             notes.append(f'Physical peak between samples (manifest): {peak:.4g} A. The criterion judges this value.')
-    ax.set_ylabel(spec['unit'], color=INK2, fontsize=9)
-    ax.legend(loc='best', fontsize=8, frameon=False, labelcolor=INK)
-    for ax, panel in zip(axes[1:], panels):
-        if panel.get('difference'):
-            rt, rv = Signals(ref_run).get(spec['signal'])
-            import numpy as np
-            dv = np.asarray(y) - np.interp(t_s, rt, rv)
-            ax.plot(t, dv, color=SERIES[0], linewidth=1.2, label=f'{spec["signal"]} difference')
-            ax.set_ylabel(panel['unit'], color=INK2, fontsize=9)
-            ax.legend(loc='best', fontsize=8, frameon=False, labelcolor=INK)
-            notes.append(f'Second panel: difference with {spec["reference_run"]}/ (max {np.max(np.abs(dv)):.3g} {spec["unit"]}).')
-            continue
+    if ref_run and (ref_run / 'control.csv').exists():
+        rt, rv = Signals(ref_run).get(spec['signal'])
+        dv = y - np.interp(t_s, np.asarray(rt, float), np.asarray(rv, float))
+        c = fig.chart(f"{spec['unit']}, this − reference", 150)
+        fig.line(c, f'{spec["signal"]} difference', k * t_s, dv, SERIES[0], 1.2)
+        notes.append(f'Second panel: difference with {spec["reference_run"]}/ (max {np.max(np.abs(dv)):.3g} {spec["unit"]}).')
+    for panel in spec.get('panels', []):
+        c = fig.chart(panel['unit'], 150)
         for i, name in enumerate(panel['signals']):
             pt, pv = sig.get(name)
-            ax.plot([k * x for x in pt], pv, color=SERIES[i % len(SERIES)], linewidth=1.5, label=name)
-        ax.set_ylabel(panel['unit'], color=INK2, fontsize=9)
-        ax.legend(loc='best', fontsize=8, frameon=False, labelcolor=INK, ncol=min(4, len(panel['signals'])))
-    axes[-1].set_xlabel(f'time ({unit_t})', color=INK2, fontsize=9)
-    for ax in axes:
-        ax.ticklabel_format(axis='y', useOffset=False)
-    fig.tight_layout()
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=110, facecolor=SURFACE)
-    plt.close(fig)
-    return base64.b64encode(buf.getvalue()).decode(), notes
+            fig.line(c, name, k * np.asarray(pt, float), pv, SERIES[i % len(SERIES)], 1.5)
+    for c in fig.charts:
+        c['window'], c['events'] = win, events
+    if fig.reduced:
+        notes.append(f'Long traces reduced to {MAX_POINTS:,} points, keeping each interval\'s minimum and maximum; '
+                     'the raw data is in the run folder.')
+    return fig.html(re.sub(r'[^A-Za-z0-9_-]', '_', cid), f'{cid}: {spec["signal"]}'), notes
 
 
 MODES = {0: 'IDLE', 1: 'STARTUP', 2: 'BUSREG', 3: 'MPPT'}
@@ -448,18 +417,18 @@ def study_page(out):
             sec.append('<p class="sub">No figure declared for this case in the study file.</p>')
         for i, spec in enumerate(specs):
             try:
-                png, notes = plot(f'{case["folder"]}-{i}', spec, {}, f)
+                fig_html, notes = plot(f'{case["folder"]}-{i}', spec, {}, f)
             except Exception as ex:
-                png, notes = None, f'plot failed: {ex}'
+                fig_html, notes = None, f'plot failed: {ex}'
             sec.append(f'<figure><div><b>{e(spec.get("title", spec["signal"]))}</b></div>')
-            sec.append(f'<img alt="{e(spec.get("title", spec["signal"]))}" src="data:image/png;base64,{png}"><figcaption>{" ".join(e(n) for n in notes)}</figcaption>'
-                       if png else f'<figcaption>No plot: {e(str(notes))}</figcaption>')
+            sec.append(f'{fig_html}<figcaption>{" ".join(e(n) for n in notes)}</figcaption>'
+                       if fig_html else f'<figcaption>No plot: {e(str(notes))}</figcaption>')
             sec.append('</figure>')
         sections.append(sec)
     p.append('</table></div>')
     for sec in sections:
         p += sec
-    p.append('</main></body></html>')
+    p.append(assets() + '</main></body></html>')
     (out / 'report.html').write_text('\n'.join(p), encoding='utf-8')
     print(f'Review: {out / "report.html"}')
     return 0
@@ -508,10 +477,10 @@ def main(out):
         for r in sorted([r for r in c['rows'] if r['id'] in specs], key=lambda r: (r['verdict'] != 'FAIL', r['id'])):
             spec = specs[r['id']]
             try:
-                png, notes = plot(r['id'], spec, r, c['folder'])
+                fig_html, notes = plot(r['id'], spec, r, c['folder'])
             except Exception as ex:  # report, never hide, a plotting problem
-                png, notes = None, f'plot failed: {ex}'
-            figs.append((r, png, notes))
+                fig_html, notes = None, f'plot failed: {ex}'
+            figs.append((r, fig_html, notes))
         figures_for[c['folder'].name] = figs
     cases.sort(key=lambda c: (not any(r['verdict'] == 'FAIL' for r in c['rows']), c['order']))
 
@@ -559,10 +528,10 @@ def main(out):
         figs = figures_for[f.name]
         if not figs:
             p.append('<p class="sub">No review plot is declared for this test case (tests/l1/review_plots.json).</p>')
-        for r, png, notes in figs:
+        for r, fig_html, notes in figs:
             p.append(f'<figure><div><b>{e(r["id"])}</b> {verdict_badge(r)} {e(r["desc"])}</div>')
-            if png:
-                p.append(f'<img alt="{e(r["id"])}: {e(r["desc"])}" src="data:image/png;base64,{png}">')
+            if fig_html:
+                p.append(fig_html)
                 p.append('<figcaption>' + ' '.join(e(n) for n in notes) + '</figcaption>')
             else:
                 p.append(f'<figcaption>No plot: {e(str(notes))}</figcaption>')
@@ -587,7 +556,7 @@ def main(out):
         for r, b, why in changes:
             p.append(f'<tr><td>{e(r["id"])}</td><td>{e(why)}</td><td>{e(b["measured"]) if b else "—"}</td><td>{e(r["measured"])}</td></tr>')
         p.append('</table></div>')
-    p.append('</main></body></html>')
+    p.append(assets() + '</main></body></html>')
     (out / 'report.html').write_text('\n'.join(p), encoding='utf-8')
     print(f'Review: {(out / "report.html").relative_to(REPO) if (out / "report.html").is_relative_to(REPO) else out / "report.html"}')
     return 0

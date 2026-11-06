@@ -7,6 +7,11 @@ Shared code for every host test. Nothing here is compiled into the firmware.
 | [`check.h`](check.h) | `tc::Criterion`, `tc::info`, `tc::blocked`, `tc::finish`: per-criterion reporting |
 | [`l0_build.sh`](l0_build.sh) | `l0_build()`: compiles and links one L0 test binary |
 | [`make_record.py`](make_record.py) | Turns result lines into `record.md` |
+| [`review_report.py`](review_report.py) | Writes a campaign's or study's `report.html` (procedure §8.5) |
+| [`interactive_plot.py`](interactive_plot.py) | Interactive review figures: zoom in time, read values (uPlot) |
+| [`vendor/`](vendor/) | uPlot 1.6.32 (MIT, `uPlot-LICENSE`), inlined into the review pages so they work offline |
+| [`catalogue.py`](catalogue.py) | Loads and checks [`../catalogue.json`](../catalogue.json); `--procedure` writes procedure §6 |
+| [`control_center.py`](control_center.py) | Writes `tests/out/control-center.html`: where the validation stands, one tab per stage |
 | [`shim/`](shim/) | Host stand-ins for hardware-specific headers |
 
 ## check.h
