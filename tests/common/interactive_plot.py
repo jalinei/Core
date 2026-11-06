@@ -39,8 +39,9 @@ def reduce(t,y,n=MAX_POINTS):
 
 class Figure:
     """@brief One figure: a main chart and optional panels sharing the time axis."""
-    def __init__(self,time_unit):
-        self.arrays=[];self._ids={};self.charts=[];self.time_unit=time_unit;self.reduced=False
+    def __init__(self,time_unit,xlabel=None):
+        """@param time_unit unit of the x axis; xlabel replaces 'time (unit)' for a non-time x axis."""
+        self.arrays=[];self._ids={};self.charts=[];self.time_unit=time_unit;self.xlabel=xlabel;self.reduced=False
 
     def _put(self,a,dtype):
         a=np.ascontiguousarray(a,dtype=dtype)
@@ -61,9 +62,9 @@ class Figure:
                                 'color':color,'w':width,'dash':dash,'points':points})
 
     def html(self,fid,alt):
-        data=json.dumps({'unit':self.time_unit,'arrays':self.arrays,'charts':self.charts},separators=(',',':'))
+        data=json.dumps({'unit':self.time_unit,'xlabel':self.xlabel,'arrays':self.arrays,'charts':self.charts},separators=(',',':'))
         return (f'<div class="iplot" data-fig="{html.escape(fid)}" role="img" aria-label="{html.escape(alt)}">'
-                f'<div class="iplot-hint">Drag to zoom in time · double-click to reset · hover for values</div></div>'
+                f'<div class="iplot-hint">Drag to zoom · double-click to reset · hover for values</div></div>'
                 f'<script type="application/json" id="data-{html.escape(fid)}">{data.replace("</","<\\/")}</script>')
 
 
@@ -102,7 +103,8 @@ function draw(el){
   const gaps=a=>{for(let i=0;i<a.length;i++)if(Number.isNaN(a[i]))return Array.from(a,v=>Number.isNaN(v)?null:v);return a;};
   const cols=[data[0]];order.forEach(i=>cols.push(gaps(data[i])));
   const t0=cols[0][0],t1=cols[0][cols[0].length-1];
-  const series=[{label:'time ('+spec.unit+')',value:(u,v)=>v==null?'—':Number(v.toPrecision(8))+' '+spec.unit}].concat(c.series.map(s=>({
+  const xl=spec.xlabel||('time ('+spec.unit+')');
+  const series=[{label:xl,value:(u,v)=>v==null?'—':Number(v.toPrecision(8))+(spec.xlabel?'':' '+spec.unit)}].concat(c.series.map(s=>({
     label:s.label,stroke:s.points?'transparent':s.color,width:s.w,dash:s.dash||undefined,spanGaps:!s.points,
     paths:s.points?(()=>null):undefined,
     points:s.points?{show:true,size:6,fill:s.color,stroke:s.color}:{show:false},value:(u,v)=>fmt(v)})));
@@ -114,7 +116,7 @@ function draw(el){
      const zoomed=u.scales.x&&u.scales.x.min!=null&&(u.scales.x.min>t0+1e-12||u.scales.x.max<t1-1e-12);
      if(!zoomed)hl.forEach(v=>{mn=Math.min(mn,v);mx=Math.max(mx,v);});
      if(mn==null||mx==null)return[0,1];if(mn===mx){mn-=1;mx+=1;}const p=(mx-mn)*0.06;return[mn-p,mx+p];}}},
-   axes:[{stroke:'#52514e',grid:{stroke:'#e4e2dc',width:1},ticks:{stroke:'#e4e2dc'},label:ci===spec.charts.length-1?'time ('+spec.unit+')':undefined,size:ci===spec.charts.length-1?44:30},
+   axes:[{stroke:'#52514e',grid:{stroke:'#e4e2dc',width:1},ticks:{stroke:'#e4e2dc'},label:ci===spec.charts.length-1?xl:undefined,size:ci===spec.charts.length-1?44:30},
          {stroke:'#52514e',grid:{stroke:'#e4e2dc',width:1},ticks:{stroke:'#e4e2dc'},label:c.unit,size:70,values:(u,v)=>v.map(fmt)}],
    hooks:{
     drawClear:[u=>{const x=u.ctx,b=u.bbox;
