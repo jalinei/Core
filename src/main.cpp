@@ -107,9 +107,9 @@ static GridObserver grid_observer;
 
 /* Neutral-to-waveform handover window, and settling periods before relay closure.
  * A settling count of 0 holds PWM_SETTLE indefinitely.
- * Used when a connection is requested; the current application is sync-only. */
+ * The application starts PWM but holds the relay request off indefinitely. */
 static constexpr float32_t inverter_pwm_start_duty_tolerance = 0.01F;
-static constexpr uint16_t inverter_pwm_settle_cycles = 10U;
+static constexpr uint16_t inverter_pwm_settle_cycles = 0U;
 static constexpr float32_t grid_frequency_hz = 50.0F;
 static constexpr float32_t grid_angular_frequency = 2.0F * PI * grid_frequency_hz;
 static constexpr float32_t grid_voltage_peak = 230.0F * 1.41421356F;
@@ -142,7 +142,7 @@ static bool is_scope_downloading;
 
 /* Mode requests are applied to the controllers by the critical task. */
 static boost_mode mode = IDLE;
-static bool inverter_sync_requested;
+static bool inverter_pwm_requested;
 
 bool scope_trigger()
 {
@@ -249,7 +249,7 @@ void loop_communication_task()
                "|     press p : startup voltage ramp     |\n"
                "|     press b : bus regulation mode      |\n"
                "|     press m : MPPT mode                |\n"
-               "|     press c : inverter sync only       |\n"
+               "|     press c : inverter PWM settle      |\n"
                "|     press u : voltage reference UP     |\n"
                "|     press d : voltage reference DOWN   |\n"
                "|     press w : deadtime UP              |\n"
@@ -262,26 +262,26 @@ void loop_communication_task()
     case 'i':
         printk("idle mode\n");
         mode = IDLE;
-        inverter_sync_requested = false;
+        inverter_pwm_requested = false;
         break;
     case 'p':
         printk("startup: converter 1 voltage ramp\n");
         mode = STARTUP;
-        inverter_sync_requested = false;
+        inverter_pwm_requested = false;
         break;
     case 'b':
         printk("VDCBus regulation mode\n");
         mode = BUSREG;
-        inverter_sync_requested = false;
+        inverter_pwm_requested = false;
         break;
     case 'm':
         printk("MPPT current mode\n");
         mode = MPPT;
-        inverter_sync_requested = false;
+        inverter_pwm_requested = false;
         break;
     case 'c':
-        printk("inverter synchronization only requested\n");
-        inverter_sync_requested = true;
+        printk("inverter PWM settling hold requested\n");
+        inverter_pwm_requested = true;
         break;
     case 'u':
         // Keep the bus target below the configured burst cutoff.
@@ -337,7 +337,7 @@ void loop_application_task()
         return;
     }
 
-    if (mode == IDLE && !inverter_sync_requested) spin.led.turnOff();
+    if (mode == IDLE && !inverter_pwm_requested) spin.led.turnOff();
     else spin.led.turnOn();
 
     /* ILow1, ILow2, VLow, duty1, duty2, VAC, VACrms, angle, IAC, VDCBus, mode, burst. */
@@ -400,7 +400,7 @@ void loop_critical_task()
     boost_converter.setVBusRef(voltage_reference);
 
     const boost_mode requested_mode = mode;
-    const bool sync_only = inverter_sync_requested;
+    const bool enable_inverter = inverter_pwm_requested;
     static boost_mode previous_mode = IDLE;
     if (requested_mode != previous_mode)
     {
@@ -419,18 +419,19 @@ void loop_critical_task()
     }
     boost_duty = boost_converter.hotLoop();
 
-    /* Keep the PLL running in idle, using a positive bus value for duty scaling. */
-    if (isfinite(v_dc_bus_value) && v_dc_bus_value > 0.0F)
+    /* Idle can estimate phase before the bus is present. Enabling PWM requires
+     * the live bus measurement; never normalize active PWM with a stale fallback. */
+    if (enable_inverter || (isfinite(v_dc_bus_value) && v_dc_bus_value > 0.0F))
     {
         inverter.setVBus(v_dc_bus_value);
     }
-    if (sync_only) inverter.requestSync();
+    if (enable_inverter) inverter.requestConnect();
     else inverter.requestDisconnect();
-    inverter.calculateDuty(v_ac_value, i_ac_value);
+    const float32_t inverter_duty = inverter.calculateDuty(v_ac_value, i_ac_value);
     const clarke_t grid_voltage_ab = inverter.getVab();
     grid_observer.update(grid_voltage_ab.alpha, grid_voltage_ab.beta, inverter.getw(),
                          grid_voltage_age_ticks < grid_voltage_stale_ticks);
-    /* Grid quality qualifies synchronization; this application never connects. */
+    /* Refresh quality before applying PWM. A zero settling count prevents relay closure. */
     inverter.setGridQuality(grid_observer.canOperate());
     grid_angle = inverter.getTheta();
     if (!is_scope_downloading)
@@ -448,9 +449,29 @@ void loop_critical_task()
         else shield.power.stop(LEG2_LOW);
     }
 
-    /* Synchronization only: keep the inverter bridge disabled. */
-    shield.power.stop(LEG1_HIGH);
-    shield.power.stop(LEG2_HIGH);
+    /* Apply paired duty before enabling either output. On a fresh request,
+     * keep outputs off for one control tick so neutral duty can latch at a
+     * 50 kHz PWM boundary before startup (including after a previous stop). */
+    static bool inverter_pwm_prepared = false;
+    bool pwm_requested = inverter.isPwmRequested();
+    if (pwm_requested && shield.power.setInverterDutyCycle(LEG1_HIGH, inverter_duty) != 0)
+    {
+        inverter.tripFault(VSI_FAULT_PWM_UPDATE_FAILED);
+        pwm_requested = false;
+    }
+    if (pwm_requested && inverter_pwm_prepared)
+    {
+        shield.power.start(LEG1_HIGH);
+        shield.power.start(LEG2_HIGH);
+        inverter.setPwmEnabled(true);
+    }
+    else
+    {
+        shield.power.stop(LEG1_HIGH);
+        shield.power.stop(LEG2_HIGH);
+        inverter.setPwmEnabled(false);
+    }
+    inverter_pwm_prepared = pwm_requested;
 }
 
 /**
