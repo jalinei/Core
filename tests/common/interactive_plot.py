@@ -10,7 +10,7 @@
 ##   thresholds dash-dot; judged window shaded; events dotted vertical lines; samples outside a
 ##   limit as red dots; lower panels one unit each.
 ## @par Data
-##   Embedded in the page (time float64, values float32, base64). Traces longer than MAX_POINTS
+##   Embedded in the page (time float64, values float32, base64), drawn one figure at a time. Traces longer than MAX_POINTS
 ##   are reduced by keeping each bucket's min and max, so peaks survive; the caption says so.
 """Builds the figure data and the HTML that draws it; the page needs assets() once."""
 from pathlib import Path
@@ -137,8 +137,9 @@ function draw(el){
  });
  window.addEventListener('resize',()=>plots.forEach(p=>p.setSize({width:width(),height:p.height})));
 }
+// One figure at a time, yielding to the browser in between: the page stays responsive while
+// a long report decodes its data, and every figure is drawn whether or not it was scrolled to.
 const els=[...document.querySelectorAll('.iplot')];
-const io='IntersectionObserver' in window?new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){io.unobserve(e.target);try{draw(e.target)}catch(x){e.target.textContent='Plot failed: '+x}}}),{rootMargin:'400px'}):null;
-els.forEach(el=>io?io.observe(el):draw(el));
+(function next(i){if(i>=els.length)return;try{draw(els[i])}catch(x){els[i].textContent='Plot failed: '+x}setTimeout(()=>next(i+1),0);})(0);
 })();
 '''

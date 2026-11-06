@@ -24,6 +24,7 @@ import numpy as np
 
 HERE=Path(__file__).resolve().parent;L1=HERE.parent;REPO=L1.parents[1]
 sys.path.insert(0,str(L1));sys.path.insert(0,str(REPO/'tests/common'))
+CALLER=Path.cwd()  # --out is relative to where the script was started
 os.chdir(L1)
 from plant.open_loop import Case,window,PWM_HZ,DEADTIME,GRID_HZ,GRID_PEAK  # noqa: E402
 
@@ -103,7 +104,7 @@ def grid_command(P,Q):
 # ---------------------------------------------------------------- helpers
 def phasor(t,y,f=GRID_HZ):
     """@brief Peak phasor of the f component over the whole cycles at the end of (t, y)."""
-    n=int((t[-1]-t[0])*f+1e-6);t0=t[-1]-n/f;w=t>=t0-1e-12;tt,yy=t[w],y[w]
+    n=int(np.floor((t[-1]-t[0])*f+0.01));t0=t[-1]-n/f;w=t>=t0-1e-9;tt,yy=t[w],y[w]  # a window one sample short still counts as whole cycles
     wt=np.gradient(tt)
     return 2*np.sum(yy*np.exp(-2j*np.pi*f*tt)*wt)/(tt[-1]-tt[0]+wt[-1])
 
@@ -159,7 +160,8 @@ def run_one(spec,folder):
         r=p.simulate(b,t_end=0.02,dt=spec['dt_s'],engine='pwl',initial_state=x,switch_fn=switch,store_every=1,auto_regularize=False,max_event_iterations=32)
         sd=np.asarray(r.states);pick=lambda n:sd[:,c2.ix[n]] if n in c2.ix else None
         vb=pick('V(Vout)');ib=pick('Is(MOD_bus_source)');vab=pick('V(INV_A)')-pick('V(INV_B)');il=pick('I(AC_L1)')
-        det={'P_bus_source':float(np.mean(spec['bus_V']*ib)),'P_bridge':float(np.mean(vab*il))}
+        td_=np.asarray(r.times)+off
+        det={'P_bus_source':float(np.mean(spec['bus_V']*ib)),'P_bridge':float(np.mean(vab*il)),'V1':phasor(td_,vab),'I_bridge':phasor(td_,il)}
         del sd
     m=metrics(spec,c,t,keep,det)
     m['wall_s']=round(time.monotonic()-t0,1);m['changes']=c.changes
@@ -211,7 +213,8 @@ def metrics(spec,c,t,k,det):
         ig=k['Is(probe_Grid_current)'];I=phasor(t[w],ig[w]);m['I_out_rms']=float(abs(I)/np.sqrt(2));m['I_THD']=thd(t[w],ig[w]) if abs(I)>1e-3 else None
         if spec['output']=='open':
             ww=t>=0.02;x=vo[ww]-np.mean(vo[ww]);fs=1/np.median(np.diff(t[ww]));F=np.abs(np.fft.rfft(x*np.hanning(len(x))));fr=np.fft.rfftfreq(len(x),1/fs)
-            band=(fr>1e3)&(fr<50e3);m['resonance_peak_Hz']=float(fr[band][np.argmax(F[band])])
+            near_tick=np.abs(fr/1e4-np.round(fr/1e4))*1e4<300  # 10 kHz lines: the duty is updated every 100 µs
+            band=(fr>1e3)&(fr<50e3)&~near_tick;m['resonance_peak_Hz']=float(fr[band][np.argmax(F[band])])
             m['resonance_analytic_Hz']=float(1/(2*np.pi*np.sqrt((0.5e-3+10e-6)*(0.12e-6+0.68e-6))))
         m.update(P_bridge=det['P_bridge'],P_bus=abs(det['P_bus_source']))
         if spec['output']=='resistor':
@@ -224,8 +227,10 @@ def metrics(spec,c,t,k,det):
             T=1/PWM_HZ;ph=(tt+1e-14)%T;d=c.duty_bridge(tt)
             sa=(ph>=(1-d)*T/2)&(ph<(1+d)*T/2);sb=(ph>=d*T/2)&(ph<(2-d)*T/2)
             V1=phasor(tt,BUS*(sa.astype(float)-sb))
-            a,b=network();Ie=a*V1+b*V2;Se=V2*np.conj(Ie)/2
+            a,b=network(ron=0.);Ie=a*det['V1']+b*V2;Se=V2*np.conj(Ie)/2   # bridge-node voltage: switch drops already in it
             m.update(P_expected=float(Se.real),Q_expected=float(Se.imag),S_error_pct=float(100*abs(S-Se)/max(abs(Se),1e-9)))
+            a,b=network();Ig=a*V1+b*V2;Sg=V2*np.conj(Ig)/2                 # ideal gate pattern: shows how stiff the connection is
+            m.update(P_gate_pattern=float(Sg.real),Q_gate_pattern=float(Sg.imag),V1_bridge_peak=float(abs(det['V1'])),V1_gate_pattern_peak=float(abs(V1)))
     return m
 
 
@@ -274,8 +279,10 @@ def judge(results):
     gj=[r for r in gr if not r['spec'].get('info_only')]
     if gj:
         bad=[r for r in gj if r['m']['S_error_pct']>10];worst=max(gj,key=lambda r:r['m']['S_error_pct'])
-        R('L1-MOD-06.a','FAIL' if bad else 'PASS','Inverter into the grid: P and Q within ±10 % (of |S|) of the phasor solution driven by the applied bridge voltage','±10 % of |S|',
+        R('L1-MOD-06.a','FAIL' if bad else 'PASS','Inverter into the grid: P and Q within ±10 % (of |S|) of the 50 Hz phasor solution of the filter, driven by the simulated bridge voltage','±10 % of |S|',
           f'{len(gj)-len(bad)}/{len(gj)} within; worst {worst["m"]["S_error_pct"]:.1f} % ({worst["spec"]["name"]})')
+        R('L1-MOD-06.d','INFO','Inverter into the grid: P, Q predicted from the ideal gate pattern instead (sensitivity: the filter is about 0.17 Ω at 50 Hz)','',
+          '; '.join(f'{r["spec"]["name"][8:]}: measured {r["m"]["P"]:.0f} W {r["m"]["Q"]:+.0f} var, ideal gate pattern {r["m"]["P_gate_pattern"]:.0f} W {r["m"]["Q_gate_pattern"]:+.0f} var, bridge {r["m"]["V1_bridge_peak"]:.2f} V vs {r["m"]["V1_gate_pattern_peak"]:.2f} V peak' for r in gj))
         R('L1-MOD-06.b','INFO','Inverter into the grid: grid current THD','',', '.join(f'{r["spec"]["name"][8:]}: {100*r["m"]["I_THD"]:.1f} %' for r in gj if r['m'].get('I_THD')))
     for r in gr:
         if r['spec'].get('info_only'):
@@ -324,8 +331,11 @@ def page(out,results,rows,cat):
                  f'<tr><td>Runs</td><td>{len(by(cid)) or "uses the runs of L1-MOD-03 and L1-MOD-05"}; step {e(", ".join(sorted({f"{r["spec"]["dt_s"]*1e9:g} ns" for r in by(cid)})) or "—")}; '
                  f'{e(", ".join(sorted({f"{r["spec"]["duration_s"]*1e3:g} ms" for r in by(cid)})) or "")} each</td></tr></table>')
         ch=sorted({c for r in by(cid) for c in r['m'].get('changes',[])})
+        import re as _re
+        kinds=sorted({_re.sub(r'\d+(\.\d+)?','N',c) for c in ch})  # the same change with different values counts once
         p.append('<h3>2 · Model snapshot</h3><p class="sub">Accepted model <code>tests/l1/plant/full_model.pulsim</code>, firmware block not attached; gate pattern imposed by '
-                 '<code>tests/l1/plant/open_loop.py</code>. Changes from the accepted model:</p><ul>'+''.join(f'<li>{e(c)}</li>' for c in ch)+'</ul>' if ch else
+                 '<code>tests/l1/plant/open_loop.py</code>. Changes from the accepted model (N: the value of each run):</p><ul>'+''.join(f'<li>{e(k)}</li>' for k in kinds)+'</ul>'
+                 +(f'<details><summary>Every run\'s changes ({len(ch)})</summary><ul>'+''.join(f'<li>{e(c)}</li>' for c in ch)+'</ul></details>' if len(ch)>len(kinds) else '') if ch else
                  '<h3>2 · Model snapshot</h3><p class="sub">Same runs as the tests it reads.</p>')
         p.append('<h3>3 · Results</h3><table><tr><th>Criterion</th><th>Verdict</th><th>What</th><th>Limit</th><th>Measured</th></tr>'+''.join(
             f'<tr><td>{e(r["id"])}</td><td>{verdict_badge(r)}</td><td>{e(r["desc"])}</td><td>{e(r["limit"])}</td><td>{e(r["measured"])}</td></tr>' for r in mine)+'</table>')
@@ -373,10 +383,10 @@ def figures(cid,rs,out,Figure):
         if st:
             f=Figure('ms');c=f.chart('V',220);c2=f.chart('A',180)
             for i,r in enumerate(st):
-                z=load_npz(r);tt=z['time']*1e3
-                f.line(c,f'bus, {r["spec"]["load_W"]:.0f} W',tt,z['V_Vout'],S[i],2)
-                f.line(c2,f'input current, {r["spec"]["load_W"]:.0f} W',tt,sum(z[f'I_DC{l}_L3'] for l in r['spec']['legs']),S[i],1.2)
-            figs.append(('Start-up from a discharged bus at duty 0.40',f.html(f'{cid}-startup','startup'),'Bus and total input current from t = 0, one line per load. Peaks between stored samples (every 500 ns) may be higher.'))
+                z=load_npz(r);k=slice(None,None,10);tt=z['time'][k]*1e3  # every 5 µs
+                f.line(c,f'bus, {r["spec"]["load_W"]:.0f} W',tt,z['V_Vout'][k],S[i],2)
+                f.line(c2,f'input current, {r["spec"]["load_W"]:.0f} W',tt,sum(z[f'I_DC{l}_L3'] for l in r['spec']['legs'])[k],S[i],1.2)
+            figs.append(('Start-up from a discharged bus at duty 0.40',f.html(f'{cid}-startup','startup'),'Bus and total input current from t = 0, one line per load, shown every 5 µs: the inrush peak in the results table comes from the 500 ns record.'))
     elif cid in ('L1-MOD-04','L1-MOD-05','L1-MOD-07'):
         f=Figure('ms');c=f.chart('V',260);c2=f.chart('A',160)
         for i,r in enumerate(sorted(rs,key=lambda r:(r['spec']['m'],r['spec'].get('deadtime_s',0)))):
@@ -405,15 +415,22 @@ def figures(cid,rs,out,Figure):
 def main():
     a=argparse.ArgumentParser();a.add_argument('--jobs',type=int,default=os.cpu_count());a.add_argument('--only');a.add_argument('--out',type=Path)
     a.add_argument('--report-only',action='store_true',help='rebuild verdicts and page from saved runs')
+    a.add_argument('--reuse',action='store_true',help='with --only and --out: run the selected tests, reuse the saved runs of the others')
     args=a.parse_args()
     import catalogue
     cat=catalogue.load()
     sha=subprocess.run(['git','rev-parse','--short','HEAD'],cwd=REPO,capture_output=True,text=True).stdout.strip()
     dirty='-dirty' if subprocess.run(['git','status','--porcelain','--untracked-files=no'],cwd=REPO,capture_output=True,text=True).stdout.strip() else ''
+    if args.out and not args.out.is_absolute():args.out=CALLER/args.out
     out=args.out or REPO/'tests/out'/f'{dt.date.today()}_{sha}{dirty}_{dt.datetime.now():%H%M%S}_model'
     out.mkdir(parents=True,exist_ok=True)
-    todo=[c for c in cases() if not args.only or c['case'].startswith(args.only)]
+    sel=lambda c:not args.only or c['case'].startswith(tuple(args.only.split(',')))
+    every=cases();todo=[c for c in every if sel(c)]
     results=[]
+    if args.reuse:
+        for c in every:
+            f=out/'runs'/c['name']/'metrics.json'
+            if not sel(c):results.append({'spec':c,'m':json.loads(f.read_text())} if f.exists() else {'spec':c,'error':'no saved run'})
     if args.report_only:
         for c in todo:
             f=out/'runs'/c['name']/'metrics.json'
