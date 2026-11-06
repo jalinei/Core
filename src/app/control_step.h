@@ -49,7 +49,7 @@ inline constexpr uint32_t control_task_period = 100;
 inline constexpr uint8_t cold_loop_divider = 10U;
 
 /** @brief Minimum PWM duty cycle applied to every leg. */
-inline constexpr float32_t duty_cycle_min = 0.05F;
+inline constexpr float32_t duty_cycle_min = 0.005F;
 
 /* Controller timing and initial tuning; validate gains/current limits on hardware. */
 /** @brief Hot (current) loop period, in s. */

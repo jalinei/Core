@@ -137,7 +137,7 @@ void setup_routine()
     /* DC/DC boost legs: A and C. */
     shield.power.initBoost(LEG1_LOW);
     shield.power.initBoost(LEG2_LOW);
-    shield.power.setDeadTime(LEG1_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
+    shield.power.setDeadTime(LEG1_LOW, leg1_low_deadtime_ns, leg1_low_deadtime_ns);
     shield.power.setDeadTime(LEG2_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
     /* Unipolar DC/AC bridge: channels D and E, initially at neutral duty. */
     if (shield.power.initInverterUnipolar(LEG1_HIGH, LEG2_HIGH) != 0)
@@ -148,8 +148,10 @@ void setup_routine()
     shield.power.setDutyCycleMin(ALL, app::duty_cycle_min);
     shield.power.setDutyCycleMax(LEG1_LOW, app::duty_cycle_max);
     shield.power.setDutyCycleMax(LEG2_LOW, app::duty_cycle_max);
+    
     /* Current-driven burst on boost leg 1 only (ADR 0003). */
     shield.power.initBurstMode(LEG1_LOW);
+
     shield.sensors.enableSensor(VLow, ADC_1);
     shield.sensors.enableSensor(VAC, ADC_1);
     shield.sensors.enableSensor(VDCBus, ADC_1);

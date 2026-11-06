@@ -125,3 +125,14 @@ The 100 Hz PR of Andres's code is not adopted (it is always on there, which look
 | Evidence | Author's validation (commit message): STLink build, 512 register/state checks across CKPSC 0–7, 1,608 MHO984 center-aligned settings across all prescalers, both APIs, buck and boost, including 880 zero-duty checks; single-cycle transitions uncharacterized. Here: firmware builds (`pio run -e USB`). Host tests (L0, L1) do not compile the board drivers and are unaffected; the L1 PWM adapter does not model these compare limits |
 | Hardware check | Part of the ADR 0003 hardware check (burst on leg 1 switches the boost at minimum duty 0.05 in short bursts) |
 
+## 2026-11-06 — Minimum duty 0.005 and leg-1 dead time (Luiz Villa)
+
+| Field | Value |
+|---|---|
+| Commit | the `fix(app): minimum duty 0.005 …` commit that adds this entry |
+| Files | `src/app/control_step.h`, `src/main.cpp`, `tests/l1/contract.json` |
+| Reason | Luiz's edits: the minimum PWM duty of every leg goes from 0.05 to 0.005, as in Andres Vazquez Sieber's controller (`duty_cycle_min_floor`); `setup_routine()` set leg 1's dead time from `leg2_low_deadtime_ns` (both 100 ns, so no difference at start-up) and now uses `leg1_low_deadtime_ns` |
+| Behaviour change | Yes: the current PIDs' lower duty bound and the shield's minimum (`setDutyCycleMin(ALL, …)`) are 0.005, on every unit (boost at 200 kHz, inverter at 50 kHz). Burst starts on leg 1 when its PID sits at 0.005 instead of 0.05. The dead-time change has no effect until the menu changes one leg's dead time |
+| Evidence | L0: 91 pass, 1 known fail (#2) and the 6 checks of L0-BST-09 (#5); no other test changed verdict. The L1 contract's `duty_min` set to 0.005 so the PWM adapter applies the same minimum. L1 not rerun in this commit |
+| Hardware check | Not done. 0.005 at 200 kHz is 25 ns of on-time, below the 100 ns dead time: check on the board that leg 1's minimum-duty pulses in burst behave (with the HRTIM low-duty fix `fefe392`) |
+

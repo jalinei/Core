@@ -35,6 +35,7 @@
  * | L0-BST-06 | Current-driven burst on leg 1, PID state kept, none while leg 2 runs |
  * | L0-BST-07 | Over-voltage full burst; over-voltage and over-current trip |
  * | L0-BST-08 | Voltage PID gain scheduled with VBusRef / VLow, without reset |
+ * | L0-BST-09 | Leg 2 starts only above a demand threshold; below it, off and leg 1's burst kept |
  *
  * @warning The sections share one BoostConverter and run in order: each one
  * starts from the state the previous one left. Do not reorder them, and keep
@@ -48,6 +49,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <limits>
+#include <string>
 
 namespace {
 /** @brief Absolute tolerance for floating-point comparisons (same as the original test). */
@@ -552,6 +554,88 @@ int main() {
         c.check("zero Vin", b.setVoltageGainSchedule(0.4F, 0, 48, 390, 410) < 0);
         c.check("NaN", b.setVoltageGainSchedule(std::numeric_limits<float>::quiet_NaN(), 24, 48, 390, 410) < 0);
     }
+    {
+        // L0-BST-09: leg 2 starts only when its share of the demand exceeds a threshold
+        // (requirement (c), Luiz 2026-11-06). Below it, leg 2 stays off and leaves leg 1's
+        // burst alone. The threshold value is not chosen yet: the demands below (one float
+        // step, 1 mA) are under any sensible threshold, and 1 A is above it.
+        const float limit = 5.5F;
+        const float one_step = std::nextafter(limit, 100.0F) - limit;  // 4.8e-7 A at 5.5 A
+        for (boost_mode mode : {BUSREG, MPPT}) {
+            const std::string m = mode == BUSREG ? " (BUSREG)" : " (MPPT)";
+            const std::string id = mode == BUSREG ? "-busreg" : "-mppt";
+            for (float excess : {one_step, 0.001F}) {
+                const std::string what = excess < 1e-5F ? "one float step (4.8e-7 A)" : "1 mA";
+                /** @test L0-BST-09.a-busreg/-mppt: A leg-2 demand of one float step or 1 mA keeps leg 2 off */
+                tc::Criterion c(std::string("L0-BST-09.a") + id + (excess < 1e-5F ? "-step" : "-1mA"),
+                                "Leg-2 demand of " + what + " keeps leg 2 off, its duty 0" + m);
+                BoostConverter b;
+                c.check("configured", fresh(b));
+                b.setVBus(399);
+                b.setMode(mode);
+                b.setILowRef(limit + excess);
+                b.setILow1(limit);
+                b.setILow2(0.3F);  // leg 2 would conduct at minimum duty (low bus): nothing may regulate it
+                c.check("leg 2 disabled", !b.isLeg2Enabled());
+                bool on = false, duty = false;
+                for (int n = 0; n < 1000; ++n) {
+                    const BoostDutyCycles d = b.hotLoop();
+                    on |= b.isLeg2Enabled();
+                    duty |= d.leg2 != 0.0F;
+                }
+                c.check("leg 2 never enabled over 1000 ticks", !on);
+                c.check("leg 2 duty always 0", !duty);
+            }
+            {
+                /** @test L0-BST-09.b-busreg/-mppt: A negligible leg-2 demand does not cancel leg 1's burst */
+                tc::Criterion c(std::string("L0-BST-09.b") + id, "A negligible leg-2 demand does not cancel leg 1's burst" + m);
+                BoostConverter b;
+                c.check("configured", fresh(b));
+                b.setVBus(399);
+                b.setMode(mode);  // entered from IDLE: fully skipped
+                b.setILowRef(limit + one_step);
+                b.setILow1(limit + 0.5F);  // leg 1 above its reference: burst should persist
+                b.hotLoop();
+                c.check("leg 1 still skipping periods", b.getBurstSkip() > 0);
+            }
+            {
+                /** @test L0-BST-09.c-busreg/-mppt: A clear leg-2 demand (1 A) still starts leg 2 with that reference */
+                tc::Criterion c(std::string("L0-BST-09.c") + id, "A clear leg-2 demand (1 A) still starts leg 2 with that reference" + m);
+                BoostConverter b;
+                c.check("configured", fresh(b));
+                b.setVBus(399);
+                b.setMode(mode);
+                b.setILowRef(limit + 1.0F);
+                c.check("leg 2 enabled", b.isLeg2Enabled());
+                c.near("leg 2 reference (A)", b.getILow2Ref(), 1.0, 1e-5);
+                c.near("leg 1 at its limit (A)", b.getILow1Ref(), limit, 1e-5);
+            }
+        }
+        {
+            // INFO: how often leg 2 starts while the total reference wanders across leg 1's
+            // limit (5.4–5.6 A ramp with ±10 mA noise, BUSREG): with a plain threshold and no
+            // hysteresis, some chattering around the threshold remains by design.
+            BoostConverter b;
+            fresh(b);
+            b.setVBus(399);
+            b.setMode(BUSREG);
+            int starts = 0;
+            bool was_on = false;
+            unsigned seed = 12345U;
+            for (int n = 0; n <= 20000; ++n) {
+                seed = seed * 1103515245U + 12345U;
+                const float noise = 0.01F * (static_cast<float>((seed >> 8) & 0xFFFF) / 32767.5F - 1.0F);
+                b.setILowRef(5.4F + 0.2F * n / 20000.0F + noise);
+                b.hotLoop();
+                const bool on = b.isLeg2Enabled();
+                starts += on && !was_on;
+                was_on = on;
+            }
+            /** @test L0-BST-09.d: Leg-2 starts over a noisy ramp of the total reference across leg 1's limit (INFO) */
+            tc::info("L0-BST-09.d", "Leg-2 starts over a noisy 5.4-5.6 A ramp of the total reference (+/-10 mA noise)", starts, "starts");
+        }
+    }
+
     {
         /** @test L0-BST-01.c: Invalid measurements and configuration cannot enable a leg */
         tc::Criterion c("L0-BST-01.c", "Invalid measurements and configuration cannot enable a leg");
