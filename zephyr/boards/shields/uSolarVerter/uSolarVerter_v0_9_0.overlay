@@ -25,6 +25,7 @@
             default-dead-time = <100 100>;
             default-modulation = "UpDwn";
             default-phase-shift = <0>;
+			burst-mode-capable;
 			status = "okay";
         };
 
@@ -40,6 +41,7 @@
             default-dead-time = <100 100>;
             default-modulation = "UpDwn";
             default-phase-shift = <0>;
+			burst-mode-capable;
 			status = "okay";
         };
 
