@@ -66,7 +66,7 @@ static float32_t v_ac_value;
 static float32_t v_ac_rms_value;
 static float32_t v_dc_bus_value;
 static float32_t i_low_1_value;
-static float32_t i_low_2_value;
+// static float32_t i_low_2_value;
 static float32_t i_ac_value;
 /* A new VAC sample arrived in this critical tick. */
 static bool v_ac_updated;
@@ -76,9 +76,9 @@ static float meas_data;
 
 static BoostDutyCycles boost_duty;
 static uint16_t leg1_low_deadtime_ns = 100;
-static uint16_t leg2_low_deadtime_ns = 100;
-static constexpr uint16_t deadtime_step_ns = 10;
-static constexpr uint16_t deadtime_min_ns = 40;
+// static uint16_t leg2_low_deadtime_ns = 100;
+// static constexpr uint16_t deadtime_step_ns = 10;
+// static constexpr uint16_t deadtime_min_ns = 40;
 
 /* Shared boost output capacitor feeding the DC/AC stage (VDCBus). */
 static float32_t voltage_reference = app::initial_voltage_reference;
@@ -134,20 +134,22 @@ void dump_scope_datas(ScopeMimicry &scope)
  */
 void setup_routine()
 {
-    /* DC/DC boost legs: A and C. */
+    /* Only boost leg 1 is enabled; boost leg 2 is disabled. */
     shield.power.initBoost(LEG1_LOW);
-    shield.power.initBoost(LEG2_LOW);
+    // shield.power.initBoost(LEG2_LOW);
     shield.power.setDeadTime(LEG1_LOW, leg1_low_deadtime_ns, leg1_low_deadtime_ns);
-    shield.power.setDeadTime(LEG2_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
+    // shield.power.setDeadTime(LEG2_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
     /* Unipolar DC/AC bridge: channels D and E, initially at neutral duty. */
     if (shield.power.initInverterUnipolar(LEG1_HIGH, LEG2_HIGH) != 0)
     {
         printk("inverter initialization failed\n");
         return;
     }
-    shield.power.setDutyCycleMin(ALL, app::duty_cycle_min);
+    shield.power.setDutyCycleMin(LEG1_LOW, app::duty_cycle_min);
+    shield.power.setDutyCycleMin(LEG1_HIGH, app::duty_cycle_min);
+    shield.power.setDutyCycleMin(LEG2_HIGH, app::duty_cycle_min);
     shield.power.setDutyCycleMax(LEG1_LOW, app::duty_cycle_max);
-    shield.power.setDutyCycleMax(LEG2_LOW, app::duty_cycle_max);
+    // shield.power.setDutyCycleMax(LEG2_LOW, app::duty_cycle_max);
     
     /* Current-driven burst on boost leg 1 only (ADR 0003). */
     shield.power.initBurstMode(LEG1_LOW);
@@ -156,7 +158,7 @@ void setup_routine()
     shield.sensors.enableSensor(VAC, ADC_1);
     shield.sensors.enableSensor(VDCBus, ADC_1);
     shield.sensors.enableSensor(ILow1, ADC_2);
-    shield.sensors.enableSensor(ILow2, ADC_2);
+    // shield.sensors.enableSensor(ILow2, ADC_2);
     shield.sensors.enableSensor(IAC, ADC_2);
 
     spin.gpio.configurePin(22, OUTPUT);
@@ -210,8 +212,8 @@ void loop_communication_task()
                "|     press c : inverter sync only       |\n"
                "|     press u : voltage reference UP     |\n"
                "|     press d : voltage reference DOWN   |\n"
-               "|     press w : deadtime UP              |\n"
-               "|     press s : deadtime DOWN            |\n"
+               // "|     press w : deadtime UP              |\n"
+               // "|     press s : deadtime DOWN            |\n"
                "|     press r : retrieve scope data      |\n"
                "|     press q : restart scope acquisition|\n"
                "|________________________________________|\n\n");
@@ -249,23 +251,23 @@ void loop_communication_task()
         voltage_reference -= 1.0F;
         if (voltage_reference < 1.0F) voltage_reference = 1.0F;
         break;
-    case 'w':
-        leg2_low_deadtime_ns += deadtime_step_ns;
-        shield.power.setDeadTime(LEG2_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
-        printk("LEG2_LOW deadtime: %u ns\n", leg2_low_deadtime_ns);
-        break;
-    case 's':
-        if (leg2_low_deadtime_ns >= deadtime_step_ns)
-        {
-            leg2_low_deadtime_ns -= deadtime_step_ns;
-        }
-        else
-        {
-            leg2_low_deadtime_ns = deadtime_min_ns;
-        }
-        shield.power.setDeadTime(LEG2_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
-        printk("LEG2_LOW deadtime: %u ns\n", leg2_low_deadtime_ns);
-        break;
+    // case 'w':
+    //     leg2_low_deadtime_ns += deadtime_step_ns;
+    //     shield.power.setDeadTime(LEG2_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
+    //     printk("LEG2_LOW deadtime: %u ns\n", leg2_low_deadtime_ns);
+    //     break;
+    // case 's':
+    //     if (leg2_low_deadtime_ns >= deadtime_step_ns)
+    //     {
+    //         leg2_low_deadtime_ns -= deadtime_step_ns;
+    //     }
+    //     else
+    //     {
+    //         leg2_low_deadtime_ns = deadtime_min_ns;
+    //     }
+    //     shield.power.setDeadTime(LEG2_LOW, leg2_low_deadtime_ns, leg2_low_deadtime_ns);
+    //     printk("LEG2_LOW deadtime: %u ns\n", leg2_low_deadtime_ns);
+    //     break;
     case 'r':
         is_scope_downloading = true;
         break;
@@ -299,12 +301,12 @@ void loop_application_task()
     else spin.led.turnOn();
 
     if (control.boost.isTripped()) printk("boost tripped: press i (idle) to clear\n");
-    /* ILow1, ILow2, VLow, duty1, duty2, VAC, VACrms, angle, IAC, VDCBus, mode, burst skip. */
+    /* ILow1, VLow, duty1, VAC, VACrms, angle, IAC, VDCBus, mode, burst skip. */
     printk("%7.3f:", (double)i_low_1_value);
-    printk("%7.3f:", (double)i_low_2_value);
+    // printk("%7.3f:", (double)i_low_2_value);
     printk("%7.3f:", (double)v_low_value);
     printk("%7.3f:", (double)boost_duty.leg1);
-    printk("%7.3f:", (double)boost_duty.leg2);
+    // printk("%7.3f:", (double)boost_duty.leg2);
     printk("%7.3f:", (double)v_ac_value);
     printk("%7.3f:", (double)v_ac_rms_value);
     printk("%7.3f:", (double)grid_angle);
@@ -341,8 +343,8 @@ void loop_critical_task()
         v_ac_value = meas_data;
     }
 
-    meas_data = shield.sensors.getLatestValue(ILow2);
-    if (meas_data != NO_VALUE) i_low_2_value = meas_data;
+    // meas_data = shield.sensors.getLatestValue(ILow2);
+    // if (meas_data != NO_VALUE) i_low_2_value = meas_data;
 
     meas_data = shield.sensors.getLatestValue(IAC);
     if (meas_data != NO_VALUE) i_ac_value = meas_data;
@@ -354,9 +356,9 @@ void loop_critical_task()
     }
 
     /*----- Control logic (hardware-free, see app/control_step.h) ----- */
-    Measurements meas;
+    Measurements meas{};
     meas.i_low_1 = i_low_1_value;
-    meas.i_low_2 = i_low_2_value;
+    // meas.i_low_2 = i_low_2_value;
     meas.v_low = v_low_value;
     meas.v_dc_bus = v_dc_bus_value;
     meas.v_ac = v_ac_value;
@@ -376,7 +378,7 @@ void loop_critical_task()
     if (out.boost_mode_changed)
     {
         shield.power.stop(LEG1_LOW);
-        shield.power.stop(LEG2_LOW);
+        // shield.power.stop(LEG2_LOW);
     }
 
     if (!is_scope_downloading)
@@ -387,11 +389,11 @@ void loop_critical_task()
     if (out.boost_pwm_update)
     {
         shield.power.setDutyCycle(LEG1_LOW, out.boost_duty.leg1);
-        shield.power.setDutyCycle(LEG2_LOW, out.boost_duty.leg2);
+        // shield.power.setDutyCycle(LEG2_LOW, out.boost_duty.leg2);
         if (out.leg1_enable) shield.power.start(LEG1_LOW);
         else shield.power.stop(LEG1_LOW);
-        if (out.leg2_enable) shield.power.start(LEG2_LOW);
-        else shield.power.stop(LEG2_LOW);
+        // if (out.leg2_enable) shield.power.start(LEG2_LOW);
+        // else shield.power.stop(LEG2_LOW);
     }
 
     /* Leg 1 burst: skip out.burst_skip of every out.burst_period PWM periods. */
