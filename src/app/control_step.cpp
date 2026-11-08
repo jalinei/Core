@@ -40,6 +40,8 @@ int8_t controlInit(ControlState &state)
         return -1;
     }
     state.inverter.setGridQuality(state.grid_observer.canOperate());
+    /* Zero dwell holds synchronized PWM indefinitely without requesting relay closure. */
+    state.inverter.setPwmSettleCycles(0);
     state.boost.setStartupCurrentMax(app::startup_current_max);
     state.boost.setVBusRef(app::initial_voltage_reference);
     if (state.boost.setBurst(app::boost_burst_period) != 0 ||
@@ -69,7 +71,7 @@ ControlOutputs controlStep(ControlState &state, const Measurements &meas,
     state.boost.setVBusRef(cmd.v_bus_ref);
 
     const boost_mode requested_mode = cmd.mode;
-    const bool sync_only = cmd.sync_requested;
+    const bool pwm_settle_requested = cmd.sync_requested;
     if (requested_mode != state.previous_mode)
     {
         out.boost_mode_changed = true;
@@ -87,20 +89,20 @@ ControlOutputs controlStep(ControlState &state, const Measurements &meas,
     out.boost_duty = state.boost.hotLoop();
 
     /* Keep the PLL running in idle, using a positive bus value for duty scaling. */
-    if (isfinite(meas.v_dc_bus) && meas.v_dc_bus > 0.0F)
+    if (pwm_settle_requested || (isfinite(meas.v_dc_bus) && meas.v_dc_bus > 0.0F))
     {
         state.inverter.setVBus(meas.v_dc_bus);
     }
-    if (sync_only) state.inverter.requestSync();
+    if (pwm_settle_requested) state.inverter.requestConnect();
     else state.inverter.requestDisconnect();
     /* PWM start-up acknowledgement (single_phase_inverter PWM_WAIT/PWM_SETTLE): report
-     * whether the bridge PWM was applied last period. Always false here: synchronization only. */
+     * whether the hardware loop actually applied bridge PWM last period. */
     state.inverter.setPwmEnabled(state.bridge_pwm_applied);
     out.bridge_duty = state.inverter.calculateDuty(meas.v_ac, meas.i_ac);
     const clarke_t grid_voltage_ab = state.inverter.getVab();
     state.grid_observer.update(grid_voltage_ab.alpha, grid_voltage_ab.beta, state.inverter.getw(),
                                state.grid_voltage_age_ticks < app::grid_voltage_stale_ticks);
-    /* Grid quality qualifies synchronization; this application never connects. */
+    /* Apply this tick's quality verdict before accepting any PWM request. */
     state.inverter.setGridQuality(state.grid_observer.canOperate());
     out.grid_angle = state.inverter.getTheta();
 
@@ -110,8 +112,7 @@ ControlOutputs controlStep(ControlState &state, const Measurements &meas,
     out.burst_skip = state.boost.getBurstSkip();
     out.burst_period = state.boost.getBurstPeriod();
     out.boost_trip = state.boost.isTripped();
-    /* Synchronization only: keep the inverter bridge disabled. */
-    out.bridge_enable = false;
-    state.bridge_pwm_applied = out.bridge_enable;
+    /* PWM_SETTLE has zero dwell: PWM runs, but relay closure stays inhibited. */
+    out.bridge_enable = state.inverter.isPwmRequested();
     return out;
 }

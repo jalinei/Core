@@ -30,7 +30,7 @@
  * | L0-APP-01 | A mode change stops both legs and runs the cold loop on the same tick |
  * | L0-APP-02 | The cold loop runs every 10th tick |
  * | L0-APP-03 | VAC stale for 20 ms invalidates the measurement and trips the observer |
- * | L0-APP-04 | The inverter bridge is never enabled |
+ * | L0-APP-04 | Inverter PWM settles indefinitely with the relay open |
  * | L0-APP-05 | Inverter synchronization is gated by the grid observer only |
  *
  * Each case builds its own ControlState with controlInit(), i.e. with the
@@ -85,6 +85,8 @@ ControlOutputs gridStep(ControlState &state, Grid &grid, const OperatorCommands 
     m.v_ac = held_vac;
     m.v_ac_updated = vac_fresh;
     const ControlOutputs out = controlStep(state, m, cmd);
+    // Emulate successful hardware application, reported on the next control tick.
+    state.bridge_pwm_applied = out.bridge_enable;
     grid.advance();
     return out;
 }
@@ -313,8 +315,8 @@ int main() {
 
     // ---------------------------------------------------------------- L0-APP-04
     {
-        /** @test L0-APP-04.a: The inverter bridge is never enabled, in any mode, with or without a sync request */
-        tc::Criterion c("L0-APP-04.a", "The inverter bridge is never enabled, in any mode, with or without a sync request");
+        /** @test L0-APP-04.a: PWM_SETTLE holds with the relay open independently of boost mode */
+        tc::Criterion c("L0-APP-04.a", "PWM_SETTLE holds with the relay open independently of boost mode");
         for (bool sync : {false, true}) {
             ControlState state;
             Grid grid;
@@ -331,14 +333,56 @@ int main() {
                     inverter_pwm |= state.inverter.isPwmRequested();
                     relay |= state.inverter.isGridConnectionRequested();
                     synced |= state.inverter.getSync();
+                    if (state.inverter.getMode() == VSI_PWM_WAIT)
+                        c.near("PWM_WAIT starts at neutral", out.bridge_duty, 0.5F, 1e-6);
                 }
             }
-            c.check("bridge_enable always false", !bridge);
-            c.check("inverter never requests PWM", !inverter_pwm);
+            c.check("bridge enabled only on request", bridge == sync);
+            c.check("inverter PWM only on request", inverter_pwm == sync);
             c.check("inverter never requests the relay", !relay);
+            c.check("ends in PWM_SETTLE or OFF", state.inverter.getMode() == (sync ? VSI_PWM_SETTLE : VSI_OFF));
             c.check(sync ? "with sync request: synchronization reached" : "without sync request: never synchronized",
                     synced == sync);
+            cmd.sync_requested = false;
+            const ControlOutputs stopped = gridStep(state, grid, cmd, true, held);
+            c.check("cancel stops PWM immediately", !stopped.bridge_enable);
+            c.check("cancel leaves relay open", !state.inverter.isGridConnectionRequested());
         }
+    }
+    {
+        tc::Criterion c("L0-APP-04.b", "PWM handover waits for hardware acknowledgement");
+        ControlState state;
+        Grid grid;
+        float held = 0.0F;
+        OperatorCommands cmd;
+        cmd.sync_requested = true;
+        c.check("controlInit", controlInit(state) == 0);
+        for (int n = 0; n < 3 * ticks_per_s; ++n) {
+            state.bridge_pwm_applied = false;
+            const ControlOutputs out = gridStep(state, grid, cmd, true, held);
+            if (out.bridge_enable) c.near("unacknowledged PWM stays neutral", out.bridge_duty, 0.5F, 1e-6);
+            c.check("relay remains open", !state.inverter.isGridConnectionRequested());
+        }
+        c.check("still waiting for PWM acknowledgement", state.inverter.getMode() == VSI_PWM_WAIT);
+    }
+    {
+        tc::Criterion c("L0-APP-04.c", "Invalid live bus stops active inverter PWM");
+        ControlState state;
+        Grid grid;
+        float held = 0.0F;
+        OperatorCommands cmd;
+        cmd.sync_requested = true;
+        c.check("controlInit", controlInit(state) == 0);
+        for (int n = 0; n < 3 * ticks_per_s; ++n) gridStep(state, grid, cmd, true, held);
+        c.check("reached PWM_SETTLE", state.inverter.getMode() == VSI_PWM_SETTLE);
+        Measurements m;
+        m.v_ac = grid.v();
+        m.v_ac_updated = true;
+        m.v_dc_bus = 0.0F;
+        const ControlOutputs out = controlStep(state, m, cmd);
+        c.check("PWM disabled", !out.bridge_enable);
+        c.check("fault latched", state.inverter.getMode() == VSI_FAULT);
+        c.check("relay stays open", !state.inverter.isGridConnectionRequested());
     }
 
     // ---------------------------------------------------------------- L0-APP-05

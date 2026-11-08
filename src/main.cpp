@@ -104,6 +104,8 @@ static boost_mode mode = IDLE;
 static bool inverter_sync_requested;
 /* The burst generator is running on leg 1. */
 static bool burst_running = false;
+/* Stage neutral bridge duty for one control tick before enabling PWM. */
+static bool inverter_pwm_staged = false;
 
 bool scope_trigger()
 {
@@ -209,7 +211,7 @@ void loop_communication_task()
                "|     press p : startup (0.25 A clamp)   |\n"
                "|     press b : bus regulation mode      |\n"
                "|     press m : MPPT mode                |\n"
-               "|     press c : inverter sync only       |\n"
+               "|     press c : inverter PWM_SETTLE hold |\n"
                "|     press u : voltage reference UP     |\n"
                "|     press d : voltage reference DOWN   |\n"
                // "|     press w : deadtime UP              |\n"
@@ -240,7 +242,7 @@ void loop_communication_task()
         inverter_sync_requested = false;
         break;
     case 'c':
-        printk("inverter synchronization only requested\n");
+        printk("inverter PWM_SETTLE hold requested (relay open)\n");
         inverter_sync_requested = true;
         break;
     case 'u':
@@ -412,9 +414,34 @@ void loop_critical_task()
         burst_running = false;
     }
 
-    /* Synchronization only: keep the inverter bridge disabled. */
-    shield.power.stop(LEG1_HIGH);
-    shield.power.stop(LEG2_HIGH);
+    /* Apply paired bridge duty; acknowledge only after PWM is enabled. */
+    if (out.bridge_enable &&
+        shield.power.setInverterDutyCycle(LEG1_HIGH, out.bridge_duty) == 0)
+    {
+        if (inverter_pwm_staged)
+        {
+            shield.power.start(LEG1_HIGH);
+            shield.power.start(LEG2_HIGH);
+            control.bridge_pwm_applied = true;
+        }
+        else
+        {
+            /* Allow the initial neutral duty to latch before starting outputs. */
+            shield.power.stop(LEG1_HIGH);
+            shield.power.stop(LEG2_HIGH);
+            control.bridge_pwm_applied = false;
+            inverter_pwm_staged = true;
+        }
+    }
+    else
+    {
+        if (out.bridge_enable) control.inverter.tripFault(VSI_FAULT_PWM_UPDATE_FAILED);
+        shield.power.stop(LEG1_HIGH);
+        shield.power.stop(LEG2_HIGH);
+        control.bridge_pwm_applied = false;
+        inverter_pwm_staged = false;
+    }
+    control.inverter.setPwmEnabled(control.bridge_pwm_applied);
 }
 
 /**

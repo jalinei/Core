@@ -134,7 +134,7 @@ struct Measurements {
 /** @brief Operator requests from the serial menu. */
 struct OperatorCommands {
     boost_mode mode = IDLE;          ///< Requested boost mode.
-    bool sync_requested = false;     ///< Inverter synchronization only (menu 'c').
+    bool sync_requested = false;     ///< Synchronize and hold inverter at PWM_SETTLE (menu 'c').
     float32_t v_bus_ref = app::initial_voltage_reference;  ///< VDCBus reference (V).
 };
 
@@ -148,8 +148,8 @@ struct ControlOutputs {
     uint16_t burst_skip = 0U;         ///< Leg 1 PWM periods off per burst period; 0: burst generator stopped.
     uint16_t burst_period = 0U;       ///< Burst period, in PWM periods.
     bool boost_trip = false;          ///< Boost protection tripped (latched until IDLE).
-    float32_t bridge_duty = 0.5F;     ///< Inverter duty computed by the controller (not applied).
-    bool bridge_enable = false;       ///< Inverter bridge PWM enable; always false in this application.
+    float32_t bridge_duty = 0.5F;     ///< Paired inverter duty to apply before enabling PWM.
+    bool bridge_enable = false;       ///< Inverter bridge PWM request; hardware loop acknowledges application.
     float32_t grid_angle = 0.0F;      ///< PLL grid angle (rad).
 };
 
@@ -178,8 +178,9 @@ int8_t controlInit(ControlState &state);
  * Applies mode requests, runs the boost cold loop every app::cold_loop_divider
  * periods and its hot loop every period, keeps the PLL running, updates the
  * grid observer (invalidated when VAC is stale for app::grid_voltage_stale_ticks),
- * and gates inverter synchronization on grid quality. The inverter bridge is
- * never enabled: this application synchronizes only.
+ * and gates inverter PWM on grid quality. Menu 'c' holds PWM_SETTLE indefinitely
+ * with relay closure inhibited. The hardware loop updates bridge_pwm_applied
+ * after applying the returned commands.
  *
  * @param state Control state, updated in place.
  * @param meas Latest measurements.
