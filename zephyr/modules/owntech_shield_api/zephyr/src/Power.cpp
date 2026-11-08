@@ -123,8 +123,13 @@ void PowerAPI::initMode(leg_t leg,
 
     for (int8_t i = startIndex; i < endIndex; i++)
     {
-        /* Configure PWM frequency */
-        spin.pwm.initVariableFrequency(timer_frequency, timer_min_frequency);
+        /* Configure the shared clock before the first unit starts the master.
+         * Repeating this for another leg resets an initialized up/down leg's
+         * stored counting frequency to its undoubled switching frequency. */
+        if (hrtim_period_Master_get() == 0U)
+        {
+            spin.pwm.initVariableFrequency(timer_frequency, timer_min_frequency);
+        }
 
         /* Leg with its own frequency (leg-frequency), before initUnit() */
         if (dt_leg_frequency[i] != 0)
