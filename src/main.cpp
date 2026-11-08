@@ -92,10 +92,25 @@ static float32_t v_ac_rms_square_sum;
 static uint32_t v_ac_rms_sample_count;
 
 /* ScopeMimicry */
-static constexpr uint16_t scope_buffer_sample_count = 1024U;
-static constexpr uint16_t scope_channel_count = 2U;
+/* 10 KiB capture: 256 samples at 2 kHz, half before and half after Sync rises.
+ * Keep the byte count within ScopeMimicry's uint16_t buffer-size/dump limits. */
+static constexpr uint16_t scope_buffer_sample_count = 256U;
+static constexpr uint16_t scope_channel_count = 10U;
+static constexpr uint16_t scope_sample_divider = 5U;
+static_assert(scope_buffer_sample_count * scope_channel_count * sizeof(float32_t) <= UINT16_MAX,
+              "Scope capture exceeds ScopeMimicry's buffer-size limit");
 static ScopeMimicry scope(scope_buffer_sample_count, scope_channel_count);
 static bool is_scope_downloading;
+static uint16_t scope_sample_tick;
+/* ScopeMimicry requires persistent float channels, including flags and enums. */
+static float32_t scope_v_alpha;
+static float32_t scope_v_beta;
+static float32_t scope_v_d;
+static float32_t scope_v_q;
+static float32_t scope_omega;
+static float32_t scope_sync;
+static float32_t scope_grid_quality;
+static float32_t scope_inverter_mode;
 
 /*--------------------------------------------------------------- */
 
@@ -109,7 +124,7 @@ static bool inverter_pwm_staged = false;
 
 bool scope_trigger()
 {
-    return true;
+    return scope_sync > 0.5F;
 }
 
 void dump_scope_datas(ScopeMimicry &scope)
@@ -175,10 +190,18 @@ void setup_routine()
         printk("invalid boost burst, protection or gain schedule\n");
         return;
     }
-    scope.connectChannel(v_ac_value, "VAC");
-    scope.connectChannel(grid_angle, "grid_angle");
+    scope.connectChannel(v_ac_value, "VAC_V");
+    scope.connectChannel(scope_v_alpha, "V_alpha_V");
+    scope.connectChannel(scope_v_beta, "V_beta_V");
+    scope.connectChannel(scope_v_d, "V_d_V");
+    scope.connectChannel(scope_v_q, "V_q_V");
+    scope.connectChannel(grid_angle, "theta_rad");
+    scope.connectChannel(scope_omega, "omega_rad_s");
+    scope.connectChannel(scope_sync, "Sync");
+    scope.connectChannel(scope_grid_quality, "grid_quality");
+    scope.connectChannel(scope_inverter_mode, "inverter_mode");
     scope.set_trigger(&scope_trigger);
-    scope.set_delay(0.0F);
+    scope.set_delay(0.5F);
     scope.start();
 
     /* Then declare tasks */
@@ -383,11 +406,6 @@ void loop_critical_task()
         // shield.power.stop(LEG2_LOW);
     }
 
-    if (!is_scope_downloading)
-    {
-        scope.acquire();
-    }
-
     if (out.boost_pwm_update)
     {
         shield.power.setDutyCycle(LEG1_LOW, out.boost_duty.leg1);
@@ -442,6 +460,24 @@ void loop_critical_task()
         inverter_pwm_staged = false;
     }
     control.inverter.setPwmEnabled(control.bridge_pwm_applied);
+
+    /* Snapshot after this tick's control, grid verdict and PWM application. */
+    const clarke_t grid_voltage_ab = control.inverter.getVab();
+    const dqo_t grid_voltage_dq = control.inverter.getVdq();
+    scope_v_alpha = grid_voltage_ab.alpha;
+    scope_v_beta = grid_voltage_ab.beta;
+    scope_v_d = grid_voltage_dq.d;
+    scope_v_q = grid_voltage_dq.q;
+    scope_omega = control.inverter.getw();
+    v_ac_rms_value = control.grid_observer.getVoltageRms();
+    scope_sync = control.inverter.getSync() ? 1.0F : 0.0F;
+    scope_grid_quality = control.grid_observer.canOperate() ? 1.0F : 0.0F;
+    scope_inverter_mode = static_cast<float32_t>(control.inverter.getMode());
+    if (++scope_sample_tick >= scope_sample_divider)
+    {
+        scope_sample_tick = 0U;
+        if (!is_scope_downloading) scope.acquire();
+    }
 }
 
 /**
