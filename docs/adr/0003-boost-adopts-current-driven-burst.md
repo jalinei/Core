@@ -58,13 +58,21 @@ requires a hardware check.
 
 ## Consequences
 
-### 2026-11-09 amendment: independent burst
+### 2026-11-09 amendment: independent burst and register update order
 
 Remove both leg-2 reference checks from leg 1 burst control. A positive residual
 reference, even one float step, must neither cancel skipping nor block entry.
 Leg 1 now follows its own current error at minimum duty regardless of leg 2.
 This supersedes the earlier leg-2 guard; leg-2 enable-threshold finding #5 remains
 separate.
+
+With preload enabled, `hrtim_burst_set()` must write BMPER before BMCMP.
+[RM0440 section 28.3.15, page 960](https://www.st.com/resource/en/reference_manual/rm0440-stm32g4-series-advanced-armbased-32bit-mcus-stmicroelectronics.pdf)
+states that writing BMPER blocks update transfer until BMCMP is written. The old
+compare-first/period-last order could leave the hardware pattern unchanged while
+the controller updated the software skip count. L0-BST-11.a executes the actual
+driver function against this preload handshake; L0-BST-06.d covers independent
+burst with one-step, 1 mA and 2.5 A leg-2 references in BUSREG and MPPT.
 
 - Production change under the procedure's rules: L0 tests written first and failing (new burst, no reset, gains, protection), then the change with a worklog entry, then L1, then a hardware check against the bench captures above.
 - The contract becomes **app-v2**: a burst command (skipped periods, burst period) joins the outputs, and the L1 PWM adapter models the HRTIM burst mode. The ADC sampling instant fix from #3 (L1-MOD-08.b) goes into the same version.

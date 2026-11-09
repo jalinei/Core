@@ -21,4 +21,7 @@ l0_build test_boost \
              "$LIB_ROOT/control_library/src/pr.cpp" \
              "$LIB_ROOT/control_library/src/fir.cpp" \
              "$LIB_ROOT/control_library/src/trigo.cpp"
-"$L0_BIN/test_boost"
+rc=0
+python3 "$REPO_ROOT/tests/l0/boost/test_burst_registers.py" || rc=1
+"$L0_BIN/test_boost" || rc=1
+exit "$rc"

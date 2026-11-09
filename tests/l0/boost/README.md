@@ -18,6 +18,12 @@ tests/run_all.sh --l0            # with the record
 | `owntech/lib/USB/control_library/src/pid.cpp` | library (no `-Werror`) |
 | `owntech/lib/USB/control_library/src/{filters,pr,fir,trigo}.cpp` | library (no `-Werror`) |
 
+`test_burst_registers.py` also compiles the actual `hrtim_burst_set()` function
+extracted from the STM32 driver against a small register model. It checks the
+preload handshake specified in [RM0440 section 28.3.15, page 960](https://www.st.com/resource/en/reference_manual/rm0440-stm32g4-series-advanced-armbased-32bit-mcus-stmicroelectronics.pdf):
+write period first, compare last to release the update lock. This host test
+checks register update acceptance, not physical gate waveforms.
+
 ## How the test drives the controller
 
 Each section sets measurements with `setILow1/2`, `setVLow`, `setVBus`, references with `setILowRef`/`setVBusRef`, then calls `coldLoop()` (voltage loop or MPPT, `voltage.Ts` = 1 ms) and `hotLoop()` (current loop, `current.Ts` = 100 µs) and checks the outputs. Nothing is simulated: a value such as 52 V on the bus is simply set.
@@ -39,6 +45,7 @@ Test tuning, chosen for exact arithmetic rather than the hardware: voltage PID `
 | L0-BST-07 | .a – .d | Full burst above 440 V with PID held; trip above 460 V or 8 A, latched until IDLE; inconsistent settings rejected |
 | L0-BST-08 | .a – .c | Voltage Kp scheduled with VBusRef / VLow (clamped), STARTUP/BUSREG only, without reset (mirror PID); inconsistent schedules rejected |
 | L0-BST-10 | .a – .d | 100 Hz notch attenuation, DC preservation, bypass and raw-voltage protection; resonator selectivity, correction on both legs, combined duty bounds and reset; PI/resonator state held through burst; library buffer lifecycle on reconfiguration |
+| L0-BST-11 | .a | Actual driver writes release the burst preload update lock and apply changing skip counts and periods, including a boundary between writes |
 
 L0-BST-10 uses independent controllers and the new nominal resonant tuning
 (`Kr = 0.88`, phase `0.09425` rad, hot period 100 µs). These are signal-response

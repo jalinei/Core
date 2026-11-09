@@ -169,3 +169,14 @@ The 100 Hz PR of Andres's code is not adopted (it is always on there, which look
 | Behaviour change | Preserve symmetric internal voltage-PI demand for leg 1 PI/burst decisions while delivered total/per-leg current references stay nonnegative. Negative demand lowers duty and increases skipping even at zero measured current. Direct current commands replace this demand; entering MPPT clears it. Active burst starts with minimum pulse duty; IDLE and trip clear duty. Restore the guard preventing burst entry while leg 2 has demand. Hardware burst is initialized on entry, then stopped and disabled on exit |
 | Evidence | L0-BST-06.f/g failed before the fix and pass afterward; .h verifies burst entry from elevated duty with zero measured current. All other boost criteria pass except the six previously recorded L0-BST-09 failures. Application L0 retains only the known L0-APP-03.c failure. Host checks use strict warnings and UBSan. USB firmware build succeeds; native L1 C-Block builds and L1-INT-01.a–c pass. `git diff --check` passes |
 | Limits | No hardware flash or bench regulation run, and no full switched-plant campaign in this change |
+
+## 2026-11-09 — Remove leg-2 burst gating and fix hardware preload updates
+
+| Field | Value |
+|---|---|
+| Reason | User still observes missing pulse suppression; any positive leg-2 residual forced leg 1 continuous. Driver inspection also found compare-first/period-last writes despite burst preload being enabled |
+| Evidence for hardware gap | RM0440 section 28.3.15, page 960: a BMPER write blocks preload transfer until BMCMP is written. Old ordering could hold the old hardware pattern while software skip count changed. Unlike Andres's original driver, this driver enables burst preload |
+| Behaviour change | Remove both leg-2 gates from leg 1 burst decisions; current error and minimum duty determine entry and progression. Write HRTIM period first and compare last to release the update lock |
+| Verification | L0-BST-06.d and new L0-BST-11.a failed before correction and pass afterward. The latter compiles the actual driver function against a preload handshake model with a boundary between writes. Boost suite retains four known leg-2 enable-threshold failures; the two burst-cancellation failures now pass. Application suite retains only known L0-APP-03.c. USB firmware build succeeds |
+| Bench follow-up | User reports pulse skipping now works after the corrections. No quantitative waveform or regulation measurements were supplied |
+| Limits | Register model does not prove physical gate timing; bench confirmation is the user's observation |

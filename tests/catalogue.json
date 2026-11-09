@@ -326,6 +326,16 @@
    "status_note": "Implemented 2026-11-09; host response checks, not plant stability or hardware validation"
   },
   {
+   "id": "L0-BST-11",
+   "tab": "boost",
+   "level": "L0",
+   "title": "HRTIM burst preload register handshake",
+   "criterion": ".a actual hrtim_burst_set writes release the preload update lock and apply changing skip counts and periods, including a burst boundary between writes",
+   "source": "hrtim.c `hrtim_burst_set`; RM0440 section 28.3.15, page 960",
+   "status": "implemented",
+   "status_note": "Implemented 2026-11-09; host register handshake model, not physical gate validation"
+  },
+  {
    "id": "L0-PWR-01",
    "tab": "boost",
    "level": "L0",
