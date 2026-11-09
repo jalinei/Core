@@ -60,9 +60,14 @@ struct BoostDutyCycles {
  * count goes up by one per hot-loop call. While skipping, the PID is held (state kept,
  * duty held) and the skip count goes down by one per call while the current is below
  * its reference and up by one while above, within [0, N]. The PIDs are never reset by
- * burst. Entering an active mode from IDLE starts fully skipped (N). While leg 2 has
- * demand, burst is off. The caller applies getBurstSkip() and getBurstPeriod() with
+ * burst. Entering an active mode from IDLE starts fully skipped (N). Leg 1's burst
+ * follows its own current error independently of leg 2's reference. The caller
+ * applies getBurstSkip() and getBurstPeriod() with
  * the hardware burst generator on leg 1 only.
+ * The voltage PI uses symmetric internal bounds (+/- the mode's current ceiling).
+ * Negative demand reduces leg 1 duty and increases skipping even at zero measured
+ * current; delivered current references remain nonnegative. Active burst starts
+ * with minimum duty, ready for the first unskipped pulse.
  *
  * **Protection.** Once configured with setProtection(): above fullBurstV the skip count
  * is forced to N; above tripV, or with either leg current above tripA, the controller
@@ -89,7 +94,8 @@ public:
      * @param V_bus Initial bus measurement and bus voltage reference, in V; must be positive.
      * @param voltageParams Voltage PID tuning; Ts is the cold-loop period in s.
      * Output bounds define the allowed nonnegative total current reference in A,
-     * including the MPPT search limits.
+     * including the MPPT search limits. Internally the voltage PI uses symmetric
+     * bounds around zero, with the mode's current ceiling as their magnitude.
      * @param currentParams Current PID tuning shared by both legs; Ts is the hot-loop period in s.
      * Output bounds define the duty-cycle range and must lie within [0, 1].
      * @param leg1CurrentLimit Positive current threshold in A. Leg 1 receives
@@ -109,6 +115,8 @@ public:
      * @brief Clear PID states, total and per-leg current references, both duties,
      * MPPT history and the trip; start burst fully skipped.
      * @details Preserve the mode, measurements, target voltage reference and settings.
+     * With burst configured in an initialized active mode, prepare leg 1 at its
+     * minimum duty for the first unskipped pulse; otherwise duties remain zero.
      */
     void reset();
 
@@ -253,7 +261,7 @@ public:
     /** @brief Set the target bus voltage. @param VBusRef Voltage in V; negative or non-finite values are ignored. */
     void setVBusRef(float32_t VBusRef);
 
-    /** @brief Get leg 1 duty. @return Last duty command, or zero when disabled/reset. */
+    /** @brief Get leg 1 duty. @return Last duty command; zero when idle/tripped, minimum on active burst reset. */
     float32_t getDutyLeg1() const;
     /** @brief Get leg 2 duty. @return Last duty command, or zero when disabled/reset. */
     float32_t getDutyLeg2() const;
@@ -278,7 +286,7 @@ private:
     bool checkProtection();
     /** @brief Run leg 1: burst bookkeeping or its current PID. */
     void runLeg1();
-    /** @brief Run the voltage PID with mode-specific current bounds. @return Current reference in A. */
+    /** @brief Run the voltage PID with symmetric mode-specific bounds. @return Signed internal demand in A. */
     float32_t calculateVoltageCurrent(float32_t reference, float32_t measurement);
     /** @brief Use converter 1 only in STARTUP; otherwise allocate excess demand to leg 2. */
     void splitCurrentReference();
@@ -296,6 +304,7 @@ private:
     float32_t _VLow = 0.0F;
     float32_t _VBus = 0.0F;
     float32_t _ILow_ref = 0.0F;
+    float32_t _voltage_current_demand = 0.0F; ///< Signed voltage PI output; negative requests suppress pulses.
     float32_t _VBus_ref = 0.0F;
     float32_t _ILow1_ref = 0.0F;
     float32_t _ILow2_ref = 0.0F;

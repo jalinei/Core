@@ -159,3 +159,13 @@ The 100 Hz PR of Andres's code is not adopted (it is always on there, which look
 | Implementation | Critical task owns start/trigger/acquire. A baseline sample before boost PWM plus 4095 triggered samples fills the library's circular buffer without stale rows. The buffer freezes at completion. Requests and download flags use Zephyr atomics; startup and capture requests are published together under irq_lock. The existing ScopeMimicry dump format is retained; sample-period metadata is printed before `begin record` |
 | Evidence | Host smoke check using real ScopeMimicry and the capture code extracted from main.cpp passes with UBSan: 4096 two-channel samples, 4.096 s completion, baseline/order, decimation, freeze, rearm, repeated trigger and complete dump. USB firmware build checked separately |
 | Limits | Hardware capture not run. Scope measures the enabled boost leg 1; leg 2 remains disabled. No change to controller limits or inverter startup |
+
+## 2026-11-09 — Restore Andres's signed demand in boost burst regulation
+
+| Field | Value |
+|---|---|
+| Reason | Burst could hold a partially skipped pattern above the voltage target when measured input current reached zero: the port had clamped Andres's signed voltage-PI demand to zero |
+| Source | Compared local reference commits `43e249e` and `5bcfdf6`: symmetric voltage-PI bounds, minimum initial pulse duty, and stop plus deinitialization on burst exit |
+| Behaviour change | Preserve symmetric internal voltage-PI demand for leg 1 PI/burst decisions while delivered total/per-leg current references stay nonnegative. Negative demand lowers duty and increases skipping even at zero measured current. Direct current commands replace this demand; entering MPPT clears it. Active burst starts with minimum pulse duty; IDLE and trip clear duty. Restore the guard preventing burst entry while leg 2 has demand. Hardware burst is initialized on entry, then stopped and disabled on exit |
+| Evidence | L0-BST-06.f/g failed before the fix and pass afterward; .h verifies burst entry from elevated duty with zero measured current. All other boost criteria pass except the six previously recorded L0-BST-09 failures. Application L0 retains only the known L0-APP-03.c failure. Host checks use strict warnings and UBSan. USB firmware build succeeds; native L1 C-Block builds and L1-INT-01.a–c pass. `git diff --check` passes |
+| Limits | No hardware flash or bench regulation run, and no full switched-plant campaign in this change |

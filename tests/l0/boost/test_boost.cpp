@@ -32,7 +32,7 @@
  * | L0-BST-03 | Cold-loop saturation sets the total current reference |
  * | L0-BST-04 | MPPT perturb and observe |
  * | L0-BST-05 | STARTUP current clamp; STARTUP to BUSREG resets nothing; IDLE resets all |
- * | L0-BST-06 | Current-driven burst on leg 1, PID state kept, none while leg 2 runs |
+ * | L0-BST-06 | Current-driven burst on leg 1, PID state kept, independent of leg 2 |
  * | L0-BST-07 | Over-voltage full burst; over-voltage and over-current trip |
  * | L0-BST-08 | Voltage PID gain scheduled with VBusRef / VLow, without reset |
  * | L0-BST-09 | Leg 2 starts only above a demand threshold; below it, off and leg 1's burst kept |
@@ -248,6 +248,84 @@ int main() {
     };
 
     {
+        tc::Criterion c("L0-BST-06.f", "Above-target voltage keeps increasing skipping at zero current, then recovers when voltage falls");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setMode(BUSREG);
+        b.setILowRef(0.1F);
+        for (int n = 0; n <= period; ++n) b.hotLoop();
+        b.setVBus(410);
+        b.setILow1(0.1F);
+        b.coldLoop();
+        b.hotLoop();
+        c.check("enters burst at minimum duty", b.getBurstSkip() == 1);
+        b.setILow1(0);
+        for (int n = 0; n < period; ++n) {
+            if (n % 10 == 0) b.coldLoop();
+            b.hotLoop();
+        }
+        c.check("zero measured current still reaches full skipping", b.getBurstSkip() == period);
+        c.check("physical current references stay zero", b.getILowRef() == 0 &&
+                b.getILow1Ref() == 0 && b.getILow2Ref() == 0 && !b.isLeg2Enabled());
+        b.setMode(MPPT);
+        b.hotLoop();
+        c.check("MPPT zero reference holds skipping instead of inheriting signed demand", b.getBurstSkip() == period);
+        b.setILowRef(1);
+        b.hotLoop();
+        c.check("MPPT positive reference resumes pulses", b.getBurstSkip() == period - 1);
+        b.setMode(BUSREG);
+        b.coldLoop();
+        b.hotLoop();
+        c.check("voltage control suppresses pulses again", b.getBurstSkip() == period);
+        b.setILowRef(1);
+        b.hotLoop();
+        c.check("manual demand reduces skipping", b.getBurstSkip() == period - 1);
+        b.setILowRef(0);
+        b.hotLoop();
+        c.check("direct zero command holds partial skipping", b.getBurstSkip() == period - 1);
+        b.setVBus(390);
+        b.coldLoop();
+        b.hotLoop();
+        c.check("below target starts delivering again", b.getILowRef() > 0 && b.getBurstSkip() < period);
+        b.setMode(MPPT);
+        b.setILowRef(0);
+        b.setILow1(0);
+        const auto skip = b.getBurstSkip();
+        b.hotLoop();
+        c.check("MPPT does not inherit signed voltage demand", b.getBurstSkip() == skip);
+    }
+    {
+        tc::Criterion c("L0-BST-06.g", "Active burst starts at minimum pulse duty; IDLE and trip clear duty");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        c.near("IDLE duty zero", b.getDutyLeg1(), 0, tol);
+        b.setMode(STARTUP);
+        c.near("startup pulse duty at lower bound", b.hotLoop().leg1, i_app.lower_bound, tol);
+        b.setMode(IDLE);
+        c.near("IDLE clears duty", b.getDutyLeg1(), 0, tol);
+        b.setMode(BUSREG);
+        c.near("reentry pulse duty at lower bound", b.hotLoop().leg1, i_app.lower_bound, tol);
+        b.setVBus(461);
+        c.near("trip clears duty", b.hotLoop().leg1, 0, tol);
+    }
+    {
+        tc::Criterion c("L0-BST-06.h", "Signed voltage demand lowers duty and enters burst even with zero measured current");
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setMode(BUSREG);
+        b.setILowRef(3);
+        b.setILow1(0);
+        for (int n = 0; n < 1000; ++n) b.hotLoop();
+        c.check("continuous at elevated duty", b.getBurstSkip() == 0 && b.getDutyLeg1() > i_app.lower_bound);
+        b.setVBus(410);
+        for (int n = 0; n < 1000; ++n) {
+            if (n % 10 == 0) b.coldLoop();
+            b.hotLoop();
+        }
+        c.near("duty reduced to minimum", b.getDutyLeg1(), i_app.lower_bound, tol);
+        c.check("all pulses suppressed", b.getBurstSkip() == period);
+    }
+    {
         /** @test L0-BST-05.a: STARTUP regulates toward the bus reference with the current clamped, leg 1 only */
         tc::Criterion c("L0-BST-05.a", "STARTUP regulates toward the bus reference with the current clamped, leg 1 only");
         BoostConverter b;
@@ -263,7 +341,6 @@ int main() {
         c.range("below 95% the demand stays within the startup clamp", b.coldLoop(), 0, 0.25F);
         c.check("still in STARTUP", b.getMode() == STARTUP);
     }
-
 
     {
         tc::Criterion c("L0-BST-05.d", "STARTUP automatically enters BUSREG at 95% of a positive target without resetting state");
@@ -369,7 +446,7 @@ int main() {
         for (uint16_t i = 1; i <= period; ++i) {
             const float32_t d = b.hotLoop().leg1;
             c.check("skip count falls by one", b.getBurstSkip() == period - i);
-            c.near("duty held while skipping", d, 0, tol);
+            c.near("minimum pulse duty held while skipping", d, i_app.lower_bound, tol);
         }
         c.check("continuous", !b.isBurstActive());
         c.range("then the PID drives leg 1", b.hotLoop().leg1, 0.05F, 0.60F);
@@ -433,21 +510,28 @@ int main() {
     }
 
     {
-        /** @test L0-BST-06.d: No burst while leg 2 has demand */
-        tc::Criterion c("L0-BST-06.d", "No burst while leg 2 has demand");
-        BoostConverter b;
-        c.check("configured", fresh(b));
-        b.setVBus(395);
-        b.setMode(BUSREG);
-        b.setILowRef(8);  // leg 1 5.5 A, leg 2 2.5 A
-        c.check("leg 2 has demand", b.isLeg2Enabled());
-        b.setILow1(7);  // above leg 1's 5.5 A reference, below the 8 A trip
-        b.setILow2(0);
-        b.hotLoop();
-        c.check("full skipping cancelled", b.getBurstSkip() == 0);
-        for (int i = 0; i < 2000; ++i) b.hotLoop();
-        c.near("leg 1 at minimum duty", b.getDutyLeg1(), 0.05, tol);
-        c.check("still no burst", b.getBurstSkip() == 0);
+        tc::Criterion c("L0-BST-06.d", "Leg 1 burst follows its current error independently of leg 2 demand");
+        const float limit = 5.5F;
+        const float one_step = std::nextafter(limit, std::numeric_limits<float>::infinity()) - limit;
+        for (boost_mode mode : {BUSREG, MPPT}) {
+            for (float excess : {one_step, 0.001F, 2.5F}) {
+                BoostConverter b;
+                c.check("configured", fresh(b));
+                b.setMode(mode);
+                b.setILowRef(limit + excess);
+                c.check("positive leg 2 reference exercised", b.getILow2Ref() > 0);
+                b.setILow1(7);
+                b.hotLoop();
+                c.check("leg 2 demand does not cancel full skipping", b.getBurstSkip() == period);
+                b.setILow1(0);
+                for (int n = 0; n <= period; ++n) b.hotLoop();
+                c.check("leg 1 below reference resumes continuous PWM", b.getBurstSkip() == 0);
+                b.setILow1(7);
+                for (int n = 0; n < 2000; ++n) b.hotLoop();
+                c.near("leg 1 at minimum duty", b.getDutyLeg1(), i_app.lower_bound, tol);
+                c.check("leg 1 above reference enters full skipping", b.getBurstSkip() == period);
+            }
+        }
     }
 
     {

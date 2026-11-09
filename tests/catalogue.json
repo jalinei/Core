@@ -280,7 +280,7 @@
    "tab": "boost",
    "level": "L0",
    "title": "Current-driven burst on leg 1",
-   "criterion": ".a from full skipping the skip count falls by one per hot loop while ILow1 < reference, then the PID runs; .b at minimum duty with ILow1 > reference skipping starts and follows the current error within [0, period]; .c the PID keeps its state across burst (duty held while skipping; continuous duty = an uninterrupted mirror PID); .d no burst while leg 2 has demand; .e a zero period is rejected and without burst leg 1 never skips",
+   "criterion": ".a from full skipping the skip count falls by one per hot loop while ILow1 < reference, then the PID runs; .b at minimum duty with ILow1 > reference skipping starts and follows the current error within [0, period]; .c the PID keeps its state across burst (duty held while skipping; continuous duty = an uninterrupted mirror PID); .d leg 1 enters and maintains burst independently of leg 2 demand, including one-step residuals, in BUSREG and MPPT; .e a zero period is rejected and without burst leg 1 never skips; .f signed voltage demand reaches full skipping at zero current above target, recovers below target, and does not leak into MPPT or manual commands; .g active burst starts with minimum pulse duty while IDLE/trip clear duty; .h signed demand lowers elevated duty and enters burst at zero measured current",
    "source": "`setBurst`, `hotLoop`; `boost_burst_period` = 200",
    "status": "implemented",
    "status_note": "Implemented 2026-11-06 (ADR 0003)"

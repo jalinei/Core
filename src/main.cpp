@@ -172,8 +172,7 @@ void setup_routine()
     shield.power.setDutyCycleMax(LEG1_LOW, app::duty_cycle_max);
     // shield.power.setDutyCycleMax(LEG2_LOW, app::duty_cycle_max);
     
-    /* Current-driven burst on boost leg 1 only (ADR 0003). */
-    shield.power.initBurstMode(LEG1_LOW);
+    /* Burst is initialized on entry and disabled on exit, as in Andres's code. */
 
     shield.sensors.enableSensor(VLow, ADC_1);
     shield.sensors.enableSensor(VAC, ADC_1);
@@ -461,6 +460,7 @@ void loop_critical_task()
     /* Leg 1 burst: skip out.burst_skip of every out.burst_period PWM periods. */
     if (out.boost_pwm_update && out.leg1_enable && out.burst_skip > 0U)
     {
+        if (!burst_running) shield.power.initBurstMode(LEG1_LOW);
         shield.power.setBurstMode(out.burst_skip, out.burst_period);
         if (!burst_running)
         {
@@ -471,6 +471,7 @@ void loop_critical_task()
     else if (burst_running)
     {
         shield.power.stopBurstMode();
+        shield.power.deInitBurstMode();
         burst_running = false;
     }
 

@@ -16,7 +16,7 @@ Andres Vazquez Sieber's boost controller (`core-micro-verter-boost`, commit `43e
 | PI gains | Voltage Kp 0.05 A/V, Ti 100 ms; current Kp 0.000215, Ti 75.2 µs | Andres's: current Kp 0.002712, Ti 341.3 µs; voltage Kp = 0.433·Vbus/Vin (scheduled with the measured Vin, clamped 24–48 V), Ti 4.57 ms |
 | STARTUP | Bus reference ramp at 200 V/s, current ceiling 1 A, leg 1 only | BUSREG toward 400 V with a small current clamp (value to confirm, Andres's bench used 0.25 A); switching to BUSREG resets nothing |
 | BUSREG / MPPT current | Total reference bounded 0–2 A, leg 1 up to 1 A | Bounded at the rated input current (value to confirm, about 11 A for 400 W at 36 V); leg 1 first, leg 2 takes the excess |
-| Burst and legs | Both legs paused | Burst only while leg 2 is off (light load runs on leg 1) |
+| Burst and legs | Both legs paused | Burst acts on leg 1 independently of leg 2 demand (amended 2026-11-09) |
 | Over-voltage / over-current | Burst pause at 405 V | Andres's thresholds: full burst above 440 V; stop above 460 V or 8 A per leg |
 
 Kept: the modes IDLE / STARTUP / BUSREG / MPPT as the application's interface, and the leg split. Not adopted initially: the 100 Hz PR on the current loop (in Andres's code it was always on, which looked unintended; to revisit for grid-connected operation).
@@ -40,7 +40,31 @@ checks are L0-BST-10 and L0-APP-06; hardware validation remains outstanding.
 - **Ship Andres's `main.cpp` as is**: rejected; it is a bench program (serial menu, one leg at a time, gains changed only in IDLE, a modified control library with `setKp`), and it would lose the tests and the application structure built around `BoostConverter`.
 - **Burst by software pulse skipping** (enable/disable the legs per 100 µs tick): rejected; 20 PWM periods of granularity, where the HRTIM burst mode skips single periods.
 
+## 2026-11-09: restore signed voltage demand for burst regulation
+
+Andres's `43e249e` and `5bcfdf6` keep symmetric voltage-PI output bounds.
+Clamping that internal demand to zero during the port removed the signal that
+increases skipping when bus voltage is above target and measured current is zero.
+The voltage PI now retains signed demand internally for leg 1's current PI and
+burst comparisons, while total and per-leg delivered current references stay
+nonnegative. MPPT and direct current commands do not inherit negative voltage
+demand. Active burst starts at minimum pulse duty, as in Andres's code; IDLE and
+trip still clear the outputs. The application initializes burst on entry and
+stops and disables it on exit, rather than only stopping the burst operation.
+
+Host regressions cover zero-current suppression, recovery below target, entry
+from elevated duty, mode isolation and startup duty. Physical regulation still
+requires a hardware check.
+
 ## Consequences
+
+### 2026-11-09 amendment: independent burst
+
+Remove both leg-2 reference checks from leg 1 burst control. A positive residual
+reference, even one float step, must neither cancel skipping nor block entry.
+Leg 1 now follows its own current error at minimum duty regardless of leg 2.
+This supersedes the earlier leg-2 guard; leg-2 enable-threshold finding #5 remains
+separate.
 
 - Production change under the procedure's rules: L0 tests written first and failing (new burst, no reset, gains, protection), then the change with a worklog entry, then L1, then a hardware check against the bench captures above.
 - The contract becomes **app-v2**: a burst command (skipped periods, burst period) joins the outputs, and the L1 PWM adapter models the HRTIM burst mode. The ADC sampling instant fix from #3 (L1-MOD-08.b) goes into the same version.
