@@ -149,3 +149,13 @@ The 100 Hz PR of Andres's code is not adopted (it is always on there, which look
 | Evidence | USB PlatformIO firmware build succeeds. L1 firmware C-Block builds and L1-INT-01.a–c pass. Full L0: 98 pass, 7 known failures, no new failures. New L0-BST-10.a–d and L0-APP-06.a pass with UBSan. Six existing L0-BST-09 failures and L0-APP-03.c reproduced using unchanged HEAD sources. Host builds now use C++20, matching firmware, because control_library's filters.cpp uses parenthesized aggregate initialization. Catalogue and procedure updated |
 | Limits | No hardware or closed-loop plant stability validation in this change. The existing L1 ABI does not expose the optional enable flags; the C-Block build checks compilation, while the new host tests exercise those controls directly |
 
+
+## 2026-11-09 — Startup DC current and bus-voltage scope capture
+
+| Field | Value |
+|---|---|
+| Reason | Record the capacitor-charge transient from serial `p`, with decimation and fewer channels |
+| Behaviour change | ScopeMimicry records only `ILow1_A` (boost input current) and raw `VDCBus_V`. User-selected final settings: 4096 points at 1 kHz, decimation by 10 from the 10 kHz control loop, about 4.096 s and 32 KiB of sample memory. Serial `p` requests startup and restarts capture together; `q` rearms; `r` dumps only a completed capture |
+| Implementation | Critical task owns start/trigger/acquire. A baseline sample before boost PWM plus 4095 triggered samples fills the library's circular buffer without stale rows. The buffer freezes at completion. Requests and download flags use Zephyr atomics; startup and capture requests are published together under irq_lock. The existing ScopeMimicry dump format is retained; sample-period metadata is printed before `begin record` |
+| Evidence | Host smoke check using real ScopeMimicry and the capture code extracted from main.cpp passes with UBSan: 4096 two-channel samples, 4.096 s completion, baseline/order, decimation, freeze, rearm, repeated trigger and complete dump. USB firmware build checked separately |
+| Limits | Hardware capture not run. Scope measures the enabled boost leg 1; leg 2 remains disabled. No change to controller limits or inverter startup |

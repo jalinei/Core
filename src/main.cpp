@@ -27,6 +27,8 @@
 
 /*--------------Zephyr---------------------------------------- */
 #include <zephyr/console/console.h>
+#include <zephyr/irq.h>
+#include <zephyr/sys/atomic.h>
 
 /*--------------CMSIS----------------------------------------- */
 #include <arm_math.h>
@@ -94,25 +96,22 @@ static float32_t v_ac_rms_square_sum;
 static uint32_t v_ac_rms_sample_count;
 
 /* ScopeMimicry */
-/* 10 KiB capture: 256 samples at 2 kHz, half before and half after Sync rises.
+/* 32 KiB startup capture: two channels, 4096 samples at 1 kHz (~4.096 s).
  * Keep the byte count within ScopeMimicry's uint16_t buffer-size/dump limits. */
-static constexpr uint16_t scope_buffer_sample_count = 256U;
-static constexpr uint16_t scope_channel_count = 10U;
-static constexpr uint16_t scope_sample_divider = 5U;
+static constexpr uint16_t scope_buffer_sample_count = 4096U;
+static constexpr uint16_t scope_channel_count = 2U;
+static constexpr uint16_t scope_sample_divider = 10U;
+static constexpr uint32_t scope_sample_period_us = scope_sample_divider * app::control_task_period;
 static_assert(scope_buffer_sample_count * scope_channel_count * sizeof(float32_t) <= UINT16_MAX,
               "Scope capture exceeds ScopeMimicry's buffer-size limit");
 static ScopeMimicry scope(scope_buffer_sample_count, scope_channel_count);
-static bool is_scope_downloading;
+static atomic_t is_scope_downloading;
+static atomic_t scope_capture_ready;
+enum ScopeRequest { SCOPE_NONE, SCOPE_REARM, SCOPE_STARTUP };
+static atomic_t scope_request;
 static uint16_t scope_sample_tick;
-/* ScopeMimicry requires persistent float channels, including flags and enums. */
-static float32_t scope_v_alpha;
-static float32_t scope_v_beta;
-static float32_t scope_v_d;
-static float32_t scope_v_q;
-static float32_t scope_omega;
-static float32_t scope_sync;
-static float32_t scope_grid_quality;
-static float32_t scope_inverter_mode;
+/* Only the critical task changes the scope trigger or acquisition state. */
+static bool scope_startup_trigger;
 
 /*--------------------------------------------------------------- */
 
@@ -126,11 +125,14 @@ static bool inverter_pwm_staged = false;
 
 bool scope_trigger()
 {
-    return scope_sync > 0.5F;
+    return scope_startup_trigger;
 }
 
 void dump_scope_datas(ScopeMimicry &scope)
 {
+    printk("scope: sample period %u us, %u samples, ILow1_A and VDCBus_V\n",
+           static_cast<unsigned int>(scope_sample_period_us),
+           static_cast<unsigned int>(scope_buffer_sample_count));
     printk("begin record\n");
     scope.reset_dump();
     while (scope.get_dump_state() != finished)
@@ -192,18 +194,10 @@ void setup_routine()
         printk("invalid boost burst, protection or gain schedule\n");
         return;
     }
-    scope.connectChannel(v_ac_value, "VAC_V");
-    scope.connectChannel(scope_v_alpha, "V_alpha_V");
-    scope.connectChannel(scope_v_beta, "V_beta_V");
-    scope.connectChannel(scope_v_d, "V_d_V");
-    scope.connectChannel(scope_v_q, "V_q_V");
-    scope.connectChannel(grid_angle, "theta_rad");
-    scope.connectChannel(scope_omega, "omega_rad_s");
-    scope.connectChannel(scope_sync, "Sync");
-    scope.connectChannel(scope_grid_quality, "grid_quality");
-    scope.connectChannel(scope_inverter_mode, "inverter_mode");
+    scope.connectChannel(i_low_1_value, "ILow1_A");
+    scope.connectChannel(v_dc_bus_value, "VDCBus_V");
     scope.set_trigger(&scope_trigger);
-    scope.set_delay(0.5F);
+    scope.set_delay(0.0F);
     scope.start();
 
     /* Then declare tasks */
@@ -233,7 +227,7 @@ void loop_communication_task()
         printk(" ________________________________________ \n"
                "|     ---- MENU microinverter ----       |\n"
                "|     press i : idle mode                |\n"
-               "|     press p : startup (0.25 A clamp)   |\n"
+               "|     press p : startup + 4 s DC capture |\n"
                "|     press b : bus regulation mode      |\n"
                "|     press m : MPPT mode                |\n"
                "|     press n : toggle 100 Hz VDC notch  |\n"
@@ -243,8 +237,8 @@ void loop_communication_task()
                "|     press d : voltage reference DOWN   |\n"
                // "|     press w : deadtime UP              |\n"
                // "|     press s : deadtime DOWN            |\n"
-               "|     press r : retrieve scope data      |\n"
-               "|     press q : restart scope acquisition|\n"
+               "|     press r : dump capture (wait 4.1 s)|\n"
+               "|     press q : rearm scope for next p   |\n"
                "|________________________________________|\n\n");
         /*------------------------------------------------------ */
         break;
@@ -253,11 +247,21 @@ void loop_communication_task()
         mode = IDLE;
         inverter_sync_requested = false;
         break;
-    case 'p':
-        printk("startup: converter 1, current clamped\n");
+    case 'p': {
+        if (atomic_get(&is_scope_downloading)) {
+            printk("scope download busy; press p again after the dump\n");
+            break;
+        }
+        // Publish the capture and startup requests together before the next ISR.
+        const unsigned int key = irq_lock();
         mode = STARTUP;
         inverter_sync_requested = false;
+        atomic_clear(&scope_capture_ready);
+        atomic_set(&scope_request, SCOPE_STARTUP);
+        irq_unlock(key);
+        printk("startup: 0.25 A clamp, DC capture 4096 samples at 1 kHz; wait 4.1 s then press r\n");
         break;
+    }
     case 'b':
         printk("VDCBus regulation mode\n");
         mode = BUSREG;
@@ -306,11 +310,18 @@ void loop_communication_task()
     //     printk("LEG2_LOW deadtime: %u ns\n", leg2_low_deadtime_ns);
     //     break;
     case 'r':
-        is_scope_downloading = true;
+        if (!atomic_get(&scope_capture_ready)) {
+            printk("scope capture not complete; press p to record, then wait 4.1 s\n");
+            break;
+        }
+        atomic_set(&is_scope_downloading, true);
         break;
     case 'q':
-        scope.start();
-        printk("scope acquisition restarted\n");
+        if (!atomic_get(&is_scope_downloading)) {
+            atomic_clear(&scope_capture_ready);
+            atomic_set(&scope_request, SCOPE_REARM);
+            printk("scope armed for next p\n");
+        }
         break;
     case 't':
         spin.gpio.resetPin(22);
@@ -326,10 +337,10 @@ void loop_communication_task()
  */
 void loop_application_task()
 {
-    if (is_scope_downloading)
+    if (atomic_get(&is_scope_downloading))
     {
         dump_scope_datas(scope);
-        is_scope_downloading = false;
+        atomic_clear(&is_scope_downloading);
         task.suspendBackgroundMs(100);
         return;
     }
@@ -390,6 +401,23 @@ void loop_critical_task()
     if (meas_data != NO_VALUE)
     {
         v_dc_bus_value = meas_data;
+    }
+
+    bool scope_restarted_this_tick = false;
+    if (!atomic_get(&is_scope_downloading)) {
+        const atomic_val_t request = atomic_set(&scope_request, SCOPE_NONE);
+        if (request != SCOPE_NONE) {
+            scope_restarted_this_tick = true;
+            scope_startup_trigger = false;
+            scope.start();
+            scope_sample_tick = 0U;
+            if (request == SCOPE_STARTUP) {
+                // Prime one valid baseline sample before enabling boost. With
+                // delay=0 the library retains this plus 4095 triggered samples.
+                scope.acquire();
+                scope_startup_trigger = true;
+            }
+        }
     }
 
     /*----- Control logic (hardware-free, see app/control_step.h) ----- */
@@ -475,22 +503,14 @@ void loop_critical_task()
     }
     control.inverter.setPwmEnabled(control.bridge_pwm_applied);
 
-    /* Snapshot after this tick's control, grid verdict and PWM application. */
-    const clarke_t grid_voltage_ab = control.inverter.getVab();
-    const dqo_t grid_voltage_dq = control.inverter.getVdq();
-    scope_v_alpha = grid_voltage_ab.alpha;
-    scope_v_beta = grid_voltage_ab.beta;
-    scope_v_d = grid_voltage_dq.d;
-    scope_v_q = grid_voltage_dq.q;
-    scope_omega = control.inverter.getw();
+    /* Telemetry and decimated DC startup capture after PWM application. */
     v_ac_rms_value = control.grid_observer.getVoltageRms();
-    scope_sync = control.inverter.getSync() ? 1.0F : 0.0F;
-    scope_grid_quality = control.grid_observer.canOperate() ? 1.0F : 0.0F;
-    scope_inverter_mode = static_cast<float32_t>(control.inverter.getMode());
-    if (++scope_sample_tick >= scope_sample_divider)
+    if (scope_startup_trigger && !scope_restarted_this_tick &&
+        !atomic_get(&scope_capture_ready) && ++scope_sample_tick >= scope_sample_divider)
     {
         scope_sample_tick = 0U;
-        if (!is_scope_downloading) scope.acquire();
+        if (!atomic_get(&is_scope_downloading) && scope.acquire() == 2U)
+            atomic_set(&scope_capture_ready, true);
     }
 }
 
