@@ -33,7 +33,7 @@ SINGLE_PHASE_INVERTER_DIR=~/code/single_phase_inverter tests/run_all.sh --l0
 
 | Item | Needed for |
 |---|---|
-| `g++` with C++17 and UBSan | L0 |
+| `g++` with C++20 and UBSan | L0 |
 | `python3` ≥ 3.10 (standard library only) | Writing the record |
 | A PlatformIO build of the USB environment, once | Fetches `control_library` and `single_phase_inverter` into `owntech/lib/USB/` |
 | Pulsim (`pulsim==2.0.0`) and GUI (`pulsimgui==1.1.1`) in `.venv` | L1 integration; see `tests/l1/setup.sh` |

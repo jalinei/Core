@@ -19,7 +19,7 @@ mkdir -p "$out"
 work=$(mktemp -d "$out/objects.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 includes=(-I"$repo/tests/common/shim" -I"$repo/src" -I"$repo/tests/l1/firmware_block" -I"$inv/src" -I"$libs/control_library/src")
-flags=(-std=c++17 -O1 -g -fPIC -Wall -Wextra -fsanitize=undefined -fno-sanitize-recover=undefined)
+flags=(-std=c++20 -O1 -g -fPIC -Wall -Wextra -fsanitize=undefined -fno-sanitize-recover=undefined)
 strict=("$repo/tests/l1/firmware_block/wrapper.cpp" "$repo/src/app/control_step.cpp" "$repo/src/boost_converter/boost.cpp" "$repo/src/grid_observer/gridObserver.cpp")
 third=("$inv/src/singlePhaseInverterFollowing.cpp" "$inv/src/sogi.cpp" "$libs/control_library/src/pid.cpp" "$libs/control_library/src/transform.cpp" "$libs/control_library/src/trigo.cpp")
 objects=()
