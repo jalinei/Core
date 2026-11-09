@@ -33,7 +33,7 @@
 /** @brief Operating modes of the boost controller. */
 typedef enum {
     IDLE = 0,    ///< Disable control and clear every state.
-    STARTUP = 1, ///< Regulate the bus like BUSREG, converter 1 only, current reference clamped to startupCurrentMax.
+    STARTUP = 1, ///< Current-limited bus charge on leg 1; automatically enters BUSREG at 95% of target.
     BUSREG = 2,  ///< Regulate bus voltage with the voltage/current cascade.
     MPPT = 3     ///< Track maximum input power by adjusting the total input current reference.
 } boost_mode;
@@ -71,6 +71,8 @@ struct BoostDutyCycles {
  * **Mode changes.** IDLE clears every state. From IDLE to an active mode, every state is
  * cleared and burst starts at N. Between active modes nothing is reset: PID states, the
  * total reference and the burst state carry over; only the bounds of the new mode apply.
+ * STARTUP automatically enters BUSREG in coldLoop() when raw VBus reaches at least
+ * 95% of a positive VBusRef. The transition is one-way and preserves control state.
  */
 class BoostConverter {
 public:
@@ -114,6 +116,8 @@ public:
      * @brief Update and distribute the total input current reference.
      * @details STARTUP and BUSREG regulate VBus toward VBusRef with the voltage PID
      * (its Kp first updated by the gain schedule when configured); MPPT calls Mppt().
+     * Before regulation, STARTUP enters BUSREG when raw VBus >= 0.95 * VBusRef
+     * and VBusRef > 0; BUSREG current bounds apply on that same call.
      * @return Total current reference in A within the voltage PID bounds, STARTUP
      * additionally clamped to startupCurrentMax. Zero if idle, uninitialized or tripped.
      */

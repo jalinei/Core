@@ -360,7 +360,7 @@ void loop_application_task()
     printk("%7.3f:", (double)grid_angle);
     printk("%7.3f:", (double)i_ac_value);
     printk("%7.3f:", (double)v_dc_bus_value);
-    printk("%u:%u\n", static_cast<unsigned int>(mode),
+    printk("%u:%u\n", static_cast<unsigned int>(control.boost.getMode()),
            static_cast<unsigned int>(control.boost.getBurstSkip()));
     task.suspendBackgroundMs(100);
 }

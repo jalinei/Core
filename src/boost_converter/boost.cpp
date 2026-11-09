@@ -137,6 +137,10 @@ float32_t BoostConverter::coldLoop() {
     }
     if (_tripped) return 0.0F;
 
+    if (_mode == STARTUP && _VBus_ref > 0.0F && _VBus >= 0.95F * _VBus_ref) {
+        setMode(BUSREG);
+    }
+
     if (_mode == MPPT) {
         Mppt();
         return _ILow_ref;

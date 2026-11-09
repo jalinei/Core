@@ -34,7 +34,7 @@ Test tuning, chosen for exact arithmetic rather than the hardware: voltage PID `
 | L0-BST-02 | .a – .c | Leg 1 up to its limit, leg 2 takes the excess; PI duties; leg 2 integral cleared before reuse |
 | L0-BST-03 | .a, .b | Saturated voltage loop gives 12 A split 5/7 A, duties stay in [0, 0.95] for 10 000 ticks; IDLE clears everything |
 | L0-BST-04 | .a – .d | MPPT direction from power, ±0.1 A step, leg 1 priority, turnaround at bounds, independence from voltage loop |
-| L0-BST-05 | .a – .c | STARTUP current clamp on leg 1; STARTUP → BUSREG resets nothing (mirror PID); IDLE and entry from IDLE reset all, burst starts fully skipped |
+| L0-BST-05 | .a – .d | STARTUP current clamp on leg 1; automatic BUSREG at 95% of a positive target, preserving state and releasing the clamp; no return on voltage dips; zero target and trip inhibit transition; IDLE and entry from IDLE reset all, burst starts fully skipped |
 | L0-BST-06 | .a – .e | Current-driven burst: leaving full skipping, entering at minimum duty, following the current error within [0, period], PID state kept (mirror PID), none while leg 2 runs, zero period rejected |
 | L0-BST-07 | .a – .d | Full burst above 440 V with PID held; trip above 460 V or 8 A, latched until IDLE; inconsistent settings rejected |
 | L0-BST-08 | .a – .c | Voltage Kp scheduled with VBusRef / VLow (clamped), STARTUP/BUSREG only, without reset (mirror PID); inconsistent schedules rejected |

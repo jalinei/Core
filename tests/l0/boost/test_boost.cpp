@@ -259,10 +259,58 @@ int main() {
         c.check("leg 2 never", b.getILow2Ref() == 0 && !b.isLeg2Enabled());
         b.setILowRef(3);
         c.near("manual reference clamped too", b.getILowRef(), 0.25, tol);
-        b.setVBus(399.9F);
-        c.range("near the reference the demand falls below the clamp", b.coldLoop(), 0, 0.25F);
+        b.setVBus(379.9F);
+        c.range("below 95% the demand stays within the startup clamp", b.coldLoop(), 0, 0.25F);
+        c.check("still in STARTUP", b.getMode() == STARTUP);
     }
 
+
+    {
+        tc::Criterion c("L0-BST-05.d", "STARTUP automatically enters BUSREG at 95% of a positive target without resetting state");
+        for (float target : {200.0F, 400.0F}) {
+            BoostConverter automatic, manual;
+            for (auto* b : {&automatic, &manual}) {
+                c.check("configured", fresh(*b));
+                b->setVBusRef(target);
+                b->setVBus(0.95F * target - 0.1F);
+                b->setMode(STARTUP);
+                b->coldLoop();
+                for (int n = 0; n < 250; ++n) b->hotLoop();
+                c.check("below threshold stays in STARTUP", b->getMode() == STARTUP);
+                b->setVBus(0.95F * target);
+            }
+            const auto skip = automatic.getBurstSkip();
+            const auto duty = automatic.getDutyLeg1();
+            manual.setMode(BUSREG);
+            c.near("voltage PID continues like an explicit transition", automatic.coldLoop(), manual.coldLoop(), tol);
+            c.check("exact threshold enters BUSREG", automatic.getMode() == BUSREG);
+            c.check("startup current clamp released", automatic.getILowRef() > automatic.getStartupCurrentMax());
+            c.check("burst state preserved", automatic.getBurstSkip() == skip);
+            c.near("duty preserved", automatic.getDutyLeg1(), duty, tol);
+            const auto expected = manual.hotLoop();
+            const auto actual = automatic.hotLoop();
+            c.near("leg 1 PID continues", actual.leg1, expected.leg1, tol);
+            c.near("leg 2 PID continues", actual.leg2, expected.leg2, tol);
+            automatic.setVBus(0);
+            automatic.coldLoop();
+            c.check("voltage dip does not return to STARTUP", automatic.getMode() == BUSREG);
+        }
+        BoostConverter b;
+        c.check("configured", fresh(b));
+        b.setMode(STARTUP);
+        b.setVBusRef(0);
+        b.coldLoop();
+        c.check("zero target does not complete startup", b.getMode() == STARTUP);
+        b.setVBusRef(400);
+        b.setVBus(381);
+        b.coldLoop();
+        c.check("already above threshold also enters BUSREG", b.getMode() == BUSREG);
+        b.setMode(STARTUP);
+        b.setVBus(461);
+        b.hotLoop();
+        b.coldLoop();
+        c.check("tripped startup does not advance", b.isTripped() && b.getMode() == STARTUP);
+    }
 
     {
         /** @test L0-BST-05.b: STARTUP to BUSREG resets nothing: PID states, references and burst carry over */
