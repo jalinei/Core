@@ -210,8 +210,8 @@ int main() {
         ControlState state;
         controlInit(state);
         Measurements m = boostMeasurements();
-        // 0.2 V below the reference: with the scheduled Kp (about 5.8 A/V at 30 V,
-        // ADR 0003) the voltage PID stays below its 11 A bound over the 20 cold loops.
+        // 0.2 V below the reference keeps the 10 Hz voltage PI below its 11 A
+        // bound over the 20 cold loops.
         m.v_dc_bus = app::initial_voltage_reference - 0.2F;
         OperatorCommands cmd;
         cmd.mode = BUSREG;
@@ -249,6 +249,7 @@ int main() {
         controlStep(state, m, cmd);
         c.check("cold loop on the 10th tick", state.cold_loop_tick == 0U);
     }
+
 
     // ---------------------------------------------------------------- L0-APP-03
     {
@@ -431,5 +432,25 @@ int main() {
         }
     }
 
+    {
+        tc::Criterion c("L0-APP-06.a", "Operator ripple controls reach the boost controller without changing modes");
+        ControlState state;
+        c.check("init", controlInit(state) == 0);
+        Measurements m = boostMeasurements();
+        OperatorCommands cmd;
+        cmd.mode = BUSREG;
+        cmd.voltage_notch_enabled = cmd.current_resonant_enabled = true;
+        controlStep(state, m, cmd);
+        c.check("both enabled", state.boost.isVoltageNotchEnabled() && state.boost.isCurrentResonantEnabled());
+        controlStep(state, m, cmd); // Prime after the mode-entry reset.
+        m.v_dc_bus += 1.0F;
+        controlStep(state, m, cmd);
+        c.check("feedback filtered", state.boost.getFilteredVBus() != state.boost.getVBus());
+        cmd.voltage_notch_enabled = cmd.current_resonant_enabled = false;
+        const auto out = controlStep(state, m, cmd);
+        c.check("both disabled", !state.boost.isVoltageNotchEnabled() && !state.boost.isCurrentResonantEnabled());
+        c.check("mode unchanged", !out.boost_mode_changed && state.boost.getMode() == BUSREG);
+        c.near("feedback bypassed", state.boost.getFilteredVBus(), m.v_dc_bus, 1e-6);
+    }
     return tc::finish();
 }

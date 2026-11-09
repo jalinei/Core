@@ -136,3 +136,16 @@ The 100 Hz PR of Andres's code is not adopted (it is always on there, which look
 | Evidence | L0: 91 pass, 1 known fail (#2) and the 6 checks of L0-BST-09 (#5); no other test changed verdict. The L1 contract's `duty_min` set to 0.005 so the PWM adapter applies the same minimum. L1 not rerun in this commit |
 | Hardware check | Not done. 0.005 at 200 kHz is 25 ns of on-time, below the 100 ns dead time: check on the board that leg 1's minimum-duty pulses in burst behave (with the HRTIM low-duty fix `fefe392`) |
 
+
+
+## 2026-11-09 — Boost voltage bandwidth and optional 100 Hz rejection
+
+| Field | Value |
+|---|---|
+| Source | Andres's `b37b3d4` and `5bcfdf6` on `andres/SoftStart-with-Cascaded-Voltage+Current-PI` |
+| Reason | Requested control improvements: avoid following twice-grid-frequency bus ripple and add resonant correction to boost current regulation |
+| Behaviour change | Voltage tuning becomes 10 Hz: scheduled gain factor 0.24773/6 and Ti 34.13 ms. Optional 100 Hz notch (10 Hz bandwidth, sampled at 10 kHz) feeds the voltage PI; raw bus voltage still drives protection. Independent resonators on both boost legs add to the current PI before final duty clamping. Both optional paths default OFF, toggled with serial `n` and `k`. Modes and the existing voltage-only gain schedule are retained |
+| Implementation | Uses control_library's `NotchFilter` and `Pr` directly (`Kp = 0` for the added resonant path). FIR buffers are allocated during configuration and freed before reconfiguration or destruction; toggles and control loops only reset or run the library objects. The notch is primed around the first measurement to preserve DC at startup. Resonators hold state with the PI during burst, reset on IDLE/trip, and leg 2 clears its resonator when disabled |
+| Evidence | USB PlatformIO firmware build succeeds. L1 firmware C-Block builds and L1-INT-01.a–c pass. Full L0: 98 pass, 7 known failures, no new failures. New L0-BST-10.a–d and L0-APP-06.a pass with UBSan. Six existing L0-BST-09 failures and L0-APP-03.c reproduced using unchanged HEAD sources. Host builds now use C++20, matching firmware, because control_library's filters.cpp uses parenthesized aggregate initialization. Catalogue and procedure updated |
+| Limits | No hardware or closed-loop plant stability validation in this change. The existing L1 ABI does not expose the optional enable flags; the C-Block build checks compilation, while the new host tests exercise those controls directly |
+

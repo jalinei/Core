@@ -84,6 +84,8 @@ static uint16_t leg1_low_deadtime_ns = 100;
 static float32_t voltage_reference = app::initial_voltage_reference;
 /* Boost, inverter and grid observer, with the state kept between control steps. */
 static ControlState control;
+static bool voltage_notch_enabled = false;
+static bool current_resonant_enabled = false;
 
 /* One nominal 50 Hz period at the 10 kHz critical task rate. */
 static constexpr uint32_t v_ac_rms_window_sample_count = 200U;
@@ -234,6 +236,8 @@ void loop_communication_task()
                "|     press p : startup (0.25 A clamp)   |\n"
                "|     press b : bus regulation mode      |\n"
                "|     press m : MPPT mode                |\n"
+               "|     press n : toggle 100 Hz VDC notch  |\n"
+               "|     press k : toggle current resonator |\n"
                "|     press c : inverter PWM_SETTLE hold |\n"
                "|     press u : voltage reference UP     |\n"
                "|     press d : voltage reference DOWN   |\n"
@@ -263,6 +267,14 @@ void loop_communication_task()
         printk("MPPT current mode\n");
         mode = MPPT;
         inverter_sync_requested = false;
+        break;
+    case 'n':
+        voltage_notch_enabled = !voltage_notch_enabled;
+        printk("VDC notch: %s\n", voltage_notch_enabled ? "ON" : "OFF");
+        break;
+    case 'k':
+        current_resonant_enabled = !current_resonant_enabled;
+        printk("boost current resonator: %s\n", current_resonant_enabled ? "ON" : "OFF");
         break;
     case 'c':
         printk("inverter PWM_SETTLE hold requested (relay open)\n");
@@ -394,6 +406,8 @@ void loop_critical_task()
     cmd.mode = mode;
     cmd.sync_requested = inverter_sync_requested;
     cmd.v_bus_ref = voltage_reference;
+    cmd.voltage_notch_enabled = voltage_notch_enabled;
+    cmd.current_resonant_enabled = current_resonant_enabled;
 
     const ControlOutputs out = controlStep(control, meas, cmd);
     boost_duty = out.boost_duty;

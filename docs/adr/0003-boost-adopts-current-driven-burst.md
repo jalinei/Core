@@ -19,7 +19,20 @@ Andres Vazquez Sieber's boost controller (`core-micro-verter-boost`, commit `43e
 | Burst and legs | Both legs paused | Burst only while leg 2 is off (light load runs on leg 1) |
 | Over-voltage / over-current | Burst pause at 405 V | Andres's thresholds: full burst above 440 V; stop above 460 V or 8 A per leg |
 
-Kept: the modes IDLE / STARTUP / BUSREG / MPPT as the application's interface, and the leg split. Not adopted: the 100 Hz PR on the current loop (in Andres's code it is always on, which looks unintended; to revisit for grid-connected operation).
+Kept: the modes IDLE / STARTUP / BUSREG / MPPT as the application's interface, and the leg split. Not adopted initially: the 100 Hz PR on the current loop (in Andres's code it was always on, which looked unintended; to revisit for grid-connected operation).
+
+Update, 2026-11-09: adopt the 10 Hz voltage-loop tuning from Andres's `b37b3d4`
+(`Kp = (0.24773/6) · VBusRef/VLow`, `Ti = 34.13 ms`), and the optional 100 Hz
+notch/resonant paths from `5bcfdf6`. The notch runs at 10 kHz with a 10 Hz
+bandwidth, on voltage-loop feedback only; burst and trip decisions keep the raw
+bus measurement. Both boost legs receive a parallel pure resonator (`Kr = 0.88`
+at nominal 400 V, phase `0.09425` rad), with the summed duty clamped to the
+existing limits. Resonator state is held with the PI during burst and cleared
+when its leg is disabled or control is reset. Both optional paths default OFF;
+serial `n` toggles the notch and `k` toggles the resonators (`m` is already MPPT).
+The existing voltage-only gain schedule and operating modes are retained; this
+does not import PBALANCE or add grid injection. Signal-response and lifecycle
+checks are L0-BST-10 and L0-APP-06; hardware validation remains outstanding.
 
 ## Considered options
 

@@ -27,6 +27,8 @@
 
 #include <stdint.h>
 #include "pid.h"
+#include "filters.h"
+#include "pr.h"
 
 /** @brief Operating modes of the boost controller. */
 typedef enum {
@@ -74,6 +76,10 @@ class BoostConverter {
 public:
     /** @brief Construct an idle controller; call init() before enabling control. */
     BoostConverter() = default;
+    ~BoostConverter();
+    // Library filters own FIR buffers and must not be shallow-copied.
+    BoostConverter(const BoostConverter&) = delete;
+    BoostConverter& operator=(const BoostConverter&) = delete;
 
     /**
      * @brief Initialize the voltage PID and both current PIDs and reset control and MPPT history.
@@ -91,6 +97,7 @@ public:
      * @note Values must be finite. Failure leaves the controller disabled.
      * Both sampling periods must be positive, with voltageParams.Ts >= currentParams.Ts.
      * Burst, protection and gain-schedule settings are kept across init().
+     * Ripple rejection must be configured again after init().
      */
     int8_t init(boost_mode mode, float32_t V_bus,
                 const PidParams& voltageParams, const PidParams& currentParams,
@@ -146,7 +153,9 @@ public:
     void setILow2(float32_t ILow2);
     /** @brief Update the input voltage. @param VLow Voltage in V; negative or non-finite values are ignored. */
     void setVLow(float32_t VLow);
-    /** @brief Update the bus voltage. @param VBus Voltage in V; negative or non-finite values are ignored. */
+    /** @brief Update the raw bus voltage and hot-rate notch once per sample.
+     * @param VBus Voltage in V; negative or non-finite values are ignored.
+     */
     void setVBus(float32_t VBus);
 
     /**
@@ -187,6 +196,22 @@ public:
                                   float32_t vbusMin, float32_t vbusMax);
     /** @brief Get the voltage PID's current Kp. @return Kp in A/V. */
     float32_t getVoltageKp() const;
+
+    /** @brief Configure ripple rejection after init(), at the hot-loop sample rate.
+     * @return 0 on success, -EINVAL for invalid arguments or before init().
+     * Both paths start disabled. init() disables them; reset()/IDLE clear histories
+     * while preserving the enable flags. Frequency/bandwidth are in Hz, phase in rad.
+     */
+    int8_t configureRippleControl(float32_t frequency, float32_t bandwidth,
+                                  float32_t resonantGain, float32_t phase);
+    /** @brief Switch the voltage-feedback notch, resetting its history on a change. */
+    void enableVoltageNotch(bool enabled);
+    /** @brief Switch both current resonators, resetting histories on a change. */
+    void enableCurrentResonant(bool enabled);
+    bool isVoltageNotchEnabled() const { return _notch_enabled; }
+    bool isCurrentResonantEnabled() const { return _resonant_enabled; }
+    /** @brief Voltage used by the outer loop; protection always uses getVBus(). */
+    float32_t getFilteredVBus() const { return _filtered_vbus; }
 
     /** @brief Get the total current reference. @return Total input current reference in A. */
     float32_t getILowRef() const;
@@ -255,6 +280,10 @@ private:
     void splitCurrentReference();
     /** @brief Apply the voltage gain schedule to the voltage PID. */
     void scheduleVoltageGain();
+    float32_t calculateCurrentDuty(Pid& pid, Pr* resonator,
+                                   float32_t reference, float32_t measurement);
+    void resetVoltageNotch();
+    void releaseRippleControl();
 
     boost_mode _mode = IDLE;
     bool _initialized = false;
@@ -269,6 +298,19 @@ private:
     float32_t _leg1_current_limit = 0.0F;
     float32_t _startup_current_max = 0.0F; ///< Total current reference ceiling in STARTUP, in A.
     float32_t _duty_min = 0.0F;            ///< Current PID lower output bound (duty).
+    float32_t _duty_max = 1.0F;
+    float32_t _hot_period = 0.0F;
+    bool _ripple_configured = false;
+    bool _notch_enabled = false, _resonant_enabled = false;
+    float32_t _filtered_vbus = 0.0F;
+    // Allocate only at configuration: library FIR buffers are unusable before
+    // init(). Pr has no virtual destructor; the final type permits safe deletion.
+    struct OwnedPr final : Pr {};
+    NotchFilter* _voltage_notch = nullptr;
+    OwnedPr* _current1_resonator = nullptr;
+    OwnedPr* _current2_resonator = nullptr;
+    bool _notch_primed = false;
+    float32_t _notch_offset = 0.0F;
     BoostDutyCycles _duty;
 
     uint16_t _burst_period = 0U;  ///< PWM periods per burst period; 0 = burst not configured.

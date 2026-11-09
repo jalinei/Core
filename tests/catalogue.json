@@ -316,6 +316,16 @@
    "status_note": "Test implemented 2026-11-06; fails until the threshold is implemented (#5)"
   },
   {
+   "id": "L0-BST-10",
+   "tab": "boost",
+   "level": "L0",
+   "title": "100 Hz voltage notch and parallel current resonators",
+   "criterion": ".a notch preserves DC without a startup transient, rejects a 10 V peak 100 Hz ripple below 0.02 V RMS, bypass/reset work, and raw over-voltage still trips; .b selective 100 Hz gain, correction on both legs, combined duty bounds and reset; .c burst holds PI and resonator histories until continuous PWM resumes; .d repeated library reconfiguration, initialization and destruction",
+   "source": "`configureRippleControl`, control_library `NotchFilter` and `Pr`",
+   "status": "implemented",
+   "status_note": "Implemented 2026-11-09; host response checks, not plant stability or hardware validation"
+  },
+  {
    "id": "L0-PWR-01",
    "tab": "boost",
    "level": "L0",
@@ -899,6 +909,16 @@
    "source": "`setGridQuality(grid_observer.canOperate())`",
    "status": "implemented",
    "status_note": "Implemented"
+  },
+  {
+   "id": "L0-APP-06",
+   "tab": "app",
+   "level": "L0",
+   "title": "Operator ripple controls reach the boost controller",
+   "criterion": ".a enable both optional paths, verify filtered voltage feedback, then bypass both without changing the active mode",
+   "source": "`controlStep`",
+   "status": "implemented",
+   "status_note": "Implemented 2026-11-09"
   },
   {
    "id": "L1-APP-01",

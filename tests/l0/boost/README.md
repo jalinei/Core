@@ -16,6 +16,7 @@ tests/run_all.sh --l0            # with the record
 | `test_boost.cpp` | strict (`-Werror`) |
 | `src/boost_converter/boost.cpp` | strict |
 | `owntech/lib/USB/control_library/src/pid.cpp` | library (no `-Werror`) |
+| `owntech/lib/USB/control_library/src/{filters,pr,fir,trigo}.cpp` | library (no `-Werror`) |
 
 ## How the test drives the controller
 
@@ -37,6 +38,11 @@ Test tuning, chosen for exact arithmetic rather than the hardware: voltage PID `
 | L0-BST-06 | .a – .e | Current-driven burst: leaving full skipping, entering at minimum duty, following the current error within [0, period], PID state kept (mirror PID), none while leg 2 runs, zero period rejected |
 | L0-BST-07 | .a – .d | Full burst above 440 V with PID held; trip above 460 V or 8 A, latched until IDLE; inconsistent settings rejected |
 | L0-BST-08 | .a – .c | Voltage Kp scheduled with VBusRef / VLow (clamped), STARTUP/BUSREG only, without reset (mirror PID); inconsistent schedules rejected |
+| L0-BST-10 | .a – .d | 100 Hz notch attenuation, DC preservation, bypass and raw-voltage protection; resonator selectivity, correction on both legs, combined duty bounds and reset; PI/resonator state held through burst; library buffer lifecycle on reconfiguration |
+
+L0-BST-10 uses independent controllers and the new nominal resonant tuning
+(`Kr = 0.88`, phase `0.09425` rad, hot period 100 µs). These are signal-response
+and lifecycle tests; they do not establish closed-loop plant stability.
 
 Per-mode criteria carry a `-startup` or `-busreg` suffix.
 

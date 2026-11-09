@@ -263,6 +263,7 @@ int main() {
         c.range("near the reference the demand falls below the clamp", b.coldLoop(), 0, 0.25F);
     }
 
+
     {
         /** @test L0-BST-05.b: STARTUP to BUSREG resets nothing: PID states, references and burst carry over */
         tc::Criterion c("L0-BST-05.b", "STARTUP to BUSREG resets nothing: PID states, references and burst carry over");
@@ -651,5 +652,117 @@ int main() {
         c.check("duty bound > 1 rejected", boost.init(BUSREG, 48, voltage, current, 5) < 0);
     }
 
+    {
+        tc::Criterion c("L0-BST-10.a", "Notch rejects 100 Hz, preserves DC, and never masks raw over-voltage");
+        BoostConverter filtered;
+        const PidParams notch_current = {0.0001F, 0.1F, 1.0F, 0, 1, 0, 0.95F};
+        c.check("cannot configure before init", filtered.configureRippleControl(100, 10, 0.88F, 0.09425F) < 0);
+        c.check("init", filtered.init(BUSREG, 400, voltage, notch_current, 5) == 0);
+        for (float frequency : {0.0F, 5000.0F, std::numeric_limits<float>::quiet_NaN()})
+            c.check("invalid frequency rejected", filtered.configureRippleControl(frequency, 10, 0.88F, 0.09425F) < 0);
+        c.check("configure", filtered.configureRippleControl(100, 10, 0.88F, 0.09425F) == 0);
+        filtered.enableVoltageNotch(true);
+        filtered.setVBus(400);
+        c.near("no startup transient", filtered.getFilteredVBus(), 400, 1e-5);
+        double energy = 0;
+        for (int n = 0; n < 30000; ++n) {
+            filtered.setVBus(400.0F + 10.0F * std::sin(2.0F * 3.14159265358979323846F * n / 100.0F));
+            if (n >= 20000) {
+                const double residual = filtered.getFilteredVBus() - 400.0;
+                energy += residual * residual;
+            }
+        }
+        c.check("100 Hz residual below 0.02 V RMS for 10 V peak input", std::sqrt(energy / 10000) < 0.02);
+        filtered.setProtection(440, 460, 8);
+        filtered.setVBus(460.05F);
+        c.check("notch hides spike from voltage loop", filtered.getFilteredVBus() < 460);
+        filtered.hotLoop();
+        c.check("raw spike still trips", filtered.isTripped() && !filtered.isLeg1Enabled());
+        filtered.setMode(IDLE);
+        filtered.setVBus(400);
+        c.near("IDLE clears notch history", filtered.getFilteredVBus(), 400, 1e-5);
+        filtered.enableVoltageNotch(false);
+        filtered.setVBus(410);
+        c.near("bypass uses raw sample", filtered.getFilteredVBus(), 410, 1e-5);
+    }
+    {
+        tc::Criterion c("L0-BST-10.b", "Resonator selectively increases 100 Hz current-loop gain and resets cleanly");
+        auto response = [](float frequency) {
+            Pr resonator;
+            resonator.init({0.0001F, 0.0F, 0.88F, 2.0F * PI * 100.0F, 0.09425F, -1.0F, 1.0F});
+            double energy = 0;
+            for (int n = 0; n < 20000; ++n) {
+                const float error = 0.01F * std::sin(2.0F * 3.14159265358979323846F * frequency * n * 0.0001F);
+                const double output = resonator.calculateWithReturn(error, 0.0F);
+                if (n >= 10000) energy += output * output;
+            }
+            return std::sqrt(energy / 10000);
+        };
+        c.check("100 Hz gain exceeds 50 Hz gain by 100x", response(100) > 100 * response(50));
+        BoostConverter regulated, pi_only;
+        PidParams v = {0.001F, 0.1F, 1, 0, 0, 0, 12};
+        PidParams i = {0.0001F, 0.002712F, 0.0003413F, 0, 0, 0.005F, 0.6F};
+        regulated.init(BUSREG, 400, v, i, 5);
+        pi_only.init(BUSREG, 400, v, i, 5);
+        regulated.configureRippleControl(100, 10, 0.88F, 0.09425F);
+        regulated.enableCurrentResonant(true);
+        regulated.setILowRef(7); pi_only.setILowRef(7);
+        const auto pr = regulated.hotLoop();
+        const auto pi = pi_only.hotLoop();
+        c.check("correction added on both legs", pr.leg1 > pi.leg1 && pr.leg2 > pi.leg2);
+        for (int n = 0; n < 10000; ++n) {
+            const auto d = regulated.hotLoop();
+            c.check("combined duties bounded", d.leg1 >= 0.005F && d.leg1 <= 0.6F && d.leg2 >= 0.005F && d.leg2 <= 0.6F);
+        }
+        regulated.setMode(IDLE); pi_only.setMode(IDLE);
+        regulated.setMode(BUSREG); pi_only.setMode(BUSREG);
+        regulated.setILowRef(7); pi_only.setILowRef(7);
+        regulated.enableCurrentResonant(false);
+        const auto reset = regulated.hotLoop();
+        const auto baseline = pi_only.hotLoop();
+        c.near("disable/reset restores PI leg 1", reset.leg1, baseline.leg1, 1e-6);
+        c.near("disable/reset restores PI leg 2", reset.leg2, baseline.leg2, 1e-6);
+    }
+    {
+        tc::Criterion c("L0-BST-10.c", "Burst holds the combined PI/resonator state until continuous PWM resumes");
+        BoostConverter paused, continuous;
+        PidParams v = {0.001F, 0.1F, 1, 0, 0, 0, 12};
+        PidParams i = {0.0001F, 0.002712F, 0.0003413F, 0, 0, 0.005F, 0.6F};
+        for (auto* controller : {&paused, &continuous}) {
+            controller->init(MPPT, 400, v, i, 5);
+            controller->configureRippleControl(100, 10, 0.88F, 0.09425F);
+            controller->enableCurrentResonant(true);
+            controller->setBurst(200);
+            controller->setProtection(440, 460, 8);
+            controller->setMode(IDLE);
+            controller->setMode(MPPT);
+            controller->setILowRef(2);
+            for (int n = 0; n < 250; ++n) controller->hotLoop();
+        }
+        const float held = paused.getDutyLeg1();
+        paused.setVBus(450);
+        for (int n = 0; n < 50; ++n) c.near("duty held during full burst", paused.hotLoop().leg1, held, 1e-6);
+        paused.setVBus(400);
+        for (int n = 0; n < 200; ++n) paused.hotLoop();
+        c.check("skip count returns to zero", paused.getBurstSkip() == 0);
+        c.near("resumed PI+R matches unpaused state", paused.hotLoop().leg1, continuous.hotLoop().leg1, 1e-6);
+    }
+    {
+        tc::Criterion c("L0-BST-10.d", "Library filter buffers survive reconfiguration, reinitialization and destruction");
+        BoostConverter controller;
+        const PidParams v = {0.001F, 0.1F, 1, 0, 0, 0, 12};
+        const PidParams i = {0.0001F, 0.002712F, 0.0003413F, 0, 0, 0.005F, 0.6F};
+        for (int n = 0; n < 10; ++n) {
+            c.check("reinitialize", controller.init(BUSREG, 400, v, i, 5) == 0);
+            c.check("configure", controller.configureRippleControl(100, 10, 0.88F, 0.09425F) == 0);
+            controller.enableVoltageNotch(true);
+            controller.enableCurrentResonant(true);
+            controller.setVBus(400);
+            controller.setILowRef(2);
+            controller.hotLoop();
+            c.check("reconfigure", controller.configureRippleControl(100, 10, 0.88F, 0.09425F) == 0);
+            c.check("reconfiguration disables paths", !controller.isVoltageNotchEnabled() && !controller.isCurrentResonantEnabled());
+        }
+    }
     return tc::finish();
 }

@@ -48,11 +48,25 @@ bool validPidParams(const PidParams& params) {
 }
 }
 
+BoostConverter::~BoostConverter() {
+    releaseRippleControl();
+}
+
+void BoostConverter::releaseRippleControl() {
+    delete _voltage_notch;
+    delete _current1_resonator;
+    delete _current2_resonator;
+    _voltage_notch = nullptr;
+    _current1_resonator = _current2_resonator = nullptr;
+}
+
 int8_t BoostConverter::init(boost_mode mode, float32_t V_bus,
                             const PidParams& voltageParams,
                             const PidParams& currentParams,
                             float32_t leg1CurrentLimit) {
     _initialized = false;
+    _ripple_configured = _notch_enabled = _resonant_enabled = false;
+    releaseRippleControl();
     _mode = IDLE;
     _ILow_ref = 0.0F;
     _ILow1_ref = 0.0F;
@@ -80,6 +94,8 @@ int8_t BoostConverter::init(boost_mode mode, float32_t V_bus,
     _current_ref_min = voltageParams.lower_bound;
     _current_ref_max = voltageParams.upper_bound;
     _duty_min = currentParams.lower_bound;
+    _duty_max = currentParams.upper_bound;
+    _hot_period = currentParams.Ts;
     _startup_current_max = clamp(leg1CurrentLimit, 0.0F, _current_ref_max);
     _VBus = V_bus;
     _VBus_ref = V_bus;
@@ -90,6 +106,10 @@ int8_t BoostConverter::init(boost_mode mode, float32_t V_bus,
 }
 
 void BoostConverter::clearControlOutputs() {
+    resetVoltageNotch();
+    _filtered_vbus = _VBus;
+    if (_current1_resonator) _current1_resonator->reset();
+    if (_current2_resonator) _current2_resonator->reset();
     if (_initialized) {
         _voltage_pid.reset();
         _current1_pid.reset();
@@ -122,7 +142,7 @@ float32_t BoostConverter::coldLoop() {
         return _ILow_ref;
     }
     scheduleVoltageGain();
-    _ILow_ref = calculateVoltageCurrent(_VBus_ref, _VBus);
+    _ILow_ref = calculateVoltageCurrent(_VBus_ref, _notch_enabled ? _filtered_vbus : _VBus);
     splitCurrentReference();
     return _ILow_ref;
 }
@@ -146,7 +166,7 @@ void BoostConverter::runLeg1() {
         return;
     }
     if (!burst || _burst_skip == 0U) {
-        _duty.leg1 = _current1_pid.calculateWithReturn(_ILow1_ref, _ILow1);
+        _duty.leg1 = calculateCurrentDuty(_current1_pid, _current1_resonator, _ILow1_ref, _ILow1);
         // At the lower duty bound and still above the reference: start skipping periods.
         if (burst && _ILow2_ref <= 0.0F && _duty.leg1 <= _duty_min && _ILow1 > _ILow1_ref) {
             _burst_skip = 1U;
@@ -170,9 +190,10 @@ BoostDutyCycles BoostConverter::hotLoop() {
 
     runLeg1();
     if (isLeg2Enabled()) {
-        _duty.leg2 = _current2_pid.calculateWithReturn(_ILow2_ref, _ILow2);
+        _duty.leg2 = calculateCurrentDuty(_current2_pid, _current2_resonator, _ILow2_ref, _ILow2);
     } else {
         _current2_pid.reset();
+        if (_current2_resonator) _current2_resonator->reset();
         _duty.leg2 = 0.0F;
     }
     return _duty;
@@ -217,7 +238,69 @@ void BoostConverter::setVLow(float32_t VLow) {
     if (isfinite(VLow) && VLow >= 0.0F) _VLow = VLow;
 }
 void BoostConverter::setVBus(float32_t VBus) {
-    if (isfinite(VBus) && VBus >= 0.0F) _VBus = VBus;
+    if (isfinite(VBus) && VBus >= 0.0F) {
+        _VBus = VBus;
+        _filtered_vbus = VBus;
+        if (_notch_enabled) {
+            // Preserve DC at startup while using the library's zero-state reset.
+            if (!_notch_primed) { _notch_offset = VBus; _notch_primed = true; }
+            _filtered_vbus = _notch_offset + _voltage_notch->calculateWithReturn(VBus - _notch_offset);
+        }
+    }
+}
+
+int8_t BoostConverter::configureRippleControl(float32_t frequency, float32_t bandwidth,
+                                              float32_t resonantGain, float32_t phase) {
+    if (!_initialized || !isfinite(frequency) || frequency <= 0.0F ||
+        frequency * _hot_period >= 0.5F || !isfinite(bandwidth) || bandwidth <= 0.0F ||
+        bandwidth * _hot_period >= 0.5F || !isfinite(resonantGain) || resonantGain <= 0.0F ||
+        !isfinite(phase)) return -EINVAL;
+    _ripple_configured = _notch_enabled = _resonant_enabled = false;
+    _notch_primed = false;
+    const PrParams params = {_hot_period, 0.0F, resonantGain, 2.0F * PI * frequency,
+                             phase, -1.0F, 1.0F};
+    releaseRippleControl();
+    _voltage_notch = new NotchFilter;
+    const int8_t notch_result = _voltage_notch->init(_hot_period, frequency, bandwidth);
+    _current1_resonator = new OwnedPr;
+    const int8_t current1_result = _current1_resonator->init(params);
+    _current2_resonator = new OwnedPr;
+    const int8_t current2_result = _current2_resonator->init(params);
+    if (notch_result != 0 || current1_result != 0 || current2_result != 0) return -EINVAL;
+    _filtered_vbus = _VBus;
+    _ripple_configured = true;
+    _notch_enabled = _resonant_enabled = false;
+    return 0;
+}
+
+void BoostConverter::enableVoltageNotch(bool enabled) {
+    enabled = enabled && _ripple_configured;
+    if (enabled != _notch_enabled) {
+        resetVoltageNotch();
+        _filtered_vbus = _VBus;
+        _notch_enabled = enabled;
+    }
+}
+
+void BoostConverter::enableCurrentResonant(bool enabled) {
+    enabled = enabled && _ripple_configured;
+    if (enabled != _resonant_enabled) {
+        if (_current1_resonator) _current1_resonator->reset();
+        if (_current2_resonator) _current2_resonator->reset();
+        _resonant_enabled = enabled;
+    }
+}
+
+void BoostConverter::resetVoltageNotch() {
+    if (_voltage_notch) _voltage_notch->reset();
+    _notch_primed = false;
+}
+
+float32_t BoostConverter::calculateCurrentDuty(Pid& pid, Pr* resonator,
+                                               float32_t reference, float32_t measurement) {
+    const float32_t pi = pid.calculateWithReturn(reference, measurement);
+    const float32_t correction = _resonant_enabled ? resonator->calculateWithReturn(reference, measurement) : 0.0F;
+    return clamp(pi + correction, _duty_min, _duty_max);
 }
 
 int8_t BoostConverter::setBurst(uint16_t period) {
@@ -332,6 +415,7 @@ void BoostConverter::splitCurrentReference() {
     // at zero reference it runs at minimum duty and burst skips its periods.
     if (_ILow2_ref <= 0.0F) {
         if (_initialized) _current2_pid.reset();
+        if (_current2_resonator) _current2_resonator->reset();
         _duty.leg2 = 0.0F;
     }
 }
